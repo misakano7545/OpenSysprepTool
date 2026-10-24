@@ -7,6 +7,7 @@
 #include "core/config.hpp"
 #include "core/log.hpp"
 #include "core/sysinfo.hpp"
+#include "core/unattend.hpp"
 #include "core/version.hpp"
 
 namespace {
@@ -27,6 +28,7 @@ void printUsage()
     std::printf("usage:\n");
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
+    std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
     std::printf("  ospt --version     版本与源码地址\n");
 }
 
@@ -223,6 +225,80 @@ int runCheckup(int argc, char** argv)
     return 0;
 }
 
+// M3：生成 unattend.xml
+// 用法: ospt --gen-unattend <cfg.json> --out <unattend.xml>
+int runGenUnattend(int argc, char** argv)
+{
+    if (argc < 3)
+    {
+        std::printf("--gen-unattend requires a config path\n\n");
+        printUsage();
+        return 2;
+    }
+
+    const char* configPath = argv[2];
+    const char* outPath = nullptr;
+
+    for (int i = 3; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--out") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--out requires a path\n");
+                return 2;
+            }
+            outPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    if (outPath == nullptr)
+    {
+        std::printf("--gen-unattend requires --out <unattend.xml>\n\n");
+        printUsage();
+        return 2;
+    }
+
+    std::ifstream in(std::filesystem::path(configPath), std::ios::binary);
+    if (!in)
+    {
+        std::printf("cannot open config: %s\n", configPath);
+        return 1;
+    }
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    const osp::config::ParseResult parsed = osp::config::fromJson(text);
+    if (!parsed.ok)
+    {
+        std::printf("config parse failed: %s\n", parsed.error.c_str());
+        return 1;
+    }
+
+    const osp::unattend::GenResult generated = osp::unattend::generate(parsed.config);
+    if (!generated.ok)
+    {
+        std::printf("unattend generation failed: %s\n", generated.error.c_str());
+        return 1;
+    }
+
+    std::string error;
+    if (!osp::unattend::writeToFile(outPath, generated.xml, error))
+    {
+        std::printf("%s\n", error.c_str());
+        return 1;
+    }
+
+    std::printf("unattend: %s (%zu bytes)\n", outPath, generated.xml.size());
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -243,6 +319,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--checkup") == 0)
     {
         return runCheckup(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--gen-unattend") == 0)
+    {
+        return runGenUnattend(argc, argv);
     }
 
     if (std::strcmp(arg, "--version") == 0)

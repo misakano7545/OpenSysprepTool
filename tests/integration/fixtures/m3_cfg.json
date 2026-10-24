@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "systemInfo": {
+    "registeredName": "OpenSysprep",
+    "registeredOrg": "misakano7545",
+    "serialNumber": "00000-00000-00000-00000",
+    "computerName": "PC-",
+    "computerNameMode": "prefixRandom",
+    "bootMenuTimeoutSec": 5
+  },
+  "firstLogon": {
+    "runDeviceManager": true,
+    "rebootAfterRun": false,
+    "resolutionX": 1920,
+    "resolutionY": 1080,
+    "refreshRate": 60,
+    "colorDepth": 32,
+    "syncIeHomepage": false,
+    "syncIeFavorites": false
+  },
+  "optimization": {
+    "pinTaskbarItems": true,
+    "closeNumLock": true,
+    "enableHibernate": false,
+    "closeRebootDialog": true,
+    "myDocumentsTarget": "",
+    "pageFileTarget": "",
+    "autoSetIp": false,
+    "ipMode": "fixed",
+    "networkLocation": "work"
+  },
+  "runPlan": [
+    {
+      "phase": "desktop",
+      "type": "run",
+      "target": "C:\\Windows\\System32\\notepad.exe",
+      "arguments": "",
+      "windowStyle": "normal",
+      "waitMode": "noWait",
+      "waitSeconds": 0,
+      "cleanup": "keep",
+      "searchScope": "systemPath"
+    },
+    {
+      "phase": "postinstall",
+      "type": "run",
+      "target": "C:\\drivers\\setup.exe",
+      "arguments": "/quiet",
+      "windowStyle": "hidden",
+      "waitMode": "wait",
+      "waitSeconds": 30,
+      "cleanup": "keep",
+      "searchScope": "systemPath"
+    }
+  ],
+  "deploy": {
+    "module": "trueTrans",
+    "background": "systemDefault",
+    "titleText": "正在部署系统，请稍候…",
+    "skipOobe": true,
+    "autoCreateUser": true,
+    "userName": "User",
+    "userGroup": "Administrators",
+    "blockVirtualMachine": false
+  },
+  "sysprep": {
+    "mode": "classic",
+    "generateNewSid": true,
+    "uninstallDrivers": true,
+    "loadSrsDrivers": false,
+    "transferDesktopFiles": false,
+    "cleanTemp": true,
+    "cleanDllCache": true,
+    "autoLogon": true,
+    "autoLogonCount": 3,
+    "workgroup": "WORKGROUP",
+    "domain": "",
+    "domainUser": "",
+    "afterAction": "reboot"
+  }
+}

@@ -7,12 +7,12 @@
 |---|---|---|---|---|---|
 | doctest | v2.4.11 | 单元测试框架（单头文件） | BSL-1.0 | `third_party/doctest/doctest.h` | https://github.com/doctest/doctest |
 | nlohmann/json | v3.11.3 | 配置 JSON 序列化（单头文件） | MIT | `third_party/nlohmann/json.hpp` | https://github.com/nlohmann/json |
+| pugixml | v1.14 | unattend.xml 生成（源码编入） | MIT | `third_party/pugixml/` | https://github.com/zeux/pugixml |
 
 ## 计划引入（尚未内置）
 
 | 库 | 用途 | 许可 | 引入里程碑 |
 |---|---|---|---|
-| pugixml | unattend.xml 生成 | MIT | M3 |
 | WTL 10 | Win32 UI 框架（头文件库） | MS-PL | M7 |
 | wil | Win32 RAII 包装（可选） | MIT | 需要时 |
 

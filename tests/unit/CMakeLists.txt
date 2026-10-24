@@ -4,9 +4,13 @@ add_executable(osp_unit_tests
   test_version.cpp
   test_config.cpp
   test_sysinfo.cpp
+  test_unattend.cpp
 )
 
 target_link_libraries(osp_unit_tests PRIVATE osp::core)
-target_include_directories(osp_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+target_include_directories(osp_unit_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/third_party
+  ${CMAKE_SOURCE_DIR}/third_party/pugixml
+)
 
 add_test(NAME unit COMMAND osp_unit_tests)
