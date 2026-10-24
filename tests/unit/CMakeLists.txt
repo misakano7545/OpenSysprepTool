@@ -3,6 +3,7 @@ add_executable(osp_unit_tests
   doctest_main.cpp
   test_version.cpp
   test_config.cpp
+  test_sysinfo.cpp
 )
 
 target_link_libraries(osp_unit_tests PRIVATE osp::core)

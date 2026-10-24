@@ -1,10 +1,12 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "core/config.hpp"
 #include "core/log.hpp"
+#include "core/sysinfo.hpp"
 #include "core/version.hpp"
 
 namespace {
@@ -24,6 +26,7 @@ void printUsage()
     std::printf("ospt %s\n\n", osp::versionString());
     std::printf("usage:\n");
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
+    std::printf("  ospt --checkup [--json <path>]  系统体检\n");
     std::printf("  ospt --version     版本与源码地址\n");
 }
 
@@ -170,6 +173,56 @@ int runSelftest()
     return 0;
 }
 
+// M2：系统体检。--json <path> 时额外落盘 JSON，退出码恒为 0（失败项写进 warnings）。
+int runCheckup(int argc, char** argv)
+{
+    const char* jsonPath = nullptr;
+
+    for (int i = 2; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--json") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--json requires an output path\n");
+                return 2;
+            }
+            jsonPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    const osp::sysinfo::CheckupReport report = osp::sysinfo::collect();
+
+    if (jsonPath != nullptr)
+    {
+        const std::string text = osp::sysinfo::toJson(report);
+        std::ofstream out(std::filesystem::path(jsonPath), std::ios::binary | std::ios::trunc);
+        if (!out)
+        {
+            std::printf("cannot open for writing: %s\n", jsonPath);
+            return 1;
+        }
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.put('\n');
+        out.close();
+        if (!out)
+        {
+            std::printf("write failed: %s\n", jsonPath);
+            return 1;
+        }
+        std::printf("checkup json: %s\n", jsonPath);
+    }
+
+    std::printf("%s", osp::sysinfo::toSummaryText(report).c_str());
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -185,6 +238,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--selftest") == 0)
     {
         return runSelftest();
+    }
+
+    if (std::strcmp(arg, "--checkup") == 0)
+    {
+        return runCheckup(argc, argv);
     }
 
     if (std::strcmp(arg, "--version") == 0)
