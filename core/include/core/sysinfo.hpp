@@ -10,7 +10,8 @@
 namespace osp::sysinfo {
 
 // ---------------------------------------------------------------- 系统版本
-struct OsInfo {
+struct OsInfo
+{
     std::string productName;    // 注册表 ProductName，注意 Win11 上仍可能显示 "Windows 10"
     std::string editionId;      // 如 Professional
     std::string displayVersion; // 如 24H2
@@ -26,19 +27,21 @@ struct OsInfo {
 };
 
 // ---------------------------------------------------------------- sysprep
-struct SysprepInfo {
-    bool available = false;          // sysprep.exe 存在且可读
-    std::string exePath;             // 绝对路径
-    std::string imageState;          // HKLM\...\Setup\State\ImageState，如 IMAGE_STATE_COMPLETE
-    bool sysprepPending = false;     // 已封装且处于待 OOBE/待部署状态（不可逆风险）
-    bool oobeInProgress = false;     // HKLM\SYSTEM\Setup\OOBEInProgress
-    std::uint32_t cleanupState = 0;  // HKLM\SYSTEM\Setup\Status\SysprepStatus（可能不存在）
+struct SysprepInfo
+{
+    bool available = false;                // sysprep.exe 存在且可读
+    std::string exePath;                   // 绝对路径
+    std::string imageState;                // HKLM\...\Setup\State\ImageState，如 IMAGE_STATE_COMPLETE
+    bool sysprepPending = false;           // 已封装且处于待 OOBE/待部署状态（不可逆风险）
+    bool oobeInProgress = false;           // HKLM\SYSTEM\Setup\OOBEInProgress
+    std::uint32_t cleanupState = 0;        // HKLM\SYSTEM\Setup\Status\SysprepStatus（可能不存在）
     std::uint32_t generalizationState = 0; // 注意：7 是装完系统的默认值，不能单独作为判据
     std::string note;
 };
 
 // ---------------------------------------------------------------- 分区
-struct PartitionInfo {
+struct PartitionInfo
+{
     std::string drive;       // "C:"
     std::string volumeLabel; // 卷标，可能为空
     std::string fileSystem;  // NTFS / FAT32 ...
@@ -51,28 +54,32 @@ struct PartitionInfo {
 };
 
 // ---------------------------------------------------------------- 必备文件
-struct RequiredFile {
+struct RequiredFile
+{
     std::string path;
     bool exists = false;
     std::uint64_t sizeBytes = 0;
 };
 
 // ---------------------------------------------------------------- 克隆版检测
-struct CloneIndicator {
+struct CloneIndicator
+{
     std::string name;
     bool detected = false;
     std::string detail;
 };
 
 // ---------------------------------------------------------------- 杀软
-struct AntivirusProduct {
+struct AntivirusProduct
+{
     std::string displayName;
     std::uint32_t productState = 0;
     bool enabled = false;
     bool upToDate = false;
 };
 
-struct AntivirusInfo {
+struct AntivirusInfo
+{
     bool queried = false; // WMI 查询是否成功执行
     std::string error;    // queried=false 时的原因
     std::vector<AntivirusProduct> products;
@@ -80,14 +87,16 @@ struct AntivirusInfo {
 };
 
 // ---------------------------------------------------------------- 启动项
-struct StartupItem {
+struct StartupItem
+{
     std::string scope; // 注册表键路径或 "StartupFolder:<dir>"
     std::string name;
     std::string command;
 };
 
 // ---------------------------------------------------------------- 汇总
-struct CheckupReport {
+struct CheckupReport
+{
     std::string generatedAtUtc; // "2026-10-24T13:20:00Z"
     std::string hostName;
     OsInfo os;

@@ -25,10 +25,14 @@ TEST_CASE("os version string is dotted numeric with four parts")
     const osp::sysinfo::CheckupReport report = osp::sysinfo::collect();
 
     int dots = 0;
-    for (const char c : report.os.version) {
-        if (c == '.') {
+    for (const char c : report.os.version)
+    {
+        if (c == '.')
+        {
             ++dots;
-        } else {
+        }
+        else
+        {
             CHECK(std::isdigit(static_cast<unsigned char>(c)) != 0);
         }
     }
@@ -42,10 +46,12 @@ TEST_CASE("exactly one partition is flagged as the system drive")
     const osp::sysinfo::CheckupReport report = osp::sysinfo::collect();
 
     int systemDrives = 0;
-    for (const osp::sysinfo::PartitionInfo& p : report.partitions) {
+    for (const osp::sysinfo::PartitionInfo& p : report.partitions)
+    {
         CHECK(p.drive.size() == 2);
         CHECK(p.drive[1] == ':');
-        if (p.systemDrive) {
+        if (p.systemDrive)
+        {
             ++systemDrives;
             CHECK(p.totalBytes > 0);
         }
@@ -64,7 +70,8 @@ TEST_CASE("sysprep availability matches the reported path")
     CHECK(report.sysprep.available == !report.sysprep.exePath.empty());
     CHECK_FALSE(report.sysprep.note.empty());
     // GeneralizationState 单独不能作为"已封装"判据，正常机器上它也是 7
-    if (report.sysprep.imageState == "IMAGE_STATE_COMPLETE") {
+    if (report.sysprep.imageState == "IMAGE_STATE_COMPLETE")
+    {
         CHECK_FALSE(report.sysprep.sysprepPending);
     }
 }
@@ -73,12 +80,14 @@ TEST_CASE("required file entries carry absolute paths")
 {
     const osp::sysinfo::CheckupReport report = osp::sysinfo::collect();
 
-    for (const osp::sysinfo::RequiredFile& f : report.requiredFiles) {
+    for (const osp::sysinfo::RequiredFile& f : report.requiredFiles)
+    {
         CHECK_FALSE(f.path.empty());
         // 绝对路径：形如 C:\Windows\...
         CHECK(f.path.size() > 3);
         CHECK(f.path[1] == ':');
-        if (f.exists) {
+        if (f.exists)
+        {
             CHECK(f.sizeBytes > 0);
         }
     }

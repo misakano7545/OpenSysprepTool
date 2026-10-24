@@ -50,8 +50,7 @@ bool validateComputerName(const std::string& name, std::string& error)
 
     if (name.size() > kMaxComputerNameBytes)
     {
-        error = "ComputerName exceeds 15 bytes: \"" + name + "\" (" +
-                std::to_string(name.size()) + " bytes)";
+        error = "ComputerName exceeds 15 bytes: \"" + name + "\" (" + std::to_string(name.size()) + " bytes)";
         return false;
     }
 
@@ -65,8 +64,7 @@ bool validateComputerName(const std::string& name, std::string& error)
         }
         if (isForbiddenNameChar(c))
         {
-            error = std::string("ComputerName contains a forbidden character '") + c +
-                    "': \"" + name + "\"";
+            error = std::string("ComputerName contains a forbidden character '") + c + "': \"" + name + "\"";
             return false;
         }
         if (c < '0' || c > '9')
@@ -117,9 +115,12 @@ void addTextChild(pugi::xml_node parent, const char* name, bool value)
 
 const char* networkLocationValue(const std::string& raw)
 {
-    if (raw == "home") return "Home";
-    if (raw == "work") return "Work";
-    if (raw == "public") return "Other";
+    if (raw == "home")
+        return "Home";
+    if (raw == "work")
+        return "Work";
+    if (raw == "public")
+        return "Other";
     return nullptr;
 }
 
@@ -149,51 +150,57 @@ struct CommandList
 const std::vector<const char*>& shellSetupSpecializeOrder()
 {
     static const std::vector<const char*> kOrder{
-        "ComputerName", "ProductKey", "RegisteredOrganization", "RegisteredOwner"};
+        "ComputerName", "ProductKey", "RegisteredOrganization", "RegisteredOwner"
+    };
     return kOrder;
 }
 
 const std::vector<const char*>& shellSetupOobeSystemOrder()
 {
     static const std::vector<const char*> kOrder{
-        "AutoLogon", "Display", "FirstLogonCommands", "OOBE", "UserAccounts"};
+        "AutoLogon", "Display", "FirstLogonCommands", "OOBE", "UserAccounts"
+    };
     return kOrder;
 }
 
 const std::vector<const char*>& oobeChildOrder()
 {
     static const std::vector<const char*> kOrder{
-        "HideEULAPage", "HideLocalAccountScreen", "HideOEMRegistrationScreen",
-        "HideOnlineAccountScreens", "HideWirelessSetupInOOBE", "NetworkLocation",
-        "OEMAppID", "ProtectYourPC"};
+        "HideEULAPage",
+        "HideLocalAccountScreen",
+        "HideOEMRegistrationScreen",
+        "HideOnlineAccountScreens",
+        "HideWirelessSetupInOOBE",
+        "NetworkLocation",
+        "OEMAppID",
+        "ProtectYourPC"
+    };
     return kOrder;
 }
 
 const std::vector<const char*>& autoLogonChildOrder()
 {
-    static const std::vector<const char*> kOrder{
-        "Domain", "Enabled", "LogonCount", "Password", "Username"};
+    static const std::vector<const char*> kOrder{"Domain", "Enabled", "LogonCount", "Password", "Username"};
     return kOrder;
 }
 
 const std::vector<const char*>& displayChildOrder()
 {
     static const std::vector<const char*> kOrder{
-        "ColorDepth", "DPI", "HorizontalResolution", "RefreshRate", "VerticalResolution"};
+        "ColorDepth", "DPI", "HorizontalResolution", "RefreshRate", "VerticalResolution"
+    };
     return kOrder;
 }
 
 const std::vector<const char*>& synchronousCommandChildOrder()
 {
-    static const std::vector<const char*> kOrder{
-        "CommandLine", "Description", "Order", "RequiresUserInput"};
+    static const std::vector<const char*> kOrder{"CommandLine", "Description", "Order", "RequiresUserInput"};
     return kOrder;
 }
 
 const std::vector<const char*>& localAccountChildOrder()
 {
-    static const std::vector<const char*> kOrder{
-        "Description", "DisplayName", "Group", "Name", "Password"};
+    static const std::vector<const char*> kOrder{"Description", "DisplayName", "Group", "Name", "Password"};
     return kOrder;
 }
 
@@ -325,8 +332,7 @@ GenResult generate(const osp::config::Config& cfg)
             // 顺序按 autoLogonChildOrder()
             addTextChild(autoLogon, "Enabled", true);
             addTextChild(autoLogon, "LogonCount", cfg.sysprep.autoLogonCount);
-            const std::string userName =
-                cfg.deploy.userName.empty() ? "Administrator" : cfg.deploy.userName;
+            const std::string userName = cfg.deploy.userName.empty() ? "Administrator" : cfg.deploy.userName;
             addTextChild(autoLogon, "Username", userName);
         }
 

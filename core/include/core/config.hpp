@@ -36,31 +36,31 @@ struct Optimization
     bool closeNumLock = false;
     bool enableHibernate = false;
     bool closeRebootDialog = false;
-    std::string myDocumentsTarget;   // 空表示不转移
-    std::string pageFileTarget;      // 空表示不转移
+    std::string myDocumentsTarget; // 空表示不转移
+    std::string pageFileTarget;    // 空表示不转移
     bool autoSetIp = false;
-    std::string ipMode;              // fixed / random / range
-    std::string networkLocation;     // home / work / public
+    std::string ipMode;          // fixed / random / range
+    std::string networkLocation; // home / work / public
 };
 
 // 运行计划：5 个阶段 × 4 种任务类型
 struct RunPlanTask
 {
-    std::string phase;        // preinstall / install / postinstall / logon / desktop
-    std::string type;         // run / reg / deleteFile / deleteDir
+    std::string phase; // preinstall / install / postinstall / logon / desktop
+    std::string type;  // run / reg / deleteFile / deleteDir
     std::string target;
     std::string arguments;
-    std::string windowStyle;  // normal / hidden / minimized / maximized
-    std::string waitMode;     // wait / noWait / custom
+    std::string windowStyle; // normal / hidden / minimized / maximized
+    std::string waitMode;    // wait / noWait / custom
     int waitSeconds = 0;
-    std::string cleanup;      // keep / deleteFile
-    std::string searchScope;  // systemPath / usb / cdrom / allDrives
+    std::string cleanup;     // keep / deleteFile
+    std::string searchScope; // systemPath / usb / cdrom / allDrives
 };
 
 struct DeploySettings
 {
-    std::string module;       // grid / trueTrans / colorBar / image
-    std::string background;   // single / multi / systemDefault
+    std::string module;     // grid / trueTrans / colorBar / image
+    std::string background; // single / multi / systemDefault
     std::string titleText;
     bool skipOobe = false;
     bool autoCreateUser = false;
@@ -71,7 +71,7 @@ struct DeploySettings
 
 struct SysprepSettings
 {
-    std::string mode;             // classic
+    std::string mode; // classic
     bool generateNewSid = true;
     bool uninstallDrivers = false;
     bool loadSrsDrivers = false;
@@ -83,7 +83,7 @@ struct SysprepSettings
     std::string workgroup;
     std::string domain;
     std::string domainUser;
-    std::string afterAction;      // stay / reboot / shutdown
+    std::string afterAction; // stay / reboot / shutdown
 };
 
 struct Config

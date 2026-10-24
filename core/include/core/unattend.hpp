@@ -9,8 +9,7 @@ namespace osp::unattend {
 
 // unattend.xml 的默认命名空间与 WCM 命名空间（宪章 M3 约束）
 inline constexpr const char* kNamespace = "urn:schemas-microsoft-com:unattend";
-inline constexpr const char* kWcmNamespace =
-    "http://schemas.microsoft.com/WMIConfig/2002/State";
+inline constexpr const char* kWcmNamespace = "http://schemas.microsoft.com/WMIConfig/2002/State";
 
 // 生成结果：成功时 xml 为完整文档文本（UTF-8，含 XML 声明）
 struct GenResult

@@ -91,8 +91,7 @@ std::vector<std::string> childNames(pugi::xml_node parent)
 }
 
 // 检查 actual 是 expected 的子序列（顺序一致，允许缺省）
-void checkOrderedSubset(const std::vector<std::string>& actual,
-                        const std::vector<const char*>& expected)
+void checkOrderedSubset(const std::vector<std::string>& actual, const std::vector<const char*>& expected)
 {
     std::size_t cursor = 0;
     for (const std::string& name : actual)
@@ -181,8 +180,7 @@ TEST_CASE("nested element order matches the reference child lists")
     REQUIRE(component);
 
     checkOrderedSubset(childNames(component.child("OOBE")), osp::unattend::oobeChildOrder());
-    checkOrderedSubset(childNames(component.child("AutoLogon")),
-                       osp::unattend::autoLogonChildOrder());
+    checkOrderedSubset(childNames(component.child("AutoLogon")), osp::unattend::autoLogonChildOrder());
     checkOrderedSubset(childNames(component.child("Display")), osp::unattend::displayChildOrder());
 
     pugi::xml_node command = component.child("FirstLogonCommands").child("SynchronousCommand");
@@ -329,8 +327,7 @@ TEST_CASE("run synchronous commands are emitted for the postinstall phase only")
     for (pugi::xml_node command : component.child("RunSynchronous").children("RunSynchronousCommand"))
     {
         ++count;
-        CHECK(std::string(command.child("Path").text().as_string()) ==
-              "C:\\drivers\\setup.exe /quiet");
+        CHECK(std::string(command.child("Path").text().as_string()) == "C:\\drivers\\setup.exe /quiet");
     }
     CHECK(count == 1);
 }

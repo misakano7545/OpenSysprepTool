@@ -7,8 +7,7 @@
 TEST_CASE("version string matches the numeric constants")
 {
     const std::string expected = std::to_string(osp::kVersionMajor) + "." +
-                                 std::to_string(osp::kVersionMinor) + "." +
-                                 std::to_string(osp::kVersionPatch);
+        std::to_string(osp::kVersionMinor) + "." + std::to_string(osp::kVersionPatch);
 
     CHECK(std::string(osp::versionString()) == expected);
 }

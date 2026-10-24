@@ -119,8 +119,7 @@ std::string toUtf8(const std::filesystem::path& path)
 
 int runSelftest()
 {
-    const std::filesystem::path logPath =
-        std::filesystem::temp_directory_path() / "ospt-selftest.log";
+    const std::filesystem::path logPath = std::filesystem::temp_directory_path() / "ospt-selftest.log";
 
     if (!osp::log::openFile(toUtf8(logPath)))
     {

@@ -43,22 +43,22 @@ std::string timestamp()
     localtime_r(&t, &local);
 #endif
 
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now.time_since_epoch())
-                        .count() %
-                    1000;
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
 
     char buffer[64]{};
-    std::snprintf(buffer,
-                  sizeof(buffer),
-                  "%04d-%02d-%02d %02d:%02d:%02d.%03d",
-                  local.tm_year + 1900,
-                  local.tm_mon + 1,
-                  local.tm_mday,
-                  local.tm_hour,
-                  local.tm_min,
-                  local.tm_sec,
-                  static_cast<int>(ms));
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+        local.tm_year + 1900,
+        local.tm_mon + 1,
+        local.tm_mday,
+        local.tm_hour,
+        local.tm_min,
+        local.tm_sec,
+        static_cast<int>(ms)
+    );
     return std::string(buffer);
 }
 
