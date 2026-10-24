@@ -1,0 +1,87 @@
+# OpenSysprepTool 代码风格
+#
+# 首要约束：格式化只允许产生**空白与换行**变化，不得改动任何非空白字符。
+# 校验方式是剔除全部空白字符后逐文件比对
+# （脚本：tests/tools/check_whitespace_only.py），
+# 不要用 `git diff -w`：clang-format 会合并/拆分手工折行的表达式，
+# 行数一变 diff 就无法对齐，-w 会给出假阳性。
+#
+# SortIncludes / ReflowComments / AllowShort* / BinPack* 全部关闭，
+# 目的就是避免重排 include、重排注释、把多行压成一行、行内补对齐空格。
+# ColumnLimit 取 110，略高于仓库现有最长行（106 列）。
+---
+Language: Cpp
+Standard: c++20
+BasedOnStyle: LLVM
+
+# ---- 缩进 ----
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+IndentCaseLabels: false
+
+# ---- 换行与括号 ----
+ColumnLimit: 110
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: true
+  AfterControlStatement: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+# ---- 指针与引用 ----
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+# ---- 禁止把多行压成一行（否则会产生非空白 diff）----
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortLambdasOnASingleLine: None
+
+# ---- 禁止重排 include / using（属于语义顺序，不属于空白）----
+SortIncludes: Never
+SortUsingDeclarations: false
+IncludeBlocks: Preserve
+
+# ---- 注释不重排 ----
+ReflowComments: false
+
+# ---- 对齐 ----
+# 关键：禁止 bin-packing。允许打包时 clang-format 会把能塞进 110 列的条目
+# 两两合并，还会在行内补对齐空格，像 config.cpp 的 JSON 映射表就变得很难读。
+# 关掉之后，一个参数/条目一行，与仓库原有风格一致。
+AlignAfterOpenBracket: BlockIndent
+BinPackArguments: false
+BinPackParameters: false
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: DontAlign
+BreakBeforeBinaryOperators: None
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyBlock: false
+
+# ---- 其他 ----
+MaxEmptyLinesToKeep: 1
+FixNamespaceComments: true
+InsertNewlineAtEOF: false
+...
