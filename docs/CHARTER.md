@@ -473,21 +473,37 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 | 里程碑 | CI 增量 |
 |---|---|
 | M1 | `ci.yml` 跑通：x64 构建 + ctest + selftest + artifact ✅ |
-| M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅。**`lint.yml`（clang-format）未做** → 推到 M4 |
+| M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅；`lint.yml`（clang-format 增量检查）✅ **已于 M2 期间完成，未推迟** |
 | M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 116 项断言 ✅；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
-| M4 | runplan 校验脚本进 CI；**补 `lint.yml`**（见下方说明） |
+| M4 | runplan 校验脚本进 CI |
 | M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言 |
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本；**模式 B 的 SRS 注入断言每个 `RegSetValueEx` 的键路径与值，不碰真实 hive** |
 | M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
 | M8 | `release.yml` 首次实跑，产出 v0.1.0 |
 
-**`lint.yml` 为什么从 M2 推到 M4**：M2 开工时仓库里已有 M1 全部代码，直接接入
-clang-format 会产生一个覆盖全仓的纯格式化提交，与 M2 的功能改动混在一起会让
-`git blame` 失效、review 无从下手。M4 开工时**先单独提一个纯格式化提交**（只有空白与换行
-变化，`git diff -w` 为空），再叠 M4 功能。这样格式化的影响面和功能改动彻底分离。
+**`lint.yml` 的实际做法**（比原计划更好，记录备查）：
 
-**M4 之后的 lint 就是自动的**：`lint.yml` 只检查增量（`git diff --name-only` 取改动文件），
-不要求历史文件重排。
+- **固定 clang-format 版本 `19.1.5`**，走 PyPI 安装（`clang-format==19.1.5`）而不是用 runner 自带的
+  VS LLVM —— 后者会随镜像更新漂移，导致同一份代码在本地与 CI 判定不同
+- 装完**校验实际版本号**，不符直接失败
+- **只查增量**：`git diff --name-only --diff-filter=ACMR <base> HEAD -- '*.cpp' '*.hpp' '*.h' '*.cc' '*.cxx'`
+- 本次改动不含源文件时**打印原因后跳过**，不静默略过
+- **不用** `clang-format --dry-run --Werror ... 2>&1 | Tee-Object`（正是 §10 记的那个 PowerShell 坑）。
+  改为让 clang-format 把结果写临时文件，再与原文件比 SHA-256
+
+**原计划的「先提一个纯格式化提交」已不需要** —— 增量检查不要求历史文件重排，只在文件被改到时才校验。
+
+**实测（2026-10-24，clang-format 19.1.5）**：`git ls-files` 里非 `third_party/` 的
+**17 个源文件全部合规，0 个需格式化**。既有代码已符合 `.clang-format`，
+所以 M4 开工**不需要任何前置格式化提交**，直接叠功能即可。
+
+```bash
+# 本机复现方式（clang-format 不在 PATH，先装固定版本）
+python -m pip install "clang-format==19.1.5"
+for f in $(git ls-files '*.cpp' '*.hpp' '*.h' '*.cc' '*.cxx' | grep -v '^third_party/'); do
+  clang-format "$f" | cmp -s - "$f" || echo "需格式化: $f"
+done
+```
 
 ---
 
@@ -581,7 +597,8 @@ CI  run 40138703756  #6  success  sha a5f0a48  branch main
 2. CI 里用 PowerShell 调原生命令时，`2>&1 | Tee-Object` 配合 `$ErrorActionPreference='Stop'`
    会吞掉 `$LASTEXITCODE`，**校验失败却显示 success**。已改成显式判退出码。
 
-**下一步**：M4 运行计划调度器。开工前需处理第 12 节剩余两项（均不阻塞）。
+**下一步**：M4 运行计划调度器。`lint.yml` 已完成（M2 期间），既有 17 个源文件全部符合
+`.clang-format`，**无需前置格式化提交**。§12 三项决策已全部定死。
 
 ---
 
