@@ -223,9 +223,10 @@ build/bin/ospt.exe --selftest               → 输出 "config roundtrip OK"
 ospt.exe --selftest 在 CI 里也跑过且通过
 ```
 
-> **M1 的特殊性**：本机构建环境当前缺 Windows SDK（见第 10 节）。
-> `windows-2022` runner 预装 VS 2022 + Windows SDK + CMake，
-> **所以 CI 在 M1 阶段是唯一可信的构建验证手段**。本地修好之前，以 CI 绿勾为准。
+> **M1 的历史备注**：M1 开工时本机缺 Windows SDK（见第 10 节），当时
+> `windows-2022` runner 是唯一可信的构建验证手段，所以先上 CI 再修本地环境。
+> 该路径已被验证有效，本地环境随后补齐（MSVC 14.44 + SDK 10.0.26100）。
+> 后续里程碑两条线并行即可，不再有主次之分。
 
 ### M2 — 系统体检（1 周）
 
@@ -303,9 +304,10 @@ Win7 SP1 / Win10 22H2 / Win11 23H2 × x86 / x64，各跑一遍完整封装流程
 
 ### 9.1 为什么 M1 就要上
 
-1. **CI 是当前唯一可信的构建验证路径。** 本机缺 Windows SDK（见第 10 节环境检查），
-   而 GitHub Actions 的 `windows-2022` runner 预装 VS 2022 + Windows SDK + CMake，
-   push 上去就能编译。本地环境修好之前，CI 绿勾是唯一硬证据。
+1. **CI 是构建的权威判据。** M1 开工时本机缺 Windows SDK，`windows-2022` runner
+   预装 VS 2022 + Windows SDK + CMake，push 上去就能编译——CI 当时是唯一能验证构建的路径。
+   本地环境后来补齐了，但「CI 绿勾才算完成」这条规则保留：本机可能装错、可能污染缓存，
+   runner 是干净环境，更可信。
 2. **越晚接入成本越高。** M1 接入只是一个 yml；M7 接入要同时处理 WTL 头文件、资源编译、
    图标、可能的代码签名，改动面大得多。
 3. **绿勾是合并前提。** 没有 CI 就没有"这个提交没破坏东西"的证据，
@@ -413,14 +415,22 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 
 | 里程碑 | CI 增量 |
 |---|---|
-| M1 | `ci.yml` 跑通：x64 构建 + ctest + selftest + artifact |
-| M2 | 加 `lint.yml`（clang-format）；`ci.yml` 加 x86 |
-| M3 | unattend 校验脚本进 CI |
-| M4 | runplan 校验脚本进 CI |
-| M5 | `osptd.exe` 纳入 artifact 断言 |
+| M1 | `ci.yml` 跑通：x64 构建 + ctest + selftest + artifact ✅ |
+| M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅。**`lint.yml`（clang-format）未做** → 推到 M4 |
+| M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 116 项断言 ✅；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
+| M4 | runplan 校验脚本进 CI；**补 `lint.yml`**（见下方说明） |
+| M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言 |
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本 |
-| M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过 |
+| M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
 | M8 | `release.yml` 首次实跑，产出 v0.1.0 |
+
+**`lint.yml` 为什么从 M2 推到 M4**：M2 开工时仓库里已有 M1 全部代码，直接接入
+clang-format 会产生一个覆盖全仓的纯格式化提交，与 M2 的功能改动混在一起会让
+`git blame` 失效、review 无从下手。M4 开工时**先单独提一个纯格式化提交**（只有空白与换行
+变化，`git diff -w` 为空），再叠 M4 功能。这样格式化的影响面和功能改动彻底分离。
+
+**M4 之后的 lint 就是自动的**：`lint.yml` 只检查增量（`git diff --name-only` 取改动文件），
+不要求历史文件重排。
 
 ---
 
@@ -433,10 +443,11 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 | sysprep 不可逆 | 必须先提示用户备份，且要能检测"已封装过"（`HKLM\SYSTEM\Setup\Status\SysprepStatus`） |
 | 驱动库版权 | SC 那 596 个 SRS 驱动属各厂商，不能分发。让用户自备或只做注入框架 |
 | DISM 需要匹配架构 | x86 镜像要用 x86 的 DISM |
-| unattend.xml 元素顺序 | schema 强制顺序，顺序错会被 sysprep 静默忽略 |
+| unattend.xml 元素顺序 | 子元素顺序按 schema 声明输出（ADK 离线参考 `Unattend.chm` 各组件的 `Child Elements` 列表；静态 `unattend.xsd` 已不随包分发）。**顺序错的后果不是统一的**：2026-10-24 实测只有 `Microsoft-Windows-TCPIP \| Interfaces \| Interface` 一处会静默忽略整段，其余组件 Windows 安装程序容忍乱序。本工具不生成该组件，但仍按声明顺序输出 |
 | 中文路径 | 内部统一 UTF-8 / `std::filesystem::path`，转 Win32 时显式 `MultiByteToWideChar` |
 | GPL-3.0 传染性 | 引入依赖前先查许可，见第 6 节 |
-| **本机构建环境不全** | 见下方"环境检查"，缺 Windows SDK 时 configure 会报 `could not find any instance of Visual Studio` |
+| **本机构建环境** | 曾缺 Windows SDK 导致 `could not find any instance of Visual Studio`，2026-10-24 已补齐。换机器时先跑下方"环境检查" |
+| **PowerShell 吞退出码** | CI 里调原生命令（python / ospt）时，`2>&1 \| Tee-Object` 会把 stderr 变成 `ErrorRecord`，配合 `$ErrorActionPreference='Stop'` 可能直接终止或吞掉 `$LASTEXITCODE`，**校验脚本明明失败却显示 success**。改法：不加 `2>&1`，单独一行取 `$LASTEXITCODE` 显式判 `-ne 0` 再 `exit`。本机只有 PS 5.1、CI 用 pwsh 7，两个版本行为不同，改动必须在 5.1 上跑正反两例 |
 
 ### 环境检查（每次新会话开工前跑一次）
 
@@ -449,14 +460,22 @@ ls "/c/Program Files (x86)/Windows Kits/10/Include"
 cmake --version   # 或便携版 C:/Tools/cmake-*/bin/cmake.exe
 ```
 
-2026-10-24 实测：MSVC 14.44.35207 ✅、CMake 4.4.4 便携版 ✅、**Windows SDK ❌**、VS BuildTools `isComplete=0`。
-后果：`cmake -S . -B build -G "Visual Studio 17 2022"` 直接失败，报
-`Generator Visual Studio 17 2022 could not find any instance of Visual Studio`。
+2026-10-24 实测（M1 完成后）：
 
-**修法**（任一）：
-- 用 VS Installer 补装工作负载「使用 C++ 的桌面开发」+「Windows 11 SDK」，装完 `isComplete` 才会变 1
-- 或单独装 Windows SDK（`winsdksetup.exe`），再用 Ninja 生成器配已有 cl.exe：
-  `cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=cl.exe`（需在 VS 开发者命令提示符里跑）
+| 组件 | 状态 |
+|---|---|
+| MSVC | ✅ 14.44.35207（`VC/Tools/MSVC`） |
+| Windows SDK | ✅ 10.0.26100.0（`Windows Kits/10/Include`） |
+| CMake | ✅ 4.4.4 便携版 `C:/Tools/cmake-4.4.4-windows-x86_64/` |
+| VS BuildTools | ✅ `isComplete=1` |
+
+历史坑（已解决，留作排错参考）：SDK 未装时 `cmake -S . -B build -G "Visual Studio 17 2022"`
+报 `could not find any instance of Visual Studio`。修法是 VS Installer 补装
+「使用 C++ 的桌面开发」+「Windows 11 SDK」，装完 `isComplete` 变 1。
+
+**注意**：本机 `ctest` / `cmake` 不在 PATH，要用全路径
+`C:/Tools/cmake-4.4.4-windows-x86_64/bin/ctest.exe`。
+CI 里 runner 自带 PATH，无此问题。
 
 ---
 
@@ -466,24 +485,45 @@ cmake --version   # 或便携版 C:/Tools/cmake-*/bin/cmake.exe
 |---|---|
 | 需求提取 | ✅ 完成 |
 | 技术选型 | ✅ 完成 |
-| 仓库初始化 | ✅ 完成（`main` @ `4fe8c58 Initial commit`，**只含 LICENSE**） |
-| 产物改名 | ✅ 完成（`ospt` / `osptd`，仓库与本文档均无旧名残留） |
-| 工程骨架 | 🔄 本地已就位，**未提交**（7 项 untracked） |
-| 构建环境 | ❌ **缺 Windows SDK**，VS BuildTools `isComplete=0`，configure 失败 |
-| CI | ⬜ 未开始（M1 必交付项） |
-| M1 其余部分 | ⬜ 未开始 |
+| 仓库初始化 | ✅ 完成 |
+| 产物改名 | ✅ 完成（`ospt` / `osptd`） |
+| 构建环境 | ✅ 完成（MSVC 14.44 / SDK 10.0.26100 / CMake 4.4.4 / `isComplete=1`） |
+| **M1 骨架与核心库** | ✅ **完成**（`c4090c1`） |
+| **M1 加固** | ✅ 完成（`7acdb35`：concurrency + artifact 内容断言 + README 验收节） |
+| **M2 系统体检** | ✅ **完成**（`1a33770` + `0cc9938`） |
+| **M3 unattend.xml 生成** | ✅ **完成**（`90ca731` + `a5f0a48`） |
+| M4–M8 | ⬜ 未开始 |
 
-**当前阻塞**：本地 `cmake -S . -B build -G "Visual Studio 17 2022"` 报
-`could not find any instance of Visual Studio`。按第 10 节"环境检查"补装 Windows SDK 与 VC 工作负载。
+**M1–M3 验收记录**（2026-10-24，末次实测 sha `a5f0a48`）
 
-**但 CI 不阻塞** —— `.github/workflows/ci.yml` 用 `windows-2022` runner，
-工具链齐全，可以先让 CI 绿起来，本地环境并行修。
+```
+M1  本地 configure/build 0 error
+    ctest --test-dir build -C Release        → 1/1 passed（doctest 7 cases / 26 assertions）
+    ospt --selftest                          → config roundtrip OK，日志落盘 1985 bytes
+    ospt --version                           → 打印仓库地址 + GPL-3.0
 
-**开工顺序**：
-1. 写 `.github/workflows/ci.yml` + `README.md` + `CHANGELOG.md`，先提交推送，让 CI 跑起来
-2. 根据 CI 报错修 CMake（这是最快的反馈回路，不用等本地环境）
-3. 本地补装 SDK 后再并行本地构建
-4. 接 `core/config` + `core/log` + `--selftest`，让 CI 的 Selftest 步骤真正有意义
+M2  ospt --checkup --json out.json           → exit 0
+    python tests/integration/verify_checkup.py out.json
+                                             → RESULT: ALL PASSED (85 checks)
+
+M3  ospt --gen-unattend cfg.json --out unattend.xml
+                                             → exit 0
+    python tests/integration/verify_unattend.py unattend.xml
+                                             → RESULT: ALL PASSED (116 checks, 0 skipped)
+
+CI  run 40138703756  #6  success  sha a5f0a48  branch main
+    步骤：Configure / Build / Test / Selftest / Version / Unattend 校验 / Artifact 内容断言 全 success
+    artifact ospt-x64 345,028 B
+```
+
+**M3 的两条实测结论**（已回写第 10 节）：
+
+1. 元素顺序违规**不是**统一被静默忽略，只有 `Microsoft-Windows-TCPIP | Interfaces | Interface`
+   一处如此。原第 10 节的表述过宽，已修正。
+2. CI 里用 PowerShell 调原生命令时，`2>&1 | Tee-Object` 配合 `$ErrorActionPreference='Stop'`
+   会吞掉 `$LASTEXITCODE`，**校验失败却显示 success**。已改成显式判退出码。
+
+**下一步**：M4 运行计划调度器。开工前需处理第 12 节剩余两项（均不阻塞）。
 
 ---
 
@@ -492,12 +532,20 @@ cmake --version   # 或便携版 C:/Tools/cmake-*/bin/cmake.exe
 **已决策（2026-10-24）**：产物改名 —— 主程序 → **`ospt`**、部署运行时 → **`osptd`**，
 避开与 SC（SysCeo）缩写的商标混淆。代码与本文档已同步改完，无残留引用。
 
-剩余待定：
+**已决策（2026-10-24，随 M2/M3 落地）**：x86 分阶段 —— **M2–M4 只做 x64，M5 起加 x86，
+M7 主程序也出 x86**。`.github/workflows/ci.yml` 的矩阵注释已按此写死，M2/M3 已按 x64-only 交付。
+**M5 开工时必须把 x86 加进矩阵**，否则部署运行时无法在 32 位目标系统上启动。
 
-| # | 问题 | 建议 |
-|---|---|---|
-| 1 | x86 目标是否真的需要 | 若只服务 Win10/11 x64，可先只做 x64，x86 后置，省一半构建矩阵 |
-| 2 | 驱动库来源 | 自备 / 只做注入框架让用户放驱动 / 不做 |
-| 3 | UI 换肤是否要复刻 SC 的观感 | 建议只借鉴交互逻辑，视觉完全自研，避免外观设计纠纷 |
+剩余两项，**都有默认建议，均不阻塞 M4**：
 
-这三项确定后写回本节并删除对应行。
+| # | 问题 | 默认建议 | 影响哪个里程碑 | 是否阻塞 |
+|---|---|---|---|---|
+| 1 | 驱动库来源 | **只做注入框架**，不打包驱动。用户自备驱动目录，工具负责 `dism /add-driver` 与回滚 | M6 | 不挡 M4 |
+| 2 | UI 是否复刻 SC 观感 | **不复刻**。只借鉴交互逻辑（阶段划分、进度语义），视觉完全自研 | M7 | 不挡 M4 |
+
+**建议 1 的理由**：SC 那 596 个 SRS 驱动版权属各硬件厂商，不能随工具分发；
+打包进去还有体积（55 MB）和维护成本。做注入框架既合规又够用。
+
+**建议 2 的理由**：外观设计可能构成权利，复刻观感有风险；且自研 UI 比模仿更省事。
+
+这两项确认后，把结论写进本节并删除表格。**最晚在 M5 收尾前定掉**，否则 M6/M7 开工时会卡。

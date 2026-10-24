@@ -18,3 +18,7 @@ compile_commands.json
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ---- 验收脚本的临时产物（--checkup / --gen-unattend 直接写在仓库根时）----
+out.json
+unattend.xml
