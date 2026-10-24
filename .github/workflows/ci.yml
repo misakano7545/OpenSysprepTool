@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64]                 # M3 起加 x86
+        arch: [x64]                 # 宪章 §12：M2–M4 只做 x64，M5 起加 x86
 
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +49,39 @@ jobs:
 
       - name: Version
         run: .\build\bin\Release\ospt.exe --version
+
+      # M3 增量（宪章 §9.7）：用固定 fixture 生成 unattend.xml，再按离线参考校验。
+      # 失败时把校验脚本的 FAIL 行打成 annotation，匿名访问也能定位。
+      # 注意：不要给原生命令加 2>&1 —— PowerShell 5.1 会把 stderr 变成 ErrorRecord，
+      # 配合 Stop 会误杀；退出码一律显式判断。
+      - name: Unattend 校验
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = 'build\m3'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          Copy-Item 'tests\integration\fixtures\m3_cfg.json' (Join-Path $work 'cfg.json') -Force
+
+          Write-Host "python: $(python --version)"
+
+          & '.\build\bin\Release\ospt.exe' --gen-unattend (Join-Path $work 'cfg.json') --out (Join-Path $work 'unattend.xml')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::--gen-unattend 退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          $xml = Join-Path $work 'unattend.xml'
+          Write-Host "unattend.xml bytes: $((Get-Item -LiteralPath $xml).Length)"
+
+          python tests\integration\verify_unattend.py $xml | Tee-Object -FilePath unattend-verify.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content unattend-verify.log |
+              Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
 
       # 上传前先断言产物真实存在且非空，并把实际字节数打进日志。
       # if-no-files-found 只能证明"有文件"，证明不了"文件非空"。
