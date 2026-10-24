@@ -28,7 +28,7 @@
 | 项目 | 决策 | 依据 |
 |---|---|---|
 | 语言 | **C++20** | WinPE 里 .NET 是可选组件、WPF 明确不支持 |
-| UI | **Win32 + WTL 10 + Direct2D 自绘** | SC 本身是全自绘换肤，标准控件做不出那个观感 |
+| UI | **Win32 + WTL 10 + 原生标准控件**（Direct2D 自绘后置） | 用户 2026-10-24 决策：先用原生控件把 demo 跑起来，初期见效快。SC 是全自绘换肤，那个观感不是现阶段目标 |
 | 构建 | **CMake 3.25+ / MSVC 2022** | |
 | 运行库 | **静态 /MT** | PE 里不能依赖 VC 运行库 |
 | 产物 | 主程序 `ospt.exe`（x64+x86）、部署运行时 `osptd.exe`（x64+x86） | 目标系统可能是 x86 Win7；名字避开 SC 缩写 |
@@ -66,7 +66,7 @@ D:\dev\OpenSysprepTool\
 ├─ host/                       主程序 → ospt.exe
 │   ├─ CMakeLists.txt
 │   ├─ main.cpp
-│   └─ ui/                     WTL + Direct2D
+│   └─ ui/                     WTL + 原生控件
 ├─ deploy/                     部署运行时 → osptd.exe
 │   ├─ CMakeLists.txt
 │   └─ main.cpp
@@ -288,20 +288,44 @@ build/bin/osptd.exe --dry-run --plan run/   → 每阶段打印将要做什么�
 
 ### M6 — 驱动注入与 sysprep 编排（1.5 周）
 
-**交付**：`core/dism` + `core/sysprep`
+**交付**：`core/dism` + `core/srsinject` + `core/sysprep`
+
+**两种注入模式**（来自 SC 驱动集的实测，见 `out/15_spec/驱动集说明.md`）：
+
+| 模式 | 输入形态 | 实现路径 |
+|---|---|---|
+| A 标准驱动包 | `.inf` + `.sys` + `.cat` | `dism /image:<挂载点> /add-driver:<inf> /recurse` |
+| B SRS 注册表绑定 | 裸 `.sys` + `Drv.reg` / `Drv.pesrs`（**无 .inf/.cat**） | 离线 hive 注入 |
+
+模式 B 是 SC 驱动集的实际形态，**DISM 用不上**。步骤：
+
+```
+1. RegLoadKey        挂载 <目标>\Windows\System32\config\SYSTEM 到临时键
+2. 复制              <name>.sys → <目标>\Windows\System32\drivers\
+3. RegSetValueEx     ControlSet00x\Services\<name>
+                       Type=1(Kernel Driver) / Start=0(Boot) 或 1(System) / ImagePath
+4. RegSetValueEx     ControlSet00x\Control\CriticalDeviceDatabase\<硬件ID>
+                       ClassGUID（存储控制器类 {4D36E97B-...}）+ Service
+5. RegUnLoadKey      卸载
+```
 
 **验收**
 ```
 build/bin/ospt.exe --inject-drivers --image W:\ --driver D:\drivers --dry-run
+build/bin/ospt.exe --inject-drivers --image W:\ --srs D:\srs --dry-run
 build/bin/ospt.exe --sysprep --dry-run
 ```
-`--dry-run` 打印完整命令行，与微软文档一致。
+`--dry-run` 打印完整命令行与将写入的注册表项，与微软文档一致。
+模式 B 的 `--dry-run` 要打印出每个 `RegSetValueEx` 的键路径与值。
 
 ### M7 — 主程序 UI（3 周）
 
-**交付**：多标签配置界面，Direct2D 自绘，支持换肤
+**交付**：多标签配置界面，**原生 Win32 标准控件**（WTL 薄封装），先出可用 demo
 
-**验收**：手工走查清单（截图对比 DFM 图纸），加上
+用户 2026-10-24 决策：先用原生控件，初期做 demo 更快。Direct2D 自绘与换肤**后置**为独立里程碑
+（M7 之后，视需要再定），不进 M7 的交付范围。
+
+**验收**：手工走查清单（对照 DFM 图纸核对字段与交互，不比对视觉），加上
 ```
 build/bin/ospt.exe --ui-smoke-test   → 所有配置页能打开、控件能响应、退出无崩溃
 ```
@@ -462,6 +486,7 @@ clang-format 会产生一个覆盖全仓的纯格式化提交，与 M2 的功能
 | GPL-3.0 传染性 | 引入依赖前先查许可，见第 6 节 |
 | **本机构建环境** | 曾缺 Windows SDK 导致 `could not find any instance of Visual Studio`，2026-10-24 已补齐。换机器时先跑下方"环境检查" |
 | **PowerShell 吞退出码** | CI 里调原生命令（python / ospt）时，`2>&1 \| Tee-Object` 会把 stderr 变成 `ErrorRecord`，配合 `$ErrorActionPreference='Stop'` 可能直接终止或吞掉 `$LASTEXITCODE`，**校验脚本明明失败却显示 success**。改法：不加 `2>&1`，单独一行取 `$LASTEXITCODE` 显式判 `-ne 0` 再 `exit`。本机只有 PS 5.1、CI 用 pwsh 7，两个版本行为不同，改动必须在 5.1 上跑正反两例 |
+| **SRS 驱动不是标准驱动包** | SC 的 `FUNB` 里**没有 `.inf` / `.cat`**，只有裸 `.sys` + `Drv.reg` / `Drv.pesrs`（同内容，只差 hive 前缀 `HKLM\SYSTEM\ControlSet001` vs `HK_USERS\DCSRS\ControlSet001`）。`dism /add-driver` 对它完全无效，必须离线挂载 SYSTEM hive 写 `CriticalDeviceDatabase` + `Services`。详见 §8 M6 与 `out/15_spec/驱动集说明.md` |
 
 ### 环境检查（每次新会话开工前跑一次）
 
@@ -550,16 +575,45 @@ CI  run 40138703756  #6  success  sha a5f0a48  branch main
 M7 主程序也出 x86**。`.github/workflows/ci.yml` 的矩阵注释已按此写死，M2/M3 已按 x64-only 交付。
 **M5 开工时必须把 x86 加进矩阵**，否则部署运行时无法在 32 位目标系统上启动。
 
-剩余两项，**都有默认建议，均不阻塞 M4**：
+**已决策（2026-10-24，用户拍板）—— UI 用原生控件**：
 
-| # | 问题 | 默认建议 | 影响哪个里程碑 | 是否阻塞 |
-|---|---|---|---|---|
-| 1 | 驱动库来源 | **只做注入框架**，不打包驱动。用户自备驱动目录，工具负责 `dism /add-driver` 与回滚 | M6 | 不挡 M4 |
-| 2 | UI 是否复刻 SC 观感 | **不复刻**。只借鉴交互逻辑（阶段划分、进度语义），视觉完全自研 | M7 | 不挡 M4 |
+> 「UI 我想先用原生？这样初期做 demo 好一些」
 
-**建议 1 的理由**：SC 那 596 个 SRS 驱动版权属各硬件厂商，不能随工具分发；
-打包进去还有体积（55 MB）和维护成本。做注入框架既合规又够用。
+M7 用 **原生 Win32 标准控件**（WTL 薄封装），先出可用 demo，初期见效快。
+**Direct2D 自绘与换肤后置**为 M7 之后的独立里程碑，不进 M7 交付范围。
+「不复刻 SC 观感」这条一并确定：只借鉴交互逻辑（阶段划分、进度语义），视觉完全自研。
+已同步 §1 技术决策表与 §2 目录树。
 
-**建议 2 的理由**：外观设计可能构成权利，复刻观感有风险；且自研 UI 比模仿更省事。
+**已决策（2026-10-24，用户拍板）—— 驱动用 SC 的，放 GitHub**：
 
-这两项确认后，把结论写进本节并删除表格。**最晚在 M5 收尾前定掉**，否则 M6/M7 开工时会卡。
+> 「驱动用原来 scpt 的，放到 github」
+
+调研后确认可执行，但**不能按字面整个搬**。实测结论（详见 `out/15_spec/驱动集说明.md`）：
+
+| 组 | 文件 | 大小 | 处置 |
+|---|---|---|---|
+| `FUND`/`FUNE` —— Windows 自带 `System32\{drivers, DriverStore, catroot}` 的 x64/x86 副本 | 466 | 39.6 MB | **丢弃**（目标机本来就有） |
+| `FUNB/MS/` 里 37 个署名为 Microsoft 的 `.sys` | 37 | 1.0 MB | **丢弃**（微软 in-box） |
+| `FUNB` 剩余（10 个厂商的 SRS 包） | 83 | 5.5 MB | 入库 |
+| `FUNF`（Intel RST VMD 标准包） | 10 | 7.2 MB | 入库 |
+| | **93** | **12.7 MB** | |
+
+**关键发现**：`FUNB` 下**没有任何 `.inf` / `.cat`** —— 只有裸 `.sys` +
+`Drv.reg` / `Drv.pesrs`（两份同内容、只差 hive 前缀：`HKLM\SYSTEM\ControlSet001` vs
+`HK_USERS\DCSRS\ControlSet001`）。共 **1555 条 CriticalDeviceDatabase + 201 条 Services，
+覆盖 81 个存储控制器服务**。这是**离线注册表注入**，不是驱动安装。
+
+**因此 M6 必须实现两种注入模式**（已写入 §8 M6）：A 标准驱动包走 `dism /add-driver`；
+B SRS 注册表绑定走离线 hive 注入。**只做 DISM 用不了 SC 这批驱动。**
+
+**交付形态**：驱动二进制入**独立仓库**，不并入本 GPL-3.0 主仓库 —— 隔离 takedown 风险，
+也避免把许可讲混。仓库 README 写明版权归各权利人、本仓库不主张权利、收到通知即删，
+`manifest.json` 带 SHA-256 证明文件未修改。已生成到 `out/16_driver_repo/`。
+
+**三项待用户确认**（不阻塞 M4/M5）：
+
+| # | 问题 | 建议 |
+|---|---|---|
+| 1 | `FUNB/MS/` 那 18 个非微软署名的 in-box `.sys` 留不留 | **留**（保留 = 93 文件，剔除 = 75 文件） |
+| 2 | 独立仓库还是并入主仓库 | **独立** |
+| 3 | 二进制入库，还是只放 manifest + 导入脚本 | **入库**（风险已缓解；替代方案风险为零但新用户要自备驱动） |
