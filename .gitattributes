@@ -1,0 +1,17 @@
+# 统一换行：源码用 LF，Windows 脚本保留 CRLF
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.exe binary
+*.lib binary
+*.pdb binary
+*.ico binary
+*.png binary
+*.bmp binary
+
+# 第三方单头文件不做 diff 统计噪声
+third_party/** -diff
