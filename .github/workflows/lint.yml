@@ -1,0 +1,118 @@
+name: Lint
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# 同一分支只保留最新一次运行
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# clang-format 版本必须与本地一致，否则同一份代码在两处判定不同。
+# 用 PyPI 的 clang-format 包（版本号与 LLVM 发布对齐），比依赖 runner 自带的
+# VS LLVM 更可控 —— runner 的版本会随镜像更新而漂移。
+env:
+  CLANG_FORMAT_VERSION: "19.1.5"
+
+jobs:
+  clang-format:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 算 base...HEAD 的 diff 需要完整历史
+          fetch-depth: 0
+
+      - name: 安装固定版本的 clang-format
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check --quiet "clang-format==$env:CLANG_FORMAT_VERSION"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::pip 安装 clang-format 失败"
+            exit $LASTEXITCODE
+          }
+
+          $exe = (Get-Command clang-format -ErrorAction SilentlyContinue)
+          if (-not $exe) {
+            Write-Host "::error::clang-format 未进入 PATH"
+            exit 1
+          }
+
+          $actual = (& clang-format --version) -replace '^clang-format version ', ''
+          Write-Host "clang-format reported: $actual"
+          Write-Host "clang-format expected: $env:CLANG_FORMAT_VERSION"
+          if (-not $actual.StartsWith($env:CLANG_FORMAT_VERSION)) {
+            Write-Host "::error::clang-format 版本不符：得到 $actual，期望 $env:CLANG_FORMAT_VERSION"
+            exit 1
+          }
+
+      # 只检查本次改动涉及的源文件（宪章 §9.7）：不要求历史文件重排。
+      - name: clang-format 检查
+        shell: pwsh
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $base = $null
+          if ($env:EVENT_NAME -eq 'pull_request') { $base = $env:PR_BASE_SHA }
+          else { $base = $env:BEFORE_SHA }
+          # 新分支首次推送时 before 是全 0
+          if (-not $base -or $base -match '^0+$') { $base = 'HEAD~1' }
+
+          git rev-parse --verify --quiet "$base^{commit}" | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "基线 $base 不可用，退回到 HEAD~1"
+            $base = 'HEAD~1'
+          }
+          Write-Host "基线: $base"
+
+          $files = @(git diff --name-only --diff-filter=ACMR "$base" HEAD -- '*.cpp' '*.hpp' '*.h' '*.cc' '*.cxx' |
+                     Where-Object { $_ -and ($_ -notlike 'third_party/*') })
+
+          if ($files.Count -eq 0) {
+            Write-Host "本次改动没有源文件，跳过 clang-format 检查"
+            exit 0
+          }
+
+          # 注意：$ 变量插值前必须是 ASCII 字符（空格或半角冒号）。
+          # PowerShell 5.1 读无 BOM 的 UTF-8 脚本时按 ANSI/GBK 解码，
+          # 全角标点紧邻 $ 会把它吃掉，导致变量插值失效甚至解析错误。
+          $count = $files.Count
+          Write-Host "待检查的源文件数: $count"
+          $files | ForEach-Object { Write-Host "  $_" }
+
+          # 不要用 `clang-format --dry-run --Werror ... 2>&1 | Tee-Object`：
+          # clang-format 的违规信息走 stderr，PS 5.1 会把原生命令的 stderr
+          # 变成 ErrorRecord，配合 ErrorActionPreference='Stop' 直接终止脚本，
+          # 结果是一条 ::error:: 注解都发不出来（宪章 §10 记过这个坑）。
+          # 改为让 clang-format 把格式化结果写到临时文件，按 SHA256 与原文件比对，
+          # 全程只走 stdout，不碰 stderr。
+          $bad = @()
+          foreach ($f in $files) {
+            $tmp = Join-Path $env:TEMP ([IO.Path]::GetRandomFileName())
+            Start-Process -FilePath 'clang-format' -ArgumentList @($f) `
+              -RedirectStandardOutput $tmp -NoNewWindow -Wait
+            $h1 = (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash
+            $h2 = (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash
+            Remove-Item -LiteralPath $tmp -Force
+            if ($h1 -ne $h2) { $bad += $f }
+          }
+
+          if ($bad.Count -gt 0) {
+            Write-Host "::error::clang-format 检查未通过，以下文件需要格式化:"
+            foreach ($f in $bad) { Write-Host "::error::$f" }
+            Write-Host "::error::本地修复: clang-format -i <上述文件>"
+            # 逐行细节直接打到控制台供人工核对（不用 2>&1 捕获）
+            clang-format --dry-run --Werror $bad
+            exit 1
+          }
+
+          Write-Host "clang-format OK: $count 个文件均符合 .clang-format"
+          exit 0
