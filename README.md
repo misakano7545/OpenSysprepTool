@@ -38,6 +38,42 @@ build/bin/Release/ospt.exe --selftest
 `--selftest` 会构造一份完整配置、序列化为 JSON、再反序列化、二次序列化并逐字节比对，
 最后打印 `config roundtrip OK`。
 
+## 验收
+
+M1 起每个里程碑都有**两条并列的验收线，缺一不可**：本地跑通不算完成，CI 不绿也不算完成。
+本机缺 Windows SDK 时，以 CI 为准。
+
+### 本地验收
+
+```bash
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release --output-on-failure
+build/bin/Release/ospt.exe --selftest
+```
+
+| 命令 | 通过标准 |
+|---|---|
+| `cmake -S . -B build` | configure 成功，无 error |
+| `cmake --build build --config Release` | 0 error |
+| `ctest --test-dir build -C Release` | 全绿。**零用例时 ctest 返回 exit code 8，视为失败**，不用 `--no-tests=ignore` 掩盖 |
+| `ospt.exe --selftest` | 打印 `config roundtrip OK` |
+
+### CI 验收
+
+推送后 [CI 工作流](https://github.com/misakano7545/OpenSysprepTool/actions/workflows/ci.yml)
+必须在 `windows-2022` runner 上全绿：
+
+| 步骤 | 通过标准 |
+|---|---|
+| Configure / Build | x64 Release 构建 0 error |
+| Test | `ctest` 全绿，禁止 `continue-on-error` |
+| Selftest | `ospt.exe --selftest` 打印 `config roundtrip OK` |
+| Artifact 内容断言 | 日志打印 `ospt.exe` / `osptd.exe` 的实际字节数与 SHA256；缺失或 0 字节直接失败 |
+| 产物上传 | artifact `ospt-x64` 可下载，内含两个 exe |
+
+CI 对同一分支启用了 `concurrency` 组，新推送会取消该分支上仍在跑的旧运行，避免排队堆积。
+
 ## 目录
 
 ```

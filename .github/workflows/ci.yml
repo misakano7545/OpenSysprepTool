@@ -5,6 +5,11 @@ on:
     branches: ["**"]
   pull_request:
 
+# 同一分支只保留最新一次运行：新推送会取消同分支上仍在跑/排队的旧运行。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-2022
@@ -30,6 +35,35 @@ jobs:
 
       - name: Version
         run: .\build\bin\Release\ospt.exe --version
+
+      # 上传前先断言产物真实存在且非空，并把实际字节数打进日志。
+      # if-no-files-found 只能证明"有文件"，证明不了"文件非空"。
+      - name: Artifact 内容断言
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = @(
+            'build\bin\Release\ospt.exe',
+            'build\bin\Release\osptd.exe'
+          )
+          $failed = $false
+          foreach ($rel in $expected) {
+            if (-not (Test-Path -LiteralPath $rel -PathType Leaf)) {
+              Write-Host "::error::缺少产物 $rel"
+              $failed = $true
+              continue
+            }
+            $item = Get-Item -LiteralPath $rel
+            if ($item.Length -le 0) {
+              Write-Host "::error::产物为空 $rel"
+              $failed = $true
+              continue
+            }
+            $hash = (Get-FileHash -LiteralPath $rel -Algorithm SHA256).Hash
+            Write-Host ("{0} => {1} bytes ({2:N1} KB)  sha256={3}" -f $item.Name, $item.Length, ($item.Length / 1KB), $hash)
+          }
+          if ($failed) { exit 1 }
+          Write-Host "artifact assertion OK: 2 个产物均存在且非空"
 
       - uses: actions/upload-artifact@v4
         with:
