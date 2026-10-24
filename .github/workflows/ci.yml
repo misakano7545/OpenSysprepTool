@@ -27,8 +27,22 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      # 失败时把断言原文以 annotation 形式抛出：仓库匿名访问也能看到，
+      # 不必登录即可定位是哪一条 CHECK 挂了。
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          ctest --test-dir build -C Release --output-on-failure 2>&1 |
+            Tee-Object -FilePath ctest.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Write-Host "ctest exit code: $code"
+            Get-Content ctest.log | Select-String -Pattern 'TEST CASE|ERROR|FAILED|CHECK|values:|unexpected' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
 
       - name: Selftest
         run: .\build\bin\Release\ospt.exe --selftest

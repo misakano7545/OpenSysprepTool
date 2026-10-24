@@ -288,9 +288,9 @@ void fillSysprepInfo(SysprepInfo& info, std::vector<std::string>& warnings)
 
     std::uint32_t cleanup = 0;
     std::uint32_t generalization = 0;
-    const bool hasCleanup = readRegDword(HKEY_LOCAL_MACHINE,
-                                         L"SYSTEM\\Setup\\Status\\SysprepStatus", L"CleanupState",
-                                         cleanup);
+    // CleanupState 仅作参考输出，不参与判定
+    readRegDword(HKEY_LOCAL_MACHINE, L"SYSTEM\\Setup\\Status\\SysprepStatus", L"CleanupState",
+                 cleanup);
     const bool hasGeneralization = readRegDword(HKEY_LOCAL_MACHINE,
                                                 L"SYSTEM\\Setup\\Status\\SysprepStatus",
                                                 L"GeneralizationState", generalization);
@@ -298,12 +298,14 @@ void fillSysprepInfo(SysprepInfo& info, std::vector<std::string>& warnings)
     info.generalizationState = generalization;
 
     // GeneralizationState == 7 是所有正常装完的系统都有的默认值，不能作为"已封装"判据。
-    // 真正的"已封装待部署"标志是 ImageState 进入 *_RESEAL_TO_OOBE、OOBE 进行中，
-    // 或 CleanupState 非 0（清理阶段未完成）。
+    // CleanupState 的取值语义在各版本间不一致（0/1/2/3 含义随 Windows 版本变化），
+    // 同样不能单独判定，只作为参考值输出。
+    // 真正无歧义的"已封装待部署"标志只有两个：
+    //   1) ImageState 进入 *_RESEAL_TO_OOBE（sysprep 已执行，等待重启进 OOBE）
+    //   2) OOBEInProgress == 1
     const bool resealToOobe = info.imageState.find("_RESEAL_TO_OOBE") != std::string::npos;
-    const bool cleanupPending = hasCleanup && cleanup != 0;
 
-    info.sysprepPending = resealToOobe || info.oobeInProgress || cleanupPending;
+    info.sysprepPending = resealToOobe || info.oobeInProgress;
 
     if (info.sysprepPending) {
         info.note = "封装已执行，系统处于待 OOBE/待部署状态，再次 sysprep 可能失败";
