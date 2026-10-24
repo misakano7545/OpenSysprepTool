@@ -260,7 +260,21 @@ python tests/integration/verify_unattend.py unattend.xml
 build/bin/ospt.exe --gen-runplan plan.json --out run/
 python tests/integration/verify_runplan.py plan.json run/
 ```
-断言：`RunSynchronous` 命令条数与阶段匹配、路径解析在模拟驱动器表上正确、等待策略映射到正确的 `CreateProcess` 标志。
+断言：`RunSynchronous` 命令条数与阶段匹配、路径解析在模拟驱动器表上正确、等待策略映射到正确的
+**执行标志 + 等待方式组合**。
+
+> **口径修正（2026-10-24）**：原文写"等待策略映射到正确的 `CreateProcess` 标志"，这句在 Win32 层面
+> 不成立 —— `CreateProcess` 的 `dwCreationFlags` 里**没有**"等待"这个语义，等待由调用方
+> `WaitForSingleObject(hProcess, …)` 决定。三种策略的正确映射是：
+>
+> | 等待策略 | `dwCreationFlags` | 等待方式 |
+> |---|---|---|
+> | 不等待 | `CREATE_NEW_PROCESS_GROUP`（便于后续可选的整组终止） | 立即 `CloseHandle`，不 `Wait` |
+> | 等待退出 | `0` | `WaitForSingleObject(hProcess, INFINITE)` + `GetExitCodeProcess` |
+> | 等待超时 | `0` | `WaitForSingleObject(hProcess, timeoutMs)`，超时按配置决定终止或继续，两种结果都要写进日志 |
+>
+> 验收脚本断言的是**这张表的两列**，不是单个标志。`verify_runplan.py` 校验生成的计划文件，
+> 运行时实际传的标志由 `tests/unit/test_runplan.cpp` 覆盖。
 
 ### M5 — 部署运行时（2 周）
 
