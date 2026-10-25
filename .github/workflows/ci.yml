@@ -212,6 +212,23 @@ jobs:
           Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0
 
+      # M6 增量（宪章 §9.7）：驱动注入两种模式 + sysprep 编排。
+      # 三条 gate 全部走 --dry-run；夹具在 build\m6 下运行时生成，仓库里不落任何
+      # 真实驱动二进制。同时断言：没链接 DismApi.dll、dry-run 没有任何副作用。
+      - name: M6 驱动注入验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' |
+            Tee-Object -FilePath m6-drivers.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content m6-drivers.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
       # 上传前先断言产物真实存在且非空，并把实际字节数打进日志。
       # if-no-files-found 只能证明"有文件"，证明不了"文件非空"。
       - name: Artifact 内容断言

@@ -8,6 +8,9 @@ add_executable(osp_unit_tests
   test_runplan.cpp
   test_win7.cpp
   test_deploy.cpp
+  test_dism.cpp
+  test_srsinject.cpp
+  test_sysprep.cpp
 )
 
 target_link_libraries(osp_unit_tests PRIVATE osp::core)

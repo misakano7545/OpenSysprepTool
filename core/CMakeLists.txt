@@ -9,6 +9,10 @@ add_library(osp_core STATIC
   # M5 新增：Windows 7 兼容层与部署运行时内核
   win7/win7compat.cpp
   deploy/deploy.cpp
+  # M6 新增：驱动注入（两种模式）与 sysprep 编排
+  dism/dism.cpp
+  srsinject/srsinject.cpp
+  sysprep/sysprep.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp
 )

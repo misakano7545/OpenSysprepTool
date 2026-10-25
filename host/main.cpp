@@ -5,9 +5,12 @@
 #include <string>
 
 #include "core/config.hpp"
+#include "core/dism.hpp"
 #include "core/log.hpp"
 #include "core/runplan.hpp"
+#include "core/srsinject.hpp"
 #include "core/sysinfo.hpp"
+#include "core/sysprep.hpp"
 #include "core/unattend.hpp"
 #include "core/version.hpp"
 
@@ -31,6 +34,10 @@ void printUsage()
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
     std::printf("  ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]  生成运行计划\n");
+    std::printf("  ospt --inject-drivers --image <挂载点> --driver <目录> --dry-run  模式 A 标准驱动包\n");
+    std::printf("  ospt --inject-drivers --image <挂载点> --srs <目录> --dry-run     模式 B SRS 注册表绑定\n"
+    );
+    std::printf("  ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]     封装编排\n");
     std::printf("  ospt --version     版本与源码地址\n");
 }
 
@@ -121,7 +128,15 @@ std::string toUtf8(const std::filesystem::path& path)
 
 bool writeTextFile(const std::string& utf8Path, const std::string& text, std::string& error)
 {
-    std::ofstream out(std::filesystem::path(utf8Path), std::ios::binary | std::ios::trunc);
+    const std::filesystem::path path(utf8Path);
+    // 父目录不存在时先建出来：--report build/m6/x.json 这类调用很常见，
+    // 让调用方自己 mkdir 是没必要的摩擦。
+    if (path.has_parent_path())
+    {
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+    }
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out)
     {
         error = "cannot open for writing: " + utf8Path;
@@ -474,6 +489,324 @@ int runGenRunplan(int argc, char** argv)
     return 0;
 }
 
+// ---------------------------------------------------------------- M6：驱动注入
+
+int runInjectDrivers(int argc, char** argv)
+{
+    const char* image = nullptr;
+    const char* driverDir = nullptr;
+    const char* srsDir = nullptr;
+    const char* mountKey = nullptr;
+    const char* reportPath = nullptr;
+    bool dryRun = false;
+    bool execute = false;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        const auto value = [&i, argc, argv](const char* name) -> const char* {
+            if (i + 1 >= argc)
+            {
+                std::printf("%s 需要一个值\n", name);
+                return nullptr;
+            }
+            return argv[++i];
+        };
+
+        if (arg == "--inject-drivers")
+        {
+            continue;
+        }
+        if (arg == "--image")
+        {
+            image = value("--image");
+        }
+        else if (arg == "--driver")
+        {
+            driverDir = value("--driver");
+        }
+        else if (arg == "--srs")
+        {
+            srsDir = value("--srs");
+        }
+        else if (arg == "--mount-key")
+        {
+            mountKey = value("--mount-key");
+        }
+        else if (arg == "--report")
+        {
+            reportPath = value("--report");
+        }
+        else if (arg == "--dry-run")
+        {
+            dryRun = true;
+        }
+        else if (arg == "--execute")
+        {
+            execute = true;
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    if (image == nullptr)
+    {
+        std::printf("--image <挂载点> 是必需的\n\n");
+        printUsage();
+        return 2;
+    }
+    if (driverDir == nullptr && srsDir == nullptr)
+    {
+        std::printf("需要 --driver <目录>（模式 A 标准驱动包）或 --srs <目录>（模式 B SRS 包）\n");
+        return 2;
+    }
+    if (driverDir != nullptr && srsDir != nullptr)
+    {
+        std::printf("--driver 与 --srs 是两种不同的注入模式，一次只能给一个\n");
+        return 2;
+    }
+
+    if (driverDir != nullptr)
+    {
+        const osp::dism::Plan plan = osp::dism::plan(image, driverDir);
+        if (!plan.ok)
+        {
+            std::printf("%s\n", plan.error.c_str());
+            return 1;
+        }
+
+        std::fputs(osp::dism::dryRunReport(plan).c_str(), stdout);
+
+        if (reportPath != nullptr)
+        {
+            std::string error;
+            if (!writeTextFile(reportPath, osp::dism::toJson(plan), error))
+            {
+                std::printf("%s\n", error.c_str());
+                return 1;
+            }
+        }
+
+        if (dryRun)
+        {
+            std::printf("RESULT: DRY-RUN OK  （模式 A，%zu 条 dism 命令）\n", plan.commands.size());
+            return 0;
+        }
+        if (!execute)
+        {
+            std::printf("\n真实执行会调用 dism 改动挂载点，需要显式加 --execute；"
+                        "只想看将做什么请加 --dry-run\n");
+            return 2;
+        }
+
+        for (const osp::dism::Command& command : plan.commands)
+        {
+            std::printf("执行: %s\n", command.commandLine.c_str());
+            std::uint32_t code = 0;
+            std::string error;
+            if (!osp::dism::runCommand(command.commandLine, code, error))
+            {
+                std::printf("%s\n", error.c_str());
+                std::printf("RESULT: FAILED\n");
+                return 1;
+            }
+            std::printf("  退出码 %u\n", code);
+            if (code != 0)
+            {
+                std::printf("RESULT: FAILED\n");
+                return 1;
+            }
+        }
+        std::printf("RESULT: OK\n");
+        return 0;
+    }
+
+    const osp::srsinject::Plan plan =
+        osp::srsinject::plan(image, srsDir, mountKey != nullptr ? std::string(mountKey) : std::string());
+    if (!plan.ok)
+    {
+        std::printf("%s\n", plan.error.c_str());
+        return 1;
+    }
+
+    std::fputs(osp::srsinject::dryRunReport(plan).c_str(), stdout);
+
+    if (reportPath != nullptr)
+    {
+        std::string error;
+        if (!writeTextFile(reportPath, osp::srsinject::toJson(plan), error))
+        {
+            std::printf("%s\n", error.c_str());
+            return 1;
+        }
+    }
+
+    if (dryRun)
+    {
+        std::printf(
+            "RESULT: DRY-RUN OK  （模式 B，%zu 个 .sys / %zu 个注册表项）\n",
+            plan.sysFileCount,
+            plan.registryOpCount
+        );
+        return 0;
+    }
+    if (!execute)
+    {
+        std::printf("\n真实执行会挂载并改写目标 SYSTEM hive，需要管理员权限，"
+                    "必须显式加 --execute；只想看将做什么请加 --dry-run\n");
+        return 2;
+    }
+
+    std::vector<std::string> log;
+    std::string error;
+    const bool done = osp::srsinject::execute(plan, log, error);
+    for (const std::string& line : log)
+    {
+        std::printf("  %s\n", line.c_str());
+    }
+    if (!done)
+    {
+        std::printf("%s\n", error.c_str());
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+    std::printf("RESULT: OK\n");
+    return 0;
+}
+
+// ---------------------------------------------------------------- M6：sysprep
+
+int runSysprep(int argc, char** argv)
+{
+    osp::sysprep::Options options;
+    std::string reportPath;
+    bool dryRun = false;
+    bool execute = false;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        const auto value = [&i, argc, argv](const char* name) -> std::string {
+            if (i + 1 >= argc)
+            {
+                std::printf("%s 需要一个值\n", name);
+                return std::string();
+            }
+            return std::string(argv[++i]);
+        };
+
+        if (arg == "--sysprep")
+        {
+            continue;
+        }
+        if (arg == "--image")
+        {
+            options.image = value("--image");
+        }
+        else if (arg == "--unattend")
+        {
+            options.unattendPath = value("--unattend");
+        }
+        else if (arg == "--after")
+        {
+            options.afterAction = value("--after");
+        }
+        else if (arg == "--mode")
+        {
+            options.mode = value("--mode");
+        }
+        else if (arg == "--report")
+        {
+            reportPath = value("--report");
+        }
+        else if (arg == "--dry-run")
+        {
+            dryRun = true;
+        }
+        else if (arg == "--execute")
+        {
+            execute = true;
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    if (!options.afterAction.empty() && options.afterAction != "quit" && options.afterAction != "reboot" &&
+        options.afterAction != "shutdown")
+    {
+        std::printf("--after 只接受 quit / reboot / shutdown，收到 %s\n", options.afterAction.c_str());
+        return 2;
+    }
+
+    const osp::sysprep::Report report = osp::sysprep::plan(options);
+    if (!report.error.empty())
+    {
+        std::printf("%s\n", report.error.c_str());
+        return 1;
+    }
+
+    std::fputs(osp::sysprep::dryRunReport(report).c_str(), stdout);
+
+    if (!reportPath.empty())
+    {
+        std::string writeError;
+        if (!writeTextFile(reportPath, osp::sysprep::toJson(report), writeError))
+        {
+            std::printf("%s\n", writeError.c_str());
+            return 1;
+        }
+    }
+
+    if (dryRun)
+    {
+        std::printf("RESULT: DRY-RUN OK  （命令行 %zu 个参数）\n", report.parameters.size());
+        return 0;
+    }
+    if (!execute)
+    {
+        std::printf("\n真实执行会立即封装本机（不可逆）并关机/重启，必须显式加 --execute；"
+                    "只想看将做什么请加 --dry-run\n");
+        return 2;
+    }
+    if (!report.programExists)
+    {
+        std::printf("找不到 sysprep.exe: %s，无法执行\n", report.program.c_str());
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+    if (!report.blockers.empty())
+    {
+        std::printf("存在阻塞项，拒绝执行：\n");
+        for (const std::string& blocker : report.blockers)
+        {
+            std::printf("  - %s\n", blocker.c_str());
+        }
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+
+    std::uint32_t code = 0;
+    std::string runError;
+    std::printf("执行: %s\n", report.commandLine.c_str());
+    if (!osp::dism::runCommand(report.commandLine, code, runError))
+    {
+        std::printf("%s\n", runError.c_str());
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+    std::printf("退出码 %u\n", code);
+    std::printf("RESULT: %s\n", code == 0 ? "OK" : "FAILED");
+    return code == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -504,6 +837,16 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--gen-runplan") == 0)
     {
         return runGenRunplan(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--inject-drivers") == 0)
+    {
+        return runInjectDrivers(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--sysprep") == 0)
+    {
+        return runSysprep(argc, argv);
     }
 
     if (std::strcmp(arg, "--version") == 0)
