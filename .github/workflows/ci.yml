@@ -173,35 +173,41 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
+          $failed = $false
 
-          $artifacts = @(
-            '.\build\bin\Release\osptd.exe',
-            '.\build\bin\Release\ospt.exe',
-            '.\build\bin\Release\osp_unit_tests.exe'
-          )
-
-          function Invoke-Gate {
-            param([string]$Log, [string[]]$Argv)
-            python tests\integration\verify_win7_compat.py @Argv *>&1 |
-              Tee-Object -FilePath $Log
-            $rc = $LASTEXITCODE
-            if ($rc -ne 0) {
-              $hits = Get-Content $Log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
-              if ($hits) {
-                $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
-              } else {
-                Get-Content $Log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
-              }
+          # 不使用函数包装：函数里 Tee-Object 的输出会进函数返回值，
+          # 既让闸门自己的输出从控制台消失，又把退出码搅成数组比较。
+          python tests\integration\verify_win7_compat.py `
+            '.\build\bin\Release\osptd.exe' `
+            '.\build\bin\Release\ospt.exe' `
+            '.\build\bin\Release\osp_unit_tests.exe' *>&1 |
+            Tee-Object -FilePath win7-compat.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content win7-compat.log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content win7-compat.log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
             }
-            return $rc
+            $failed = $true
           }
 
-          $code = Invoke-Gate -Log 'win7-compat.log' -Argv $artifacts
-          if ($code -ne 0) { exit $code }
+          # 负例：篡改产物后闸门必须失败，否则闸门就是橡皮章
+          python tests\integration\verify_win7_compat_negative.py '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath win7-compat-negative.log
+          $code2 = $LASTEXITCODE
+          if ($code2 -ne 0) {
+            $hits2 = Get-Content win7-compat-negative.log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits2) {
+              $hits2 | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content win7-compat-negative.log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            $failed = $true
+          }
 
-          $code2 = Invoke-Gate -Log 'win7-compat-negative.log' `
-            -Argv @('.\build\bin\Release\osptd.exe')
-          if ($code2 -ne 0) { exit $code2 }
+          if ($failed) { exit 1 }
 
           Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0
