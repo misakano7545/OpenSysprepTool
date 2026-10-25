@@ -81,8 +81,9 @@ D:\dev\OpenSysprepTool\
     └─ 驱动集说明.md           驱动集的调研与版权说明（见第 6.1 节）
 ```
 
-**本仓库不含驱动二进制。** 驱动集在独立仓库 `OpenSysprepTool-drivers`
-（本地 `D:\dev\OpenSysprepTool-drivers`），布局与用法见第 6.1 节与 §8 M6。
+**本仓库不含驱动二进制。** 驱动集在独立仓库
+**`https://github.com/misakano7545/OpenSysprepDriver`**（本地 `D:\dev\OpenSysprepDriver`），
+布局与用法见第 6.1 节与 §8 M6。
 
 **约定**：`core/` 下每个子目录先有 `.gitkeep` 占位，实际实现时再补 CMake 源文件列表。
 
@@ -170,7 +171,10 @@ ctest --test-dir build -C Release --output-on-failure
 
 ### 6.1 外部驱动仓库（不进本仓库）
 
-驱动集放在**独立仓库** `OpenSysprepTool-drivers`，**本仓库不含任何驱动二进制**。
+驱动集放在**独立仓库 `OpenSysprepDriver`**，**本仓库不含任何驱动二进制**。
+
+- 远端：`https://github.com/misakano7545/OpenSysprepDriver`
+- 本地：`D:\dev\OpenSysprepDriver`（与主仓库并列）
 
 理由：那批驱动的著作权归 Intel / AMD / NVIDIA / Marvell / VIA / SiS / JMicron / ITE / ALi /
 Microsoft 等各权利人，**授权状态无法逐一确认**。放进 GPL-3.0 仓库会把许可讲混
@@ -644,7 +648,7 @@ M7 用 **原生 Win32 标准控件**（WTL 薄封装），先出可用 demo，�
 **因此 M6 必须实现两种注入模式**（已写入 §8 M6）：A 标准驱动包走 `dism /add-driver`；
 B SRS 注册表绑定走离线 hive 注入。**只做 DISM 用不了 SC 这批驱动。**
 
-**交付形态（已定死）**：驱动二进制入**独立仓库 `OpenSysprepTool-drivers`**，不并入本 GPL-3.0
+**交付形态（已定死）**：驱动二进制入**独立仓库 `OpenSysprepDriver`**，不并入本 GPL-3.0
 主仓库 —— 隔离 takedown 风险，也避免把许可讲混。仓库 README 写明版权归各权利人、本仓库不主张
 权利、收到通知即删，`manifest.json` 带 SHA-256 证明文件未修改。
 
@@ -653,12 +657,12 @@ B SRS 注册表绑定走离线 hive 注入。**只做 DISM 用不了 SC 这批�
 | # | 决策项 | 结论 | 落地状态 |
 |---|---|---|---|
 | 1 | `FUNB/MS/` 那 18 个非微软署名的 in-box `.sys` 留不留 | **留**。`MS/` 整体保留（20 文件 / 18 sys），因为它含最大的 CDD 覆盖（679 条 CDD + 119 个 Services），剔除会显著缩小老机型覆盖。入库集合维持 **93 文件 / 12.7 MB** | ✅ 已入库 |
-| 2 | 独立仓库还是并入主仓库 | **独立仓库 `OpenSysprepTool-drivers`**。主仓库保持纯 GPL-3.0 代码，驱动作为独立聚合仓库发布；主仓库 README 与本文档都指向它 | ✅ 仓库已建，待推送远端 |
+| 2 | 独立仓库还是并入主仓库 | **独立仓库 `OpenSysprepDriver`**（`https://github.com/misakano7545/OpenSysprepDriver`）。主仓库保持纯 GPL-3.0 代码，驱动作为独立聚合仓库发布；主仓库 README 与本文档都指向它 | ✅ 仓库已建，待推送 |
 | 3 | 二进制入库，还是只放 manifest + 导入脚本 | **二进制入库**。风险靠 README 版权声明、SHA-256 清单、独立仓库三项缓解；代价是新用户克隆即用，不必自备驱动 | ✅ 已入库 |
 
 三项已全部落地，**无需再议**。
 
-**目录**：本地 `D:\dev\OpenSysprepTool-drivers`（与主仓库并列），内容 98 文件 / 12.7 MB：
+**目录**：本地 `D:\dev\OpenSysprepDriver`（与主仓库并列），内容 98 文件 / 12.7 MB：
 `srs/`（83 文件 / 5.5 MB，10 个厂商 + MS）、`vmd/`（10 文件 / 7.2 MB，Intel RST VMD 两个版本）、
 `README.md`、`manifest.json`（93 条记录，全量 SHA-256 校验通过）、`LICENSE`、`.gitattributes`、`驱动集说明.md`。
 
