@@ -271,6 +271,23 @@ std::vector<std::string> resolvedProcs()
     return cache.resolved;
 }
 
+bool isElevated()
+{
+    // TokenElevation 查询 Vista+ 就有，静态导入不违反 Win7 闸门。
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == 0)
+    {
+        return false;
+    }
+
+    TOKEN_ELEVATION elevation = {};
+    DWORD returned = 0;
+    const BOOL ok = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &returned);
+    CloseHandle(token);
+
+    return ok != 0 && elevation.TokenIsElevated != 0;
+}
+
 std::uint64_t fileTimeNow()
 {
     FILETIME now = {};

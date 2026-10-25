@@ -10,7 +10,9 @@
 
 断言：
   1. PE 的 MajorSubsystemVersion.MinorSubsystemVersion == 6.1（默认停在 6.0/Vista，
-     必须显式用 /SUBSYSTEM:CONSOLE,6.01 钉死）
+     必须显式用 /SUBSYSTEM:...,6.01 钉死）
+  1b. 子系统**类型**与 target 相符：ospt.exe 是 WINDOWS(2)（不分配控制台，正常启动
+     只出现界面），osptd.exe 与测试产物是 CONSOLE(3)
   2. 导入表里没有已知的 Windows 8 及以上 API
   3. 导入表里没有 VCRUNTIME140 / MSVCP140 / ucrtbase / api-ms-win-*
   4. 产物里出现的每个 Win8+ API 名字，都必须出现在它自己声明的动态解析白名单里
@@ -34,6 +36,16 @@ import sys
 # ---------------------------------------------------------------- 期望值
 
 EXPECTED_SUBSYSTEM = (6, 1)
+
+# 子系统**类型**：ospt.exe 是 GUI 子系统（正常启动不出现命令行窗口），
+# 其余产物是控制台程序。宪章 §10 记的「/SUBSYSTEM 曾对所有 exe 写死，
+# M7 改 GUI 子系统要按 target 区分」就在这里被钉住。
+EXPECTED_SUBSYSTEM_KIND = {
+    "ospt.exe": 2,  # WINDOWS
+    "osptd.exe": 3,  # CONSOLE
+    "osp_unit_tests.exe": 3,
+}
+SUBSYSTEM_KIND_NAME = {2: "WINDOWS(GUI)", 3: "CONSOLE"}
 EXPECTED_WINVER = 0x0601
 EXPECTED_WIN32_WINNT = 0x0601
 EXPECTED_NTDDI_VERSION = 0x06010000
@@ -165,6 +177,10 @@ class Pe:
 
         self.major_subsystem, self.minor_subsystem = struct.unpack_from(
             "<HH", self.data, self.opt + 48)
+
+        # 子系统**类型**：2=WINDOWS(GUI) 3=CONSOLE。同一个 6.1 版本号下，
+        # 类型决定了装载器会不会分配控制台（也就是有没有命令行窗口）。
+        self.subsystem_kind = struct.unpack_from("<H", self.data, self.opt + 68)[0]
 
         if self.pe32plus:
             self.data_dirs = self.opt + 112
@@ -316,6 +332,15 @@ def verify_file(path: str) -> None:
     check(f"子系统的版本是 {EXPECTED_SUBSYSTEM[0]}.{EXPECTED_SUBSYSTEM[1]}",
           pe.subsystem == EXPECTED_SUBSYSTEM,
           f"实测 {pe.major_subsystem}.{pe.minor_subsystem}")
+
+    # 第 1b 条：子系统类型（决定有没有命令行窗口）
+    want_kind = EXPECTED_SUBSYSTEM_KIND.get(os.path.basename(path))
+    if want_kind is not None:
+        check(
+            f"{os.path.basename(path)} 的子系统类型是 {SUBSYSTEM_KIND_NAME[want_kind]}（{want_kind}）",
+            pe.subsystem_kind == want_kind,
+            f"实测 {pe.subsystem_kind}（{SUBSYSTEM_KIND_NAME.get(pe.subsystem_kind, '?')}）",
+        )
 
     # 第 3 条：运行库
     imports = pe.imports()

@@ -4,6 +4,8 @@
 #include <fstream>
 #include <string>
 
+#include <windows.h>
+
 #include "core/config.hpp"
 #include "core/dism.hpp"
 #include "core/log.hpp"
@@ -19,6 +21,33 @@
 namespace {
 
 constexpr const char* kRepoUrl = "https://github.com/misakano7545/OpenSysprepTool";
+
+// ospt.exe 现在是 GUI 子系统：正常启动不再出现命令行窗口（宪章 §10 记的「M7 若改 GUI
+// 子系统要按 target 区分」）。代价是它不再自动获得控制台 —— 命令行开关的输出在
+// cmd.exe 这种「有控制台但没把句柄交下来」的场景会整段消失。
+//
+// 只在 **stdout 不可用** 的时候才回落到父控制台。反过来无条件 attach 会把调用方给的
+// 重定向流劫走：脚本与 CI 抓到的就是空字符串（实测踩过）。
+void attachParentConsoleIfNeeded()
+{
+    const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
+    const bool usable =
+        out != nullptr && out != INVALID_HANDLE_VALUE && ::GetFileType(out) != FILE_TYPE_UNKNOWN;
+    if (usable)
+    {
+        return; // 管道 / 文件 / 已挂上控制台，一律不动
+    }
+
+    if (::AttachConsole(ATTACH_PARENT_PROCESS) == 0)
+    {
+        return; // 没有父控制台（例如双击启动）：输出丢弃，退出码照旧有效
+    }
+
+    FILE* stream = nullptr;
+    freopen_s(&stream, "CONOUT$", "w", stdout);
+    freopen_s(&stream, "CONOUT$", "w", stderr);
+    freopen_s(&stream, "CONIN$", "r", stdin);
+}
 
 // GPL-3.0 要求分发二进制时提供源码获取方式
 void printVersion()
@@ -911,6 +940,9 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    // GUI 子系统下没有控制台：命令行开关要输出就自己挂回父控制台
+    attachParentConsoleIfNeeded();
+
     // 不带参数 = 打开配置界面（双击 exe 就能用）
     if (argc < 2)
     {

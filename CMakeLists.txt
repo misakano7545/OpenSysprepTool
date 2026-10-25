@@ -41,8 +41,16 @@ if(MSVC)
 
   # 第二道闸的可见前提：PE 的 MajorSubsystemVersion 必须是 6.1。
   # 默认由 SDK 决定（实测停在 6.0/Vista），显式钉死。
-  # 这是链接器选项，不是编译定义 —— 见本文件末尾的边界说明。
-  add_link_options("/SUBSYSTEM:CONSOLE,6.01")
+  #
+  # 子系统 **按 target 区分**（宪章 §10：`/SUBSYSTEM:CONSOLE,6.01` 曾在这里对所有 exe
+  # 写死，记录「M7 若把 ospt.exe 改成 GUI 子系统会冲突，届时要按 target 区分」）：
+  #   ospt  : WINDOWS,6.01 —— 正常启动不出现命令行窗口，只显示界面
+  #   osptd : CONSOLE,6.01 —— 部署运行时是控制台程序，单页进度页要用控制台
+  #   测试  : CONSOLE,6.01 —— doctest 输出
+  # 各 target 在自己的 CMakeLists 里设，见 host/ deploy/ tests/。
+  #
+  # 提权：ospt 与 osptd 的 manifest 声明 requireAdministrator（装驱动 / 跑 sysprep
+  # 都需要管理员），见各自 CMakeLists 里的 /MANIFESTUAC。
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

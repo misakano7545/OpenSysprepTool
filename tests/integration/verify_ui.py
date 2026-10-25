@@ -24,6 +24,10 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+from peinfo import require_elevated  # noqa: E402  （同目录的共享 PE 工具）
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # 与 host/ui/ui_pages.cpp 的 pagesFromConfig 顺序一致
@@ -217,6 +221,8 @@ def main(argv: list[str]) -> int:
     section("前置")
     if not check("ospt.exe 存在", os.path.isfile(ospt), ospt):
         return 1
+    if not require_elevated(ospt):
+        return 3
 
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     # 先删掉上一次的报告：否则产物没写出报告时会读到残留，闸门就成了空判

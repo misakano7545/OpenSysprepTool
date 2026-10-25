@@ -122,6 +122,10 @@ int runWin7Compat(int argc, char** argv)
         root["dynamicApiWhitelist"] = std::move(whitelist);
         root["resolvedProcs"] = osp::win7::resolvedProcs();
 
+        // osptd 的 manifest 要求管理员权限：能跑到这里就说明已经提权。
+        // 闸门脚本用这一项确认「产物确实在要权限」，也用来记录 CI runner 的令牌状态。
+        root["elevated"] = osp::win7::isElevated();
+
         json os;
         os["major"] = version.major;
         os["minor"] = version.minor;
@@ -180,6 +184,7 @@ int runWin7Compat(int argc, char** argv)
     std::printf("\n运行期系统\n");
     std::printf("  %s\n", osp::win7::describe(version).c_str());
     std::printf("  是否满足最低目标（Win7 SP1）: %s\n", osp::win7::isSupportedTarget(version) ? "是" : "否");
+    std::printf("  已提权（管理员令牌）: %s\n", osp::win7::isElevated() ? "是" : "否");
     std::printf("  时间戳样例: %s\n", osp::win7::formatFileTime(stamp).c_str());
     return 0;
 }

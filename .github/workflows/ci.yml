@@ -245,6 +245,43 @@ jobs:
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0
 
+      # 管理员权限闸门：两个产品清单必须是 requireAdministrator、测试产物是 asInvoker，
+      # ospt.exe 是 GUI 子系统（不分配控制台，正常启动只有界面），未提权启动必须被系统拒绝。
+      # 顺带把 runner 的令牌状态打进日志（--win7-compat 的 elevated 字段），
+      # 因为 CI 步骤要能启动这两个产物，前提是 runner 的进程本身已提权。
+      - name: 管理员权限闸门
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'elevation.log'
+
+          $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $elevated = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host "runner 会话是否已提权: $elevated  (user=$($id.Name))"
+
+          python tests\integration\verify_elevation.py `
+            '.\build\bin\Release\ospt.exe' `
+            '.\build\bin\Release\osptd.exe' `
+            '.\build\bin\Release\osp_unit_tests.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            exit $code
+          }
+
+          Get-Content $log | Select-String -Pattern 'SKIP' |
+            ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
+          exit 0
+
       # M6 增量（宪章 §9.7）：驱动注入两种模式 + sysprep 编排。
       # 三条 gate 全部走 --dry-run；夹具在 build\m6 下运行时生成，仓库里不落任何
       # 真实驱动二进制。同时断言：没链接 DismApi.dll、dry-run 没有任何副作用。

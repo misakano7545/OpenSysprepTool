@@ -99,6 +99,13 @@ void* resolve(const char* module, const char* proc);
 // 本次进程里解析成功的 API 名（"module!proc"），供 --win7-compat 输出
 std::vector<std::string> resolvedProcs();
 
+// ---------------------------------------------------------------- 提权状态
+//
+// ospt.exe / osptd.exe 的 manifest 声明的是 requireAdministrator，Windows 在启动前
+// 就会要求提权；能跑起来说明令牌已经是提权过的。这个查询用于自述与闸门核对
+// （例如 CI 上确认 runner 真的给了管理员权限）。
+bool isElevated();
+
 // ---------------------------------------------------------------- 时间
 
 // GetSystemTimePreciseAsFileTime（Win8+）优先，缺失时回退 GetSystemTimeAsFileTime。

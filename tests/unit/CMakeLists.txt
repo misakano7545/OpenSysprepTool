@@ -25,4 +25,11 @@ target_include_directories(osp_unit_tests PRIVATE
   ${CMAKE_SOURCE_DIR}/third_party/pugixml
 )
 
+# 测试跑在控制台，且**不提权**：测试目标要能在任何会话（含 CI 的非提权步骤）里直接跑，
+# 所以显式钉 asInvoker，避免误继承产品那边的 requireAdministrator。
+target_link_options(osp_unit_tests PRIVATE
+  "/SUBSYSTEM:CONSOLE,6.01"
+  "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+)
+
 add_test(NAME unit COMMAND osp_unit_tests)

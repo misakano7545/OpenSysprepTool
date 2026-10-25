@@ -34,6 +34,8 @@ M1 起每个里程碑都有**两条并列的验收线，缺一不可**：本地�
 
 **绿色程序，不需要安装**，也没有服务与计划任务。全部产物静态链接（`/MT`），
 目标机**不需要装 VC 运行库**；子系统版本固定为 6.1，Windows 7 SP1 及以上可用。
+`ospt.exe` 与 `osptd.exe` 需要**管理员权限**（启动时由 Windows 请求提权），
+其中 `ospt.exe` 正常启动只出现界面窗口，不附带命令行窗口。
 
 ### 前置条件
 
@@ -92,8 +94,26 @@ osptd --version                                         版本与源码地址
 
 ### 配置界面
 
-双击 `ospt.exe`（或 `ospt` / `ospt --ui`）就打开配置界面，**关掉窗口才退出**。7 个页签：
+**双击 `ospt.exe`（或 `ospt` / `ospt --ui`）就打开配置界面，关掉窗口才退出，且不会附带命令行窗口** ——
+`ospt.exe` 是 GUI 子系统（`/SUBSYSTEM:WINDOWS,6.01`），装载器不为它分配控制台。7 个页签：
 母盘系统 / 目标系统 / 计划任务 / 部署过程 / 封装过程 / 运行 / 完成。
+
+#### 需要管理员权限
+
+`ospt.exe` 与 `osptd.exe` 的嵌入清单声明 **`requireAdministrator`**（装驱动、写离线注册表、
+跑 sysprep 都要管理员），所以：
+
+- 启动时由 Windows 请求提权（UAC）。把 UAC 设成「从不通知」的机器不会弹窗，直接以管理员运行。
+- **未提权的会话根本启动不了它**：`CreateProcess` 直接返回
+  `740 ERROR_ELEVATION_REQUIRED`，进程不会跑起来（bash 里表现为 `Permission denied` / 退出码 126，
+  PowerShell 里是「请求的操作需要提升」）。这不是缺陷，是系统在装载阶段拦下的。
+- 因此**命令行开关也要求提权**（清单是整只 exe 的属性，无法只对界面生效）：请在
+  已提权的终端里跑 `ospt --checkup` 之类，或双击用界面。
+- 单元测试产物 `osp_unit_tests.exe` 保持 `asInvoker`，任何会话里都能直接跑。
+- 本机跑验收请用 `tests/tools/run_acceptance_elevated.ps1`：它自己拉一个提权会话把全部闸门
+  跑一遍，只需提权一次。
+
+界面本身：
 
 - **文件 → 打开配置… / 另存为配置…**：读写 `cfg.json`（就是 `--gen-unattend` /
   `--gen-runplan` 吃的那种配置文件，同一份模型）。标题栏显示当前文件名，改过没存会带 `*`，
@@ -108,6 +128,16 @@ osptd --version                                         版本与源码地址
 ## 测试与验收
 
 ### 本地验收
+
+`ospt.exe` / `osptd.exe` 要求管理员权限，**下面这些步骤必须在提权会话里跑**（否则产物根本
+启动不了，报 740）。最省事的方式是走统一入口，它自己拉提权会话：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tests/tools/run_acceptance_elevated.ps1
+powershell -ExecutionPolicy Bypass -File tests/tools/run_acceptance_elevated.ps1 -BuildDir build-x86
+```
+
+下面是展开后的命令，供在**已提权的终端**里逐条手跑：
 
 ```bash
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
@@ -131,6 +161,7 @@ python tests/integration/verify_deploy_exec.py build/bin/Release/ospt.exe build/
 python tests/integration/verify_win7_compat.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe
 python tests/integration/verify_drivers.py build/bin/Release/ospt.exe
 python tests/integration/verify_ui.py build/bin/Release/ospt.exe
+python tests/integration/verify_elevation.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe build/bin/Release/osp_unit_tests.exe
 
 python tests/integration/verify_release.py --check-tag v0.1.1
 python tests/integration/verify_release.py --check-workflow .github/workflows/release.yml
@@ -143,11 +174,12 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 | `ospt.exe --selftest` | 打印 `config roundtrip OK` |
 | `ospt.exe --ui-smoke-test` | 退出码 0；7 个配置页全部打开、控件全部响应、菜单与配置读写都能跑通、退出无崩溃 |
 | `ospt.exe --ui` | 开出常驻窗口（类名 `OSPTMainFrame`），关窗后退出码 0；`verify_ui.py` 会启动它、等窗口出现、确认 2 秒后仍在运行、再发 `WM_CLOSE` 核对退出 |
+| `verify_elevation.py` | 两个产品清单声明 `requireAdministrator`、测试产物 `asInvoker`；`ospt.exe` 是 WINDOWS 子系统（不分配控制台）、`osptd.exe` 是 CONSOLE；三者子系统版本仍 6.1；未提权会话启动必须失败并报 `740` |
 | `verify_checkup.py` | 全绿；含「OS 版本与 `cmd /c ver` 一致」「sysprep.exe 真实存在」「分区容量偏差 ≤1%」三条硬证据 |
 | `verify_unattend.py` | 全绿；含命名空间、元素顺序、父子嵌套、pass 合法性、计算机名规则、AutoLogon 次数、登录阶段落点 |
 | `verify_runplan.py` | 全绿；覆盖 5 阶段 × 4 类型 × 4 运行方式 × 3 等待策略 × 4 路径类型 |
 | `verify_deploy_exec.py` | 全绿；dry-run 无副作用、等待/超时/中止与回滚都真实执行 |
-| `verify_win7_compat.py` | 子系统 6.1、导入表无 Win8+ API、无动态 VC 运行库；外附 4 组篡改负例 |
+| `verify_win7_compat.py` | 子系统版本 6.1 且类型与 target 相符（ospt=WINDOWS）、导入表无 Win8+ API、无动态 VC 运行库；外附 4 组篡改负例 |
 | `verify_drivers.py` | 全绿；断言仓库里没有任何驱动二进制、没有链接 DismApi.dll、dry-run 零副作用 |
 | `verify_ui.py` | 全绿；逐页核对打开情况、统计六类控件响应证据、断言红线控件名不出现 |
 | `verify_release.py --check-tag` | tag 去掉 `v` 后与 `core/include/core/version.hpp` 的三段版本号完全一致，否则失败 |

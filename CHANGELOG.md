@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- `tests/integration/verify_elevation.py`：管理员权限闸门 —— 断言两个产品的嵌入清单声明
+  `requireAdministrator`、测试产物声明 `asInvoker`；`ospt.exe` 是 WINDOWS 子系统、
+  `osptd.exe` 是 CONSOLE，子系统版本仍为 6.1；**未提权会话启动必须失败并报 `740`**
+- `tests/tools/run_acceptance_elevated.ps1`：本机验收统一入口，自己拉一个提权会话把全部闸门
+  跑一遍（未提权时用 runas 自我重启，只需提权一次）
+- `tests/integration/peinfo.py`：闸门共用的极小 PE 读取工具（机器类型、子系统类型与版本、
+  嵌入清单里的 `requestedExecutionLevel`、当前会话是否提权），不依赖 Windows SDK 的 mt.exe
+
+### Changed
+
+- **`ospt.exe` 改成 GUI 子系统**（`/SUBSYSTEM:WINDOWS,6.01` + `/ENTRY:mainCRTStartup`）：
+  正常启动只出现配置界面，不再附带命令行窗口。CLI 与冒烟测试的输出改为在 stdout
+  不可用时回落到父控制台（`AttachConsole`），重定向与管道场景一律不碰
+- **`ospt.exe` 与 `osptd.exe` 的嵌入清单声明 `requireAdministrator`**：启动由 Windows
+  请求提权；未提权的会话会被系统在装载阶段拒绝（`740`）。单元测试产物显式钉 `asInvoker`
+- `verify_win7_compat.py` 增加了子系统**类型**断言（此前只看版本 6.1，改成 GUI 子系统不会被发现）
+- `verify_ui.py` / `verify_drivers.py` / `verify_deploy_exec.py` 增加提权前置检查：
+  未提权时打印明确原因并以退出码 3 结束，避免看起来像产品坏了
+- `osptd --win7-compat` 的自述增加 `elevated` 字段（同时用于 CI 记录 runner 的令牌状态）
+
 ## [0.1.1] - 2026-10-25
 
 M7 收尾：把配置界面接成能日常使用的程序（可启动、可常驻、配置能读写）。

@@ -1,15 +1,24 @@
 # host —— 主程序 ospt.exe
 #
-# 注意子系统：仍然是 CONSOLE（顶层 CMakeLists 的 /SUBSYSTEM:CONSOLE,6.01）。
-# 窗口在运行期创建，CLI 与 --ui-smoke-test 的输出照常打到 stdout。
-# 这样既避开宪章 §10 记的「GUI 子系统与 6.01 冲突」，也保住 M5 那条
-# 「产物子系统版本必须是 6.1」的闸门。
+# 子系统是 WINDOWS（不是 CONSOLE）：正常启动只出现配置界面，不再附带命令行窗口。
+# /ENTRY:mainCRTStartup 让入口仍是标准的 main()，CLI 与 --ui-smoke-test 的输出
+# 靠 main.cpp 里 attachParentConsoleIfNeeded() 回落到父控制台（仅当 stdout 不可用时）。
+#
+# manifest 声明 requireAdministrator：装驱动 / 跑 sysprep 都需要管理员权限。
+# 代价是无法提权时 Windows 直接拒绝启动（CreateProcess 报 740），本机验收与 CI
+# 因此需要在已提权的会话里跑 —— 见 tests/tools/run_acceptance_elevated.ps1。
 
 add_executable(ospt
   main.cpp
   # M7a：主界面框架与配置页（原生控件 + WTL 薄封装）
   ui/ui_frame.cpp
   ui/ui_pages.cpp
+)
+
+target_link_options(ospt PRIVATE
+  "/SUBSYSTEM:WINDOWS,6.01"
+  "/ENTRY:mainCRTStartup"
+  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
 )
 
 target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32)
