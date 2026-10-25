@@ -1,27 +1,41 @@
 #!/usr/bin/env python3
-"""verify_ui.py —— M7a 主界面框架与系统信息页验收
+"""verify_ui.py —— M7b 配置页验收
 
 用法:
     python tests/integration/verify_ui.py [<ospt.exe>]
 
-验的是宪章 §8 M7a 的字面验收：
-    build/bin/Release/ospt.exe --ui-smoke-test   → 退出码 0
+验的是宪章 §8 M7 的字面验收：
+    build/bin/Release/ospt.exe --ui-smoke-test
+    → 退出码 0，且所有配置页能打开、控件能响应、退出无崩溃
 
-外加三条约束与一条 CI 要求：
-  1. 界面用的是原生标准控件，产物因此必须导入 USER32（没有它说明窗口层没进去）
-  2. Win7 三道闸没被破坏：把 PE 交给 verify_win7_compat.py 复核
-  3. 无头环境下必须**显式**打印 skip 原因，不许静默略过（宪章 §9.7 M7）
+外加四组约束：
+  1. 页签清单与 DFM 图纸一一对应（母盘系统/目标系统/计划任务/部署过程/封装过程/运行/完成）
+  2. 宪章 §7 红线涉及的控件名一个都不许出现在界面上
+  3. Win7 三道闸没被破坏：把 PE 交给 verify_win7_compat.py 复核
+  4. 无头环境下必须**显式**打印 skip 原因，不许静默略过（宪章 §9.7 M7）
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
+
+# 与 host/ui/ui_pages.cpp 的 pagesFromConfig 顺序一致
+EXPECTED_PAGES = [
+    ("system", "母盘系统", "MlSkinTabSheet1"),
+    ("target", "目标系统", "MlSkinTabSheet2"),
+    ("tasks", "计划任务", "MlSkinTabSheet3"),
+    ("deploy", "部署过程", "MlSkinTabSheet4"),
+    ("sysprep", "封装过程", "MlSkinTabSheet5"),
+    ("run", "运行", "MlSkinTabSheet6"),
+    ("done", "完成", "MlSkinTabSheet7"),
+]
 
 _checks = 0
 _failures: list[str] = []
@@ -97,9 +111,14 @@ def imported_dlls(path: str) -> list[str]:
     return names
 
 
+def appears_as_token(text: str, name: str) -> bool:
+    """控件名按标识符边界匹配，避免 Ed_DeployTitle 命中 Cb_DeployTitle 这类误判"""
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
+
+
 def main(argv: list[str]) -> int:
     ospt = argv[1] if len(argv) > 1 else os.path.join(REPO, "build", "bin", "Release", "ospt.exe")
-    report_path = os.path.join(REPO, "build", "m7a", "smoke.json")
+    report_path = os.path.join(REPO, "build", "m7b", "smoke.json")
 
     _say(f"verify_ui: ospt={ospt}")
 
@@ -108,6 +127,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
+    # 先删掉上一次的报告：否则产物没写出报告时会读到残留，闸门就成了空判
+    if os.path.isfile(report_path):
+        os.remove(report_path)
 
     section("gate：--ui-smoke-test")
     code, output = run([ospt, "--ui-smoke-test", "--report", report_path])
@@ -126,31 +148,83 @@ def main(argv: list[str]) -> int:
         reason = str(report.get("skipReason", "")).strip()
         check("跳过时给出了原因", bool(reason), reason)
         check("stdout 里出现了 SMOKE-SKIP 标记", "SMOKE-SKIP" in output)
-        check("stdout 里印出了跳过原因", "跳过的原因" in output and reason[:12] in output)
-        _say("  本机没有窗口站，UI 冒烟测试被显式跳过 —— 这是允许的结果")
+        check("stdout 里印出了跳过原因", "SMOKE-SKIP" in output and reason[:12] in output)
+        _say("  本机没有窗口站，UI 冒烟测试被显式跳过 —— 这是允许的结果，但原因已打印")
     else:
         check("报告 ok=true", report.get("ok") is True)
         check("报告 skipped=false", report.get("skipped") is False)
         checks = int(report.get("checks", 0))
         failures = int(report.get("failures", 0))
-        check("检查项数 >= 20", checks >= 20, str(checks))
+        check("检查项数 >= 100", checks >= 100, str(checks))
         check("失败项为 0", failures == 0, str(failures))
         check("stdout 里出现 RESULT: SMOKE-OK", "SMOKE-OK" in output)
 
+    section("配置页清单与 DFM 页对象一一对应")
+    pages = report.get("pages", [])
+    check("页面数为 7", len(pages) == len(EXPECTED_PAGES), str(len(pages)))
+    if not skipped:
+        check(
+            "打开的页面数为 7",
+            int(report.get("pagesOpened", 0)) == len(EXPECTED_PAGES),
+            str(report.get("pagesOpened")),
+        )
+
+    for index, (page_id, title, sheet) in enumerate(EXPECTED_PAGES):
+        if index >= len(pages):
+            check(f"页面 {page_id} 出现在报告里", False)
+            continue
+        page = pages[index]
+        check(
+            f"第 {index + 1} 页是 {title}（{sheet}）",
+            page.get("id") == page_id and page.get("title") == title and page.get("dfmSheet") == sheet,
+            f"{page.get('id')}/{page.get('title')}/{page.get('dfmSheet')}",
+        )
+        check(f"{title} 页打开了", page.get("opened") is True)
+        check(
+            f"{title} 页控件数与字段数一致",
+            int(page.get("fields", -1)) == int(page.get("controls", -2)) and int(page.get("fields", 0)) > 0,
+            f"fields={page.get('fields')} controls={page.get('controls')}",
+        )
+
+    if not skipped:
         lines = "\n".join(report.get("lines", []))
-        for marker in [
-            "创建主窗口",
-            "页签控件存在",
-            "选中第一个页签",
-            "字段文本与页面模型一致: 系统名称",
-            "字段文本与页面模型一致: 运行环境",
-            "「重新体检」按钮响应并触发处理器",
-            "单选按钮状态可读写",
-            "下拉框选中项可读写",
-            "编辑框文本往返一致",
-            "窗口销毁无崩溃",
+        for _page_id, title, sheet in EXPECTED_PAGES:
+            check(f"冒烟记录里有「页面能打开: {title}（{sheet}）」", f"页面能打开: {title}（{sheet}）" in lines)
+
+        # 「控件能响应」的几类证据
+        for marker, expected_min in [
+            ("复选框可切换: ", 15),
+            ("下拉可选中: ", 10),
+            ("编辑框往返一致: ", 15),
+            ("按钮已点击: ", 5),
+            ("进度条可读写: ", 3),
+            ("列表行数与模型一致: ", 1),
         ]:
-            check(f"冒烟记录里有「{marker}」", marker in lines)
+            count = lines.count(marker)
+            check(f"控件响应证据「{marker.strip()}」>= {expected_min} 条", count >= expected_min, str(count))
+
+        check("退出无崩溃的记录在报告里", "窗口销毁无崩溃" in lines)
+
+    section("宪章 §7 红线：这些控件名一个都不许出现")
+    excluded = report.get("excludedControls", [])
+    check("报告带上了不做的控件清单", len(excluded) >= 20, str(len(excluded)))
+    for must in [
+        "Gb_ScTools",
+        "Mkb_Ceounion",
+        "Cb_Saveiehp",
+        "Cb_SaveieFavorites",
+        "Cb_Locktaskbar",
+        "Rb_Sysprep_Type2",
+        "Rb_Sysprep_Type3",
+        "Btn_Bugs",
+        "Btn_Update",
+    ]:
+        check(f"不做的清单里有 {must}", must in excluded)
+
+    if not skipped:
+        lines = "\n".join(report.get("lines", []))
+        leaked = [name for name in excluded if appears_as_token(lines, name)]
+        check("冒烟记录里没有任何红线/不做控件名", not leaked, ", ".join(leaked[:8]))
 
     section("约束：原生控件进了产物、且 Win7 三道闸没破")
     dlls = [d.lower() for d in imported_dlls(ospt)]
@@ -158,19 +232,20 @@ def main(argv: list[str]) -> int:
     for forbidden in ["vcruntime140.dll", "msvcp140.dll", "ucrtbase.dll"]:
         check(f"没有 {forbidden}", forbidden not in dlls)
 
-    # 「用的是原生标准控件」不靠导入表猜（宿主标准控件并不需要静态导入
-    # gdi32/comctl32），而是看冒烟测试的实测结论。
+    # 「用的是原生标准控件」不靠导入表猜，而是看冒烟测试的实测结论
     if not skipped:
         lines = "\n".join(report.get("lines", []))
-        check("页签控件实测为系统标准的 SysTabControl32",
-              "页签控件是系统标准的 SysTabControl32" in lines)
+        check("页签控件实测为系统标准的 SysTabControl32", "页签控件是系统标准的 SysTabControl32" in lines)
         check("通用控件库 comctl32 实测已加载", "通用控件库 comctl32 已加载" in lines)
 
     win7_gate = os.path.join(HERE, "verify_win7_compat.py")
     if os.path.isfile(win7_gate):
         code, gate_output = run([sys.executable, win7_gate, ospt])
-        check("Win7 兼容闸门对 ospt.exe 仍然全绿", code == 0,
-              gate_output.strip().splitlines()[-1] if gate_output else "")
+        check(
+            "Win7 兼容闸门对 ospt.exe 仍然全绿",
+            code == 0,
+            gate_output.strip().splitlines()[-1] if gate_output else "",
+        )
 
     _say("")
     if _failures:

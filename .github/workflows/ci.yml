@@ -212,23 +212,36 @@ jobs:
           Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0
 
-      # M7a 增量（宪章 §9.7 M7）：主界面框架与第一个配置页。
+      # M7b 增量（宪章 §9.7 M7）：其余配置页。
       # 冒烟测试创建真实窗口、逐页打开、用真实消息驱动控件、销毁窗口。
       # 无头环境下脚本会显式打印 skip 原因，本步骤不把它当作失败
-      #（宪章要求「必须显式打印 skip 原因，不许静默略过」）。
+      #（宪章要求「必须显式打印 skip 原因，不许静默略过」），但会把原因当告警浮出来。
+      #
+      # 流重定向与退出码判断必须与下面两步一致：Traceback 走 stderr，
+      # 只 Tee stdout 的话失败时日志里只剩一句「exit code 1」，无从定位。
       - name: UI 冒烟测试
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' |
-            Tee-Object -FilePath m7a-ui.log
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm7b-ui.log'
+
+          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
           $code = $LASTEXITCODE
+
           if ($code -ne 0) {
-            Get-Content m7a-ui.log | Select-String -Pattern 'FAIL|RESULT|Traceback|SMOKE-SKIP' |
-              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Write-Host '::error::UI 冒烟测试失败，且日志里没有 FAIL/RESULT/Traceback 行，下面是尾部输出'
+              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
+            }
             exit $code
           }
-          Get-Content m7a-ui.log | Select-String -Pattern 'SMOKE-SKIP' |
+
+          Get-Content $log | Select-String -Pattern 'SMOKE-SKIP' |
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0
 

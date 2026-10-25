@@ -12,7 +12,7 @@ add_executable(ospt
   ui/ui_pages.cpp
 )
 
-target_link_libraries(ospt PRIVATE osp::core)
+target_link_libraries(ospt PRIVATE osp::core comctl32)
 
 # WTL 10 头文件库（MS-PL，见 third_party/WTL/MANIFEST.json 与 third_party/LICENSES.md）。
 # 依赖 ATL：VS 装了 Microsoft.VisualStudio.Component.VC.ATL 之后，ATL 的头与库

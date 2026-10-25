@@ -46,6 +46,8 @@ json encode(const Config& cfg)
         {"autoSetIp", op.autoSetIp},
         {"ipMode", op.ipMode},
         {"networkLocation", op.networkLocation},
+        {"clearSrsDrivers", op.clearSrsDrivers},
+        {"setResolution", op.setResolution},
     };
 
     json tasks = json::array();
@@ -77,6 +79,13 @@ json encode(const Config& cfg)
         {"userName", dp.userName},
         {"userGroup", dp.userGroup},
         {"blockVirtualMachine", dp.blockVirtualMachine},
+        {"backgroundImage", dp.backgroundImage},
+        {"imageSwitchSeconds", dp.imageSwitchSeconds},
+        {"deployResolutionX", dp.deployResolutionX},
+        {"deployResolutionY", dp.deployResolutionY},
+        {"fontColor", dp.fontColor},
+        {"verifyIntegrity", dp.verifyIntegrity},
+        {"enableAdministrator", dp.enableAdministrator},
     };
 
     const auto& sp = cfg.sysprep;
@@ -94,6 +103,9 @@ json encode(const Config& cfg)
         {"domain", sp.domain},
         {"domainUser", sp.domainUser},
         {"afterAction", sp.afterAction},
+        {"domainPassword", sp.domainPassword},
+        {"perServerLicensing", sp.perServerLicensing},
+        {"maxConnections", sp.maxConnections},
     };
 
     return j;
@@ -168,6 +180,8 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.autoSetIp = op.value("autoSetIp", false);
             cfg.optimization.ipMode = op.value("ipMode", std::string{});
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
+            cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
+            cfg.optimization.setResolution = op.value("setResolution", false);
         }
 
         if (j.contains("runPlan"))
@@ -207,6 +221,13 @@ ParseResult fromJson(const std::string& text)
             cfg.deploy.userName = dp.value("userName", std::string{});
             cfg.deploy.userGroup = dp.value("userGroup", std::string{});
             cfg.deploy.blockVirtualMachine = dp.value("blockVirtualMachine", false);
+            cfg.deploy.backgroundImage = dp.value("backgroundImage", std::string{});
+            cfg.deploy.imageSwitchSeconds = dp.value("imageSwitchSeconds", 10);
+            cfg.deploy.deployResolutionX = dp.value("deployResolutionX", 0);
+            cfg.deploy.deployResolutionY = dp.value("deployResolutionY", 0);
+            cfg.deploy.fontColor = dp.value("fontColor", std::string{});
+            cfg.deploy.verifyIntegrity = dp.value("verifyIntegrity", false);
+            cfg.deploy.enableAdministrator = dp.value("enableAdministrator", false);
         }
 
         if (j.contains("sysprep"))
@@ -225,6 +246,9 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.domain = sp.value("domain", std::string{});
             cfg.sysprep.domainUser = sp.value("domainUser", std::string{});
             cfg.sysprep.afterAction = sp.value("afterAction", std::string{});
+            cfg.sysprep.domainPassword = sp.value("domainPassword", std::string{});
+            cfg.sysprep.perServerLicensing = sp.value("perServerLicensing", false);
+            cfg.sysprep.maxConnections = sp.value("maxConnections", 5);
         }
     }
     catch (const json::exception& e)

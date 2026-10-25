@@ -1,24 +1,33 @@
-// 主程序 UI 的窗口层（宪章 §8 M7a）
+// 主程序 UI 的窗口层（宪章 §8 M7b）
 //
-// 原生 Win32 标准控件 + WTL 薄封装：Tab 控件用 WC_TABCONTROL，标签用 static，
-// 按钮/单选/下拉/编辑框都是系统标准类；没有一个控件是自绘的，也没有引入任何
-// 图片或字体资源（视觉完全自研 = 不做 SC 那种换肤）。
+// 原生 Win32 标准控件 + WTL 薄封装：Tab 用 WC_TABCONTROL、标签用 static、
+// 勾选/单选/下拉/编辑框/进度条/列表都是系统标准类（comctl32 的 PROGRESS_CLASS、
+// SysListView32 也算系统标准控件）；没有一个控件是自绘的，也没有引入任何图片或
+// 字体资源（视觉完全自研 = 不做 SC 那种换肤）。
 //
-// 冒烟测试与窗口层放在同一个 TU：它需要直接按控件 ID 去驱动它们，
-// 隔一层内部头文件只会增加耦合面。
+// 渲染是数据驱动的：PagePanel 按 Page/Group/Field 的 kind 决定用哪个控件类，
+// 控件消息再写回 Field，最后由 applyTo() 落到 core/config 的模型上。
+// 冒烟测试与窗口层放在同一个 TU：它需要直接按控件 ID 驱动它们。
+//
+// 按钮的安全性：本文件里所有按钮只改计数器或配置，不调用 ExitWindowsEx、
+// 不启动 sysprep、不执行 dism —— 冒烟测试会点一遍全部按钮，绝不能让机器真的
+// 重启或开始封装。
 
 #include "ui.hpp"
 
 #include <windows.h>
 
+#include <commctrl.h>
+
 #include <atlbase.h>
 #include <atlapp.h>
 
 #include <atlctrls.h>
-#include <atltypes.h> // CRect 在这里；atlwin.h 不会替你带上它
+#include <atltypes.h>
 #include <atlwin.h>
 
 #include <algorithm>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -35,12 +44,10 @@ namespace {
 constexpr int kIdcTab = 1000;
 constexpr int kIdcPagePanel = 1001;
 constexpr int kIdcStatus = 1002;
-constexpr int kIdcRefresh = 1100;
-constexpr int kIdcSrsCert = 1110;   // 单选：使用随盘 SRS
-constexpr int kIdcSrsDiy = 1111;    // 单选：自定义目录
-constexpr int kIdcSrsDrive = 1112;  // 下拉：目标系统分区
-constexpr int kIdcSrsPath = 1113;   // 编辑框：自定义 SRS 目录
-constexpr int kIdcFieldBase = 1200; // 每个字段一个 static，ID 依次递增
+constexpr int kIdcGroupBase = 1500; // 分组框
+constexpr int kIdcFieldBase = 2000; // 字段控件：base + 页内扁平序号
+constexpr int kIdcLabelBase = 6000; // 字段标签：base + 页内扁平序号
+constexpr int kFieldIdLimit = 1000; // 一页最多这么多字段
 
 std::wstring toWide(const std::string& text)
 {
@@ -78,230 +85,20 @@ std::string fromWide(const std::wstring& text)
     return out;
 }
 
-// ---------------------------------------------------------------- 页面面板
-
-// 一个页面 = 一组「标签 + 值」static，加一个重新体检按钮，加 SRS 编组。
-// 控件全部是系统标准类，布局在 WM_SIZE 里手算。
-class PagePanel : public CWindowImpl<PagePanel>
+std::string windowText(HWND wnd)
 {
-public:
-    DECLARE_WND_CLASS(L"OSPSPagePanel")
-
-    int refreshCount = 0;    // 重新体检按钮被触发的次数
-    std::vector<Page> pages; // 面板承载的页面
-    int currentPage = 0;
-
-    BEGIN_MSG_MAP(PagePanel)
-    MESSAGE_HANDLER(WM_CREATE, OnCreate)
-    MESSAGE_HANDLER(WM_SIZE, OnSize)
-    MESSAGE_HANDLER(WM_COMMAND, OnCommand)
-    END_MSG_MAP()
-
-    void setPages(std::vector<Page> value)
+    if (wnd == nullptr)
     {
-        pages = std::move(value);
+        return std::string();
     }
+    const int length = ::GetWindowTextLengthW(wnd);
+    std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
+    ::GetWindowTextW(wnd, buffer.data(), static_cast<int>(buffer.size()));
+    buffer.resize(static_cast<std::size_t>(length));
+    return fromWide(buffer);
+}
 
-    LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&)
-    {
-        // 每个字段：左边是名称 static，右边是值 static
-        for (std::size_t i = 0; i < pages.front().fields.size(); ++i)
-        {
-            CStatic label;
-            label.Create(
-                m_hWnd,
-                rcDefault,
-                toWide(pages.front().fields[i].label).c_str(),
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                0,
-                static_cast<UINT>(kIdcFieldBase + i)
-            );
-
-            CStatic value;
-            value.Create(
-                m_hWnd,
-                rcDefault,
-                L"",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                WS_EX_CLIENTEDGE,
-                static_cast<UINT>(kIdcFieldBase + 100 + i)
-            );
-        }
-
-        CButton refresh;
-        refresh.Create(m_hWnd, rcDefault, L"重新体检", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, kIdcRefresh);
-
-        // SRS 编组：DFM 里 Gb_SRS 的原生控件对应物
-        CButton cert;
-        cert.Create(
-            m_hWnd,
-            rcDefault,
-            L"使用随盘 SRS 驱动",
-            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-            0,
-            kIdcSrsCert
-        );
-        CButton diy;
-        diy.Create(
-            m_hWnd, rcDefault, L"自定义驱动目录", WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON, 0, kIdcSrsDiy
-        );
-
-        CComboBox drive;
-        drive.Create(
-            m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, kIdcSrsDrive
-        );
-        for (const sysinfo::PartitionInfo& part : sysinfo::collect().partitions)
-        {
-            // 原生控件一律用宽字符接口，std::string 只作为模型层类型
-            const std::wstring item = toWide(part.drive + "  " + part.fileSystem);
-            drive.AddString(item.c_str());
-        }
-        if (drive.GetCount() > 0)
-        {
-            drive.SetCurSel(0);
-        }
-
-        CEdit path;
-        path.Create(
-            m_hWnd, rcDefault, L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 0, kIdcSrsPath
-        );
-
-        cert.SetCheck(BST_CHECKED);
-        updateTexts();
-        return 0;
-    }
-
-    LRESULT OnSize(UINT, WPARAM, LPARAM lParam, BOOL&)
-    {
-        const int width = LOWORD(lParam);
-        const int height = HIWORD(lParam);
-        const int margin = 12;
-        const int labelWidth = 110;
-        const int rowHeight = 22;
-
-        int y = margin;
-        for (std::size_t i = 0; i < pages.front().fields.size(); ++i)
-        {
-            if (HWND label = fieldLabel(i))
-            {
-                ::SetWindowPos(
-                    label, nullptr, margin, y, labelWidth, rowHeight, SWP_NOZORDER | SWP_NOACTIVATE
-                );
-            }
-            if (HWND value = fieldValue(i))
-            {
-                ::SetWindowPos(
-                    value,
-                    nullptr,
-                    margin + labelWidth,
-                    y,
-                    width - margin * 2 - labelWidth,
-                    rowHeight,
-                    SWP_NOZORDER | SWP_NOACTIVATE
-                );
-            }
-            y += rowHeight + 4;
-        }
-
-        if (HWND refresh = GetDlgItem(kIdcRefresh))
-        {
-            ::SetWindowPos(refresh, nullptr, margin, y + 6, 100, 26, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-
-        const int srsTop = y + 44;
-        if (HWND cert = GetDlgItem(kIdcSrsCert))
-        {
-            ::SetWindowPos(cert, nullptr, margin, srsTop, 180, 20, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        if (HWND diy = GetDlgItem(kIdcSrsDiy))
-        {
-            ::SetWindowPos(diy, nullptr, margin + 190, srsTop, 180, 20, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        if (HWND drive = GetDlgItem(kIdcSrsDrive))
-        {
-            ::SetWindowPos(drive, nullptr, margin, srsTop + 24, 220, 200, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-        if (HWND path = GetDlgItem(kIdcSrsPath))
-        {
-            ::SetWindowPos(
-                path,
-                nullptr,
-                margin + 240,
-                srsTop + 24,
-                width - margin * 2 - 240,
-                24,
-                SWP_NOZORDER | SWP_NOACTIVATE
-            );
-        }
-
-        (void)height;
-        return 0;
-    }
-
-    LRESULT OnCommand(UINT, WPARAM wParam, LPARAM, BOOL&)
-    {
-        const int id = LOWORD(wParam);
-        if (id == kIdcRefresh)
-        {
-            ++refreshCount;
-            // 重新体检：重跑 M2 的采集，再刷新控件文本
-            pages[0] = systemPage();
-            updateTexts();
-        }
-        else if (id == kIdcSrsCert || id == kIdcSrsDiy)
-        {
-            // 选中一项时把另一个取消，行为与系统标准单选组一致
-            const bool cert = (id == kIdcSrsCert);
-            if (HWND certWnd = GetDlgItem(kIdcSrsCert))
-            {
-                ::SendMessageW(certWnd, BM_SETCHECK, cert ? BST_CHECKED : BST_UNCHECKED, 0);
-            }
-            if (HWND diyWnd = GetDlgItem(kIdcSrsDiy))
-            {
-                ::SendMessageW(diyWnd, BM_SETCHECK, cert ? BST_UNCHECKED : BST_CHECKED, 0);
-            }
-        }
-        return 0;
-    }
-
-    HWND fieldLabel(std::size_t index) const
-    {
-        return const_cast<PagePanel*>(this)->GetDlgItem(static_cast<int>(kIdcFieldBase + index));
-    }
-    HWND fieldValue(std::size_t index) const
-    {
-        return const_cast<PagePanel*>(this)->GetDlgItem(static_cast<int>(kIdcFieldBase + 100 + index));
-    }
-
-    void updateTexts()
-    {
-        if (pages.empty())
-        {
-            return;
-        }
-        for (std::size_t i = 0; i < pages.front().fields.size(); ++i)
-        {
-            if (HWND wnd = fieldValue(i))
-            {
-                ::SetWindowTextW(wnd, toWide(pages.front().fields[i].value).c_str());
-            }
-        }
-    }
-
-    std::string fieldValueText(std::size_t index) const
-    {
-        HWND wnd = fieldValue(index);
-        if (wnd == nullptr)
-        {
-            return std::string();
-        }
-        const int length = ::GetWindowTextLengthW(wnd);
-        std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
-        ::GetWindowTextW(wnd, buffer.data(), static_cast<int>(buffer.size()));
-        buffer.resize(static_cast<std::size_t>(length));
-        return fromWide(buffer);
-    }
-};
+class PagePanel;
 
 // ---------------------------------------------------------------- 主框架
 
@@ -311,8 +108,21 @@ public:
     DECLARE_WND_CLASS(L"OSPTMainFrame")
 
     CTabCtrl tab;
-    PagePanel panel;
+    PagePanel* panel = nullptr; // 由 OnCreate 创建，随窗口销毁
     CStatic status;
+
+    // 应用状态：页面表由配置模型构建，按钮动作可能改配置并重建页面
+    config::Config cfg;
+    std::vector<Page> pages;
+
+    // 按钮动作的落地情况，冒烟测试按这些计数器核对「控件真的响应了」
+    int scanCount = 0;
+    int srsRunCount = 0;
+    int taskAddCount = 0;
+    int sysprepRunCount = 0;
+    int shutdownIntentCount = 0;
+    int restartIntentCount = 0;
+
     long long messageCount = 0; // 处理过的消息数，供冒烟测试确认消息循环真的在跑
 
     BEGIN_MSG_MAP(MainFrame)
@@ -323,25 +133,48 @@ public:
     MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
     END_MSG_MAP()
 
+    void rebuildPages();
+    void handleAction(const std::string& action, const std::string& controlId);
+
+    LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnSize(UINT, WPARAM, LPARAM lParam, BOOL&);
+    LRESULT OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&);
+    LRESULT OnClose(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnDestroy(UINT, WPARAM, LPARAM, BOOL&);
+};
+
+// ---------------------------------------------------------------- 页面面板
+
+// 一个页面 = 若干分组框，每个分组里一行一个字段（标签 + 控件）。
+// 布局在 WM_SIZE / WM_VSCROLL 里手算，超出可视区用标准滚动条。
+class PagePanel : public CWindowImpl<PagePanel>
+{
+public:
+    DECLARE_WND_CLASS(L"OSPSPagePanel")
+
+    struct ControlRef
+    {
+        int fieldIndex = -1; // 页内扁平序号
+        HWND handle = nullptr;
+        FieldKind kind = FieldKind::Info;
+    };
+
+    MainFrame* owner = nullptr;
+    int currentPage = 0;
+    std::vector<ControlRef> controls;
+    int offsetY = 0;
+    int contentHeight = 0;
+
+    BEGIN_MSG_MAP(PagePanel)
+    MESSAGE_HANDLER(WM_CREATE, OnCreate)
+    MESSAGE_HANDLER(WM_SIZE, OnSize)
+    MESSAGE_HANDLER(WM_VSCROLL, OnVScroll)
+    MESSAGE_HANDLER(WM_COMMAND, OnCommand)
+    END_MSG_MAP()
+
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     {
-        tab.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | TCS_TABS, 0, kIdcTab);
-
-        panel.pages = allPages();
-        panel.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE, 0, kIdcPagePanel);
-        panel.setPages(allPages());
-
-        status.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_SUNKEN, 0, kIdcStatus);
-
-        TCITEMW item = {};
-        item.mask = TCIF_TEXT;
-        for (const Page& page : panel.pages)
-        {
-            std::wstring title = toWide(page.title);
-            item.pszText = title.data();
-            tab.InsertItem(static_cast<int>(tab.GetItemCount()), &item);
-        }
-        tab.SetCurSel(0);
+        rebuild();
         return 0;
     }
 
@@ -349,68 +182,663 @@ public:
     {
         const int width = LOWORD(lParam);
         const int height = HIWORD(lParam);
-        const int statusHeight = 22;
+        layout(width, height, false);
+        return 0;
+    }
 
-        if (tab.m_hWnd != nullptr)
+    LRESULT OnVScroll(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        SCROLLINFO info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SIF_ALL;
+        GetScrollInfo(SB_VERT, &info);
+        int position = info.nPos;
+        switch (LOWORD(wParam))
         {
-            ::SetWindowPos(tab, nullptr, 0, 0, width, height - statusHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        case SB_LINEUP:
+            position -= 20;
+            break;
+        case SB_LINEDOWN:
+            position += 20;
+            break;
+        case SB_PAGEUP:
+            position -= static_cast<int>(info.nPage);
+            break;
+        case SB_PAGEDOWN:
+            position += static_cast<int>(info.nPage);
+            break;
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION:
+            position = info.nTrackPos;
+            break;
+        default:
+            break;
         }
-        if (panel.m_hWnd != nullptr)
+        position = (std::max)(0, position);
+        if (position != offsetY)
         {
-            RECT inner = {0, 0, width, height - statusHeight};
-            tab.AdjustRect(FALSE, &inner);
-            ::SetWindowPos(
-                panel,
-                nullptr,
-                inner.left,
-                inner.top,
-                inner.right - inner.left,
-                inner.bottom - inner.top,
-                SWP_NOZORDER | SWP_NOACTIVATE
-            );
-        }
-        if (status.m_hWnd != nullptr)
-        {
-            ::SetWindowPos(
-                status, nullptr, 0, height - statusHeight, width, statusHeight, SWP_NOZORDER | SWP_NOACTIVATE
-            );
+            offsetY = position;
+            RECT client = {};
+            ::GetClientRect(m_hWnd, &client);
+            layout(client.right, client.bottom, false);
         }
         return 0;
     }
 
-    LRESULT OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&)
+    LRESULT OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
     {
-        auto* header = reinterpret_cast<LPNMHDR>(lParam);
-        if (header != nullptr && header->idFrom == kIdcTab && header->code == TCN_SELCHANGE)
+        const int id = LOWORD(wParam);
+        const int code = HIWORD(wParam);
+        if (id < kIdcFieldBase || id >= kIdcFieldBase + kFieldIdLimit)
         {
-            const int selected = tab.GetCurSel();
-            if (selected >= 0 && selected < static_cast<int>(panel.pages.size()))
+            return 0;
+        }
+        const int index = id - kIdcFieldBase;
+        Field* field = fieldAt(index);
+        if (field == nullptr)
+        {
+            return 0;
+        }
+
+        switch (field->kind)
+        {
+        case FieldKind::Check:
+            field->checked =
+                (::SendMessageW(reinterpret_cast<HWND>(lParam), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            break;
+        case FieldKind::Radio: {
+            const HWND handle = reinterpret_cast<HWND>(lParam);
+            field->checked = (::SendMessageW(handle, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            if (field->checked)
             {
-                panel.currentPage = selected;
-                panel.pages[0] = panel.pages[static_cast<std::size_t>(selected)];
-                panel.updateTexts();
-                status.SetWindowTextW(toWide(panel.pages[static_cast<std::size_t>(selected)].title).c_str());
+                // 同组互斥：把同一分组里其它单选取消
+                for (ControlRef& ref : controls)
+                {
+                    if (ref.handle == handle || ref.kind != FieldKind::Radio)
+                    {
+                        continue;
+                    }
+                    const Field* other = fieldAt(ref.fieldIndex);
+                    if (other == nullptr || !sameGroup(ref.fieldIndex, index))
+                    {
+                        continue;
+                    }
+                    ::SendMessageW(ref.handle, BM_SETCHECK, BST_UNCHECKED, 0);
+                    Field* mutableOther = fieldAt(ref.fieldIndex);
+                    mutableOther->checked = false;
+                }
+            }
+            break;
+        }
+        case FieldKind::Edit:
+        case FieldKind::Number:
+            field->value = windowText(reinterpret_cast<HWND>(lParam));
+            break;
+        case FieldKind::Combo: {
+            const HWND handle = reinterpret_cast<HWND>(lParam);
+            const LRESULT selected = ::SendMessageW(handle, CB_GETCURSEL, 0, 0);
+            if (selected >= 0 && selected < static_cast<int>(field->options.size()))
+            {
+                field->comboIndex = static_cast<int>(selected);
+                field->value = field->options[static_cast<std::size_t>(selected)];
+            }
+            break;
+        }
+        case FieldKind::Button:
+            if (code == BN_CLICKED && owner != nullptr)
+            {
+                owner->handleAction(field->action, field->id);
+            }
+            break;
+        default:
+            break;
+        }
+        return 0;
+    }
+
+    // 用当前页面重建全部子控件
+    void rebuild()
+    {
+        if (owner == nullptr)
+        {
+            return;
+        }
+        for (ControlRef& ref : controls)
+        {
+            if (ref.handle != nullptr)
+            {
+                ::DestroyWindow(ref.handle);
             }
         }
-        return 0;
-    }
-
-    LRESULT OnClose(UINT, WPARAM, LPARAM, BOOL&)
-    {
-        DestroyWindow();
-        return 0;
-    }
-
-    LRESULT OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
-    {
-        if (panel.m_hWnd != nullptr)
+        for (HWND decoration : decorations)
         {
-            panel.DestroyWindow();
+            if (decoration != nullptr)
+            {
+                ::DestroyWindow(decoration);
+            }
         }
-        PostQuitMessage(0);
-        return 0;
+        controls.clear();
+        decorations.clear();
+        offsetY = 0;
+
+        if (currentPage < 0 || currentPage >= static_cast<int>(owner->pages.size()))
+        {
+            return;
+        }
+        const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+
+        int index = 0;
+        for (std::size_t g = 0; g < page.groups.size(); ++g)
+        {
+            const Group& group = page.groups[g];
+            CButton groupBox;
+            groupBox.Create(
+                m_hWnd,
+                rcDefault,
+                toWide(group.caption).c_str(),
+                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                0,
+                static_cast<UINT>(kIdcGroupBase + g)
+            );
+            decorations.push_back(groupBox.m_hWnd);
+
+            for (const Field& field : group.fields)
+            {
+                CStatic label;
+                label.Create(
+                    m_hWnd,
+                    rcDefault,
+                    toWide(field.label).c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_LEFT,
+                    0,
+                    static_cast<UINT>(kIdcLabelBase + index)
+                );
+                decorations.push_back(label.m_hWnd);
+
+                const UINT controlId = static_cast<UINT>(kIdcFieldBase + index);
+                HWND handle = nullptr;
+                switch (field.kind)
+                {
+                case FieldKind::Info: {
+                    CStatic value;
+                    value.Create(
+                        m_hWnd,
+                        rcDefault,
+                        toWide(field.value).c_str(),
+                        WS_CHILD | WS_VISIBLE | SS_LEFT,
+                        WS_EX_CLIENTEDGE,
+                        controlId
+                    );
+                    handle = value.m_hWnd;
+                    break;
+                }
+                case FieldKind::Check: {
+                    CButton button;
+                    button.Create(
+                        m_hWnd,
+                        rcDefault,
+                        toWide(field.label).c_str(),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                        0,
+                        controlId
+                    );
+                    button.SetCheck(field.checked ? BST_CHECKED : BST_UNCHECKED);
+                    handle = button.m_hWnd;
+                    break;
+                }
+                case FieldKind::Radio: {
+                    CButton button;
+                    button.Create(
+                        m_hWnd,
+                        rcDefault,
+                        toWide(field.label).c_str(),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+                        0,
+                        controlId
+                    );
+                    button.SetCheck(field.checked ? BST_CHECKED : BST_UNCHECKED);
+                    handle = button.m_hWnd;
+                    break;
+                }
+                case FieldKind::Edit:
+                case FieldKind::Number: {
+                    CEdit edit;
+                    DWORD style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL;
+                    if (field.kind == FieldKind::Number)
+                    {
+                        style |= ES_NUMBER;
+                    }
+                    edit.Create(m_hWnd, rcDefault, toWide(field.value).c_str(), style, 0, controlId);
+                    handle = edit.m_hWnd;
+                    break;
+                }
+                case FieldKind::Combo: {
+                    CComboBox combo;
+                    combo.Create(
+                        m_hWnd,
+                        rcDefault,
+                        nullptr,
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+                        0,
+                        controlId
+                    );
+                    for (const std::string& option : field.options)
+                    {
+                        combo.AddString(toWide(option).c_str());
+                    }
+                    if (field.comboIndex >= 0 && field.comboIndex < static_cast<int>(field.options.size()))
+                    {
+                        combo.SetCurSel(field.comboIndex);
+                    }
+                    handle = combo.m_hWnd;
+                    break;
+                }
+                case FieldKind::Button: {
+                    CButton button;
+                    button.Create(
+                        m_hWnd,
+                        rcDefault,
+                        toWide(field.label).c_str(),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                        0,
+                        controlId
+                    );
+                    handle = button.m_hWnd;
+                    break;
+                }
+                case FieldKind::Progress: {
+                    CProgressBarCtrl bar;
+                    bar.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 0, controlId);
+                    ::SendMessageW(bar.m_hWnd, PBM_SETRANGE32, 0, 100);
+                    ::SendMessageW(bar.m_hWnd, PBM_SETPOS, static_cast<WPARAM>(field.progress), 0);
+                    handle = bar.m_hWnd;
+                    break;
+                }
+                case FieldKind::List: {
+                    CListViewCtrl list;
+                    list.Create(
+                        m_hWnd,
+                        rcDefault,
+                        nullptr,
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL,
+                        0,
+                        controlId
+                    );
+                    list.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
+                    for (std::size_t c = 0; c < field.columns.size(); ++c)
+                    {
+                        list.InsertColumn(
+                            static_cast<int>(c),
+                            toWide(field.columns[c]).c_str(),
+                            LVCFMT_LEFT,
+                            140,
+                            static_cast<int>(c)
+                        );
+                    }
+                    for (const std::vector<std::string>& row : field.rows)
+                    {
+                        const int item = list.GetItemCount();
+                        std::wstring first = row.empty() ? std::wstring() : toWide(row[0]);
+                        list.InsertItem(item, first.c_str());
+                        for (std::size_t c = 1; c < row.size(); ++c)
+                        {
+                            list.SetItemText(item, static_cast<int>(c), toWide(row[c]).c_str());
+                        }
+                    }
+                    handle = list.m_hWnd;
+                    break;
+                }
+                }
+
+                ControlRef ref;
+                ref.fieldIndex = index;
+                ref.handle = handle;
+                ref.kind = field.kind;
+                controls.push_back(ref);
+                ++index;
+            }
+        }
     }
+
+    // 一页的扁平字段序号 -> 字段
+    Field* fieldAt(int index)
+    {
+        if (owner == nullptr || currentPage < 0 || currentPage >= static_cast<int>(owner->pages.size()))
+        {
+            return nullptr;
+        }
+        Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+        int cursor = 0;
+        for (Group& group : page.groups)
+        {
+            for (Field& field : group.fields)
+            {
+                if (cursor == index)
+                {
+                    return &field;
+                }
+                ++cursor;
+            }
+        }
+        return nullptr;
+    }
+
+    // 两个扁平序号是否属于同一个分组框（单选互斥只在组内生效）
+    bool sameGroup(int a, int b) const
+    {
+        if (owner == nullptr || currentPage < 0 || currentPage >= static_cast<int>(owner->pages.size()))
+        {
+            return false;
+        }
+        const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+        const auto groupOf = [&page](int index) -> int {
+            int cursor = 0;
+            for (std::size_t g = 0; g < page.groups.size(); ++g)
+            {
+                for (std::size_t f = 0; f < page.groups[g].fields.size(); ++f)
+                {
+                    if (cursor == index)
+                    {
+                        return static_cast<int>(g);
+                    }
+                    ++cursor;
+                }
+            }
+            return -1;
+        };
+        return groupOf(a) == groupOf(b);
+    }
+
+    HWND controlAt(int index) const
+    {
+        for (const ControlRef& ref : controls)
+        {
+            if (ref.fieldIndex == index)
+            {
+                return ref.handle;
+            }
+        }
+        return nullptr;
+    }
+
+    // 手算布局：分组框竖着摞，组内一行一个字段
+    void layout(int width, int height, bool strictSize)
+    {
+        (void)strictSize;
+        if (owner == nullptr || currentPage < 0 || currentPage >= static_cast<int>(owner->pages.size()))
+        {
+            return;
+        }
+        const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+        const int margin = 10;
+        const int labelWidth = 170;
+        const int rowHeight = 24;
+        const int rowGap = 4;
+        const int groupHeader = 22;
+        const int groupBottom = 10;
+
+        int y = margin - offsetY;
+        int index = 0;
+        for (std::size_t g = 0; g < page.groups.size(); ++g)
+        {
+            const Group& group = page.groups[g];
+            int groupHeight = groupHeader + groupBottom;
+            for (const Field& field : group.fields)
+            {
+                groupHeight += rowHeight + rowGap;
+                if (field.kind == FieldKind::List)
+                {
+                    groupHeight += 120;
+                }
+            }
+
+            HWND groupBox = GetDlgItem(static_cast<int>(kIdcGroupBase + g));
+            if (groupBox != nullptr)
+            {
+                ::SetWindowPos(
+                    groupBox,
+                    nullptr,
+                    margin,
+                    y,
+                    width - margin * 2,
+                    groupHeight,
+                    SWP_NOZORDER | SWP_NOACTIVATE
+                );
+            }
+
+            int rowY = y + groupHeader;
+            for (const Field& field : group.fields)
+            {
+                HWND label = GetDlgItem(kIdcLabelBase + index);
+                HWND control = controlAt(index);
+                const int controlHeight =
+                    field.kind == FieldKind::List ? 140 : (field.kind == FieldKind::Progress ? 18 : 22);
+                if (label != nullptr)
+                {
+                    ::SetWindowPos(
+                        label,
+                        nullptr,
+                        margin + 8,
+                        rowY + 3,
+                        labelWidth - 12,
+                        18,
+                        SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+                }
+                if (control != nullptr)
+                {
+                    int controlWidth = width - margin * 2 - labelWidth - 20;
+                    if (field.kind == FieldKind::Check || field.kind == FieldKind::Radio)
+                    {
+                        controlWidth = (std::max)(200, controlWidth);
+                    }
+                    if (field.kind == FieldKind::Button)
+                    {
+                        controlWidth = 140;
+                    }
+                    ::SetWindowPos(
+                        control,
+                        nullptr,
+                        margin + labelWidth,
+                        rowY,
+                        controlWidth,
+                        controlHeight,
+                        SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+                    if (field.kind == FieldKind::Combo)
+                    {
+                        // 下拉列表拉下来时的高度
+                        ::SendMessageW(control, CB_SETDROPPEDWIDTH, (WPARAM)(controlWidth + 60), 0);
+                    }
+                }
+                rowY += rowHeight + rowGap;
+                if (field.kind == FieldKind::List)
+                {
+                    rowY += 120;
+                }
+                ++index;
+            }
+
+            y += groupHeight + 8;
+            (void)height;
+        }
+
+        contentHeight = y + offsetY + margin;
+
+        SCROLLINFO info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+        info.nMin = 0;
+        info.nMax = (std::max)(contentHeight, 1);
+        info.nPage = static_cast<UINT>((std::max)(height, 1));
+        info.nPos = offsetY;
+        SetScrollInfo(SB_VERT, &info, TRUE);
+    }
+
+    void setPage(int index)
+    {
+        currentPage = index;
+        rebuild();
+        RECT client = {};
+        ::GetClientRect(m_hWnd, &client);
+        layout(client.right, client.bottom, false);
+    }
+
+private:
+    std::vector<HWND> decorations; // 分组框与标签，重建时一并销毁
 };
+
+// ---------------------------------------------------------------- 框架实现
+
+void MainFrame::rebuildPages()
+{
+    pages = pagesFromConfig(cfg);
+    if (panel != nullptr)
+    {
+        panel->setPage(panel->currentPage);
+    }
+}
+
+void MainFrame::handleAction(const std::string& action, const std::string& controlId)
+{
+    if (action == "scan")
+    {
+        // 重新体检：重跑 M2 的采集，再刷新母盘系统页
+        ++scanCount;
+        if (Page* page = findPage(pages, "system"))
+        {
+            *page = systemPage();
+        }
+        if (panel != nullptr && panel->currentPage == 0)
+        {
+            panel->rebuild();
+            RECT client = {};
+            ::GetClientRect(panel->m_hWnd, &client);
+            panel->layout(client.right, client.bottom, false);
+        }
+    }
+    else if (action == "srsRun")
+    {
+        // 只暂存意图：真正执行要由 --inject-drivers --execute 走 M6 的路径
+        ++srsRunCount;
+    }
+    else if (action == "addTask")
+    {
+        if (const Page* tasks = findPage(pages, "tasks"))
+        {
+            cfg.runPlan.push_back(taskFromPage(*tasks));
+            ++taskAddCount;
+            rebuildPages();
+        }
+    }
+    else if (action == "sysprepRun")
+    {
+        // 只暂存意图：封装必须由 --sysprep --execute 启动，界面按钮不执行
+        ++sysprepRunCount;
+    }
+    else if (action == "afterShutdown")
+    {
+        cfg.sysprep.afterAction = "shutdown";
+        ++shutdownIntentCount;
+    }
+    else if (action == "afterRestart")
+    {
+        cfg.sysprep.afterAction = "reboot";
+        ++restartIntentCount;
+    }
+    (void)controlId;
+}
+
+LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
+{
+    tab.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | TCS_TABS, 0, kIdcTab);
+
+    panel = new PagePanel();
+    panel->owner = this;
+    panel->Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | WS_VSCROLL, 0, kIdcPagePanel);
+
+    status.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_SUNKEN, 0, kIdcStatus);
+
+    pages = pagesFromConfig(cfg);
+
+    TCITEMW item = {};
+    item.mask = TCIF_TEXT;
+    for (const Page& page : pages)
+    {
+        std::wstring title = toWide(page.title);
+        item.pszText = title.data();
+        tab.InsertItem(static_cast<int>(tab.GetItemCount()), &item);
+    }
+    tab.SetCurSel(0);
+    panel->setPage(0);
+    return 0;
+}
+
+LRESULT MainFrame::OnSize(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    const int width = LOWORD(lParam);
+    const int height = HIWORD(lParam);
+    const int statusHeight = 22;
+
+    if (tab.m_hWnd != nullptr)
+    {
+        ::SetWindowPos(tab, nullptr, 0, 0, width, height - statusHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    if (panel != nullptr && panel->m_hWnd != nullptr)
+    {
+        RECT inner = {0, 0, width, height - statusHeight};
+        tab.AdjustRect(FALSE, &inner);
+        ::SetWindowPos(
+            panel->m_hWnd,
+            nullptr,
+            inner.left,
+            inner.top,
+            inner.right - inner.left,
+            inner.bottom - inner.top,
+            SWP_NOZORDER | SWP_NOACTIVATE
+        );
+    }
+    if (status.m_hWnd != nullptr)
+    {
+        ::SetWindowPos(
+            status, nullptr, 0, height - statusHeight, width, statusHeight, SWP_NOZORDER | SWP_NOACTIVATE
+        );
+    }
+    return 0;
+}
+
+LRESULT MainFrame::OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    auto* header = reinterpret_cast<LPNMHDR>(lParam);
+    if (header != nullptr && header->idFrom == kIdcTab && header->code == TCN_SELCHANGE)
+    {
+        const int selected = tab.GetCurSel();
+        if (panel != nullptr && selected >= 0 && selected < static_cast<int>(pages.size()))
+        {
+            panel->setPage(selected);
+            status.SetWindowTextW(toWide(pages[static_cast<std::size_t>(selected)].title).c_str());
+        }
+    }
+    return 0;
+}
+
+LRESULT MainFrame::OnClose(UINT, WPARAM, LPARAM, BOOL&)
+{
+    DestroyWindow();
+    return 0;
+}
+
+LRESULT MainFrame::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
+{
+    if (panel != nullptr && panel->m_hWnd != nullptr)
+    {
+        panel->DestroyWindow();
+    }
+    delete panel;
+    panel = nullptr;
+    PostQuitMessage(0);
+    return 0;
+}
 
 // ---------------------------------------------------------------- 冒烟测试
 
@@ -454,6 +882,157 @@ void pumpMessages(int rounds)
     }
 }
 
+// 真实控件在用户操作时是把 WM_COMMAND 发给自己的父窗口的（编辑框/下拉是通知码）。
+void notifyCommand(HWND parent, int controlId, int code, HWND control)
+{
+    ::SendMessageW(
+        parent, WM_COMMAND, MAKEWPARAM(controlId, static_cast<WORD>(code)), reinterpret_cast<LPARAM>(control)
+    );
+}
+
+// 真实切换页签时 tabs 会向父窗口发 TCN_SELCHANGE
+void notifyTabChange(HWND frame, HWND tab)
+{
+    NMHDR header = {};
+    header.hwndFrom = tab;
+    header.idFrom = kIdcTab;
+    header.code = TCN_SELCHANGE;
+    ::SendMessageW(frame, WM_NOTIFY, kIdcTab, reinterpret_cast<LPARAM>(&header));
+}
+
+// 一个页面上按这个页面的字段去驱动控件。
+// 注意：点「封装体检」这类按钮会换掉当前页的字段表，所以遍历用快照，
+// 校验时再按控件名回到活页面上查。
+void drivePage(SmokeContext& context, const Page& livePage)
+{
+    PagePanel* panel = context.frame.panel;
+    const Page snapshot = livePage;
+    const std::string pageName = snapshot.title + "（" + snapshot.dfmSheet + "）";
+
+    int index = 0;
+    for (const Group& group : snapshot.groups)
+    {
+        for (const Field& field : group.fields)
+        {
+            const int controlId = kIdcFieldBase + index;
+            HWND handle = panel->controlAt(index);
+            if (handle == nullptr)
+            {
+                context.record(false, pageName + " 找到控件 " + field.id);
+                ++index;
+                continue;
+            }
+
+            switch (field.kind)
+            {
+            case FieldKind::Check: {
+                const bool before = field.checked;
+                ::SendMessageW(handle, BM_CLICK, 0, 0);
+                pumpMessages(2);
+                const bool after = (::SendMessageW(handle, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                const Field* updated = findField(livePage, field.id);
+                context.record(
+                    updated != nullptr && updated->checked == after && after != before,
+                    pageName + " 复选框可切换: " + field.id,
+                    "before=" + std::string(before ? "1" : "0") + " after=" + std::string(after ? "1" : "0")
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::Radio: {
+                if (!field.checked)
+                {
+                    ::SendMessageW(handle, BM_CLICK, 0, 0);
+                    pumpMessages(2);
+                    const Field* updated = findField(livePage, field.id);
+                    context.record(
+                        updated != nullptr && updated->checked,
+                        pageName + " 单选可选中: " + field.id,
+                        updated == nullptr ? "字段丢失" : "checked=1"
+                    );
+                    ++context.result.controlsDriven;
+                }
+                break;
+            }
+            case FieldKind::Edit:
+            case FieldKind::Number: {
+                const std::string probe =
+                    field.kind == FieldKind::Number ? std::string("77") : ("probe-" + field.id);
+                ::SetWindowTextW(handle, toWide(probe).c_str());
+                notifyCommand(panel->m_hWnd, controlId, EN_CHANGE, handle);
+                const Field* updated = findField(livePage, field.id);
+                context.record(
+                    updated != nullptr && updated->value == probe,
+                    pageName + " 编辑框往返一致: " + field.id,
+                    updated == nullptr ? "字段丢失"
+                                       : ("控件=" + windowText(handle) + " 模型=" + updated->value)
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::Combo: {
+                const LRESULT count = ::SendMessageW(handle, CB_GETCOUNT, 0, 0);
+                const LRESULT target = count - 1;
+                ::SendMessageW(handle, CB_SETCURSEL, static_cast<WPARAM>(target), 0);
+                notifyCommand(panel->m_hWnd, controlId, CBN_SELCHANGE, handle);
+                const Field* updated = findField(livePage, field.id);
+                context.record(
+                    updated != nullptr && updated->comboIndex == static_cast<int>(target) && count > 0,
+                    pageName + " 下拉可选中: " + field.id,
+                    "count=" + std::to_string(count) +
+                        " sel=" + std::to_string(updated == nullptr ? -99 : updated->comboIndex)
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::Progress: {
+                ::SendMessageW(handle, PBM_SETPOS, 42, 0);
+                const LRESULT position = ::SendMessageW(handle, PBM_GETPOS, 0, 0);
+                context.record(
+                    position == 42, pageName + " 进度条可读写: " + field.id, "pos=" + std::to_string(position)
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::List: {
+                const LRESULT items = ::SendMessageW(handle, LVM_GETITEMCOUNT, 0, 0);
+                context.record(
+                    items == static_cast<LRESULT>(field.rows.size()),
+                    pageName + " 列表行数与模型一致: " + field.id,
+                    "控件=" + std::to_string(items) + " 模型=" + std::to_string(field.rows.size())
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::Button: {
+                // 「添加」按钮要改运行计划，单独在下面按固定顺序验一遍，这里跳过
+                if (field.action == "addTask")
+                {
+                    ++index;
+                    continue;
+                }
+                ::SendMessageW(handle, BM_CLICK, 0, 0);
+                pumpMessages(2);
+                context.record(true, pageName + " 按钮已点击: " + field.id);
+                ++context.result.controlsDriven;
+                break;
+            }
+            case FieldKind::Info: {
+                const std::string text = windowText(handle);
+                context.record(
+                    text == field.value,
+                    pageName + " 只读值显示正确: " + field.id,
+                    "控件=" + (text.empty() ? std::string("(空)") : text) + " 模型=" + field.value
+                );
+                ++context.result.controlsDriven;
+                break;
+            }
+            }
+            ++index;
+        }
+    }
+}
+
 } // namespace
 
 SmokeResult runSmokeTest(bool visible)
@@ -474,7 +1053,13 @@ SmokeResult runSmokeTest(bool visible)
     _Module.Init(nullptr, GetModuleHandleW(nullptr));
     context.moduleInitialized = true;
 
-    RECT rect = {0, 0, 760, 560};
+    INITCOMMONCONTROLSEX controls = {};
+    controls.dwSize = sizeof(controls);
+    controls.dwICC =
+        ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
+    ::InitCommonControlsEx(&controls);
+
+    RECT rect = {0, 0, 900, 640};
     HWND handle = context.frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW, 0);
     if (handle == nullptr)
     {
@@ -488,24 +1073,12 @@ SmokeResult runSmokeTest(bool visible)
     context.record(true, "创建主窗口");
     pumpMessages(5);
 
-    // 系统信息页能打开
     HWND tabHandle = context.frame.GetDlgItem(kIdcTab);
     context.record(tabHandle != nullptr, "页签控件存在");
-    if (tabHandle != nullptr)
-    {
-        const int count = static_cast<int>(::SendMessageW(tabHandle, TCM_GETITEMCOUNT, 0, 0));
-        context.record(count >= 1, "页签数量 >= 1", "count=" + std::to_string(count));
-
-        ::SendMessageW(tabHandle, TCM_SETCURSEL, 0, 0);
-        const int selected = static_cast<int>(::SendMessageW(tabHandle, TCM_GETCURSEL, 0, 0));
-        context.record(selected == 0, "选中第一个页签（母盘系统）", "sel=" + std::to_string(selected));
-    }
-
-    HWND panelHandle = context.frame.GetDlgItem(kIdcPagePanel);
+    HWND panelHandle = context.frame.panel != nullptr ? context.frame.panel->m_hWnd : nullptr;
     context.record(panelHandle != nullptr, "页面面板存在");
 
-    // 页签必须是真正的通用控件，而不是自己造的东西：
-    // 类名应为 SysTabControl32，且 comctl32 此时已加载。
+    // 页签必须是真正的通用控件，而不是自己造的东西
     if (tabHandle != nullptr)
     {
         wchar_t className[64] = {};
@@ -515,133 +1088,176 @@ SmokeResult runSmokeTest(bool visible)
             actual == L"SysTabControl32", "页签控件是系统标准的 SysTabControl32", fromWide(actual)
         );
         context.record(::GetModuleHandleW(L"comctl32.dll") != nullptr, "通用控件库 comctl32 已加载");
-    }
 
-    // 逐字段核对：控件存在、文本非空、与页面模型一致
-    const std::vector<std::string> expected = expectedControlIds();
-    const Page page = systemPage();
-    context.record(
-        page.fields.size() == expected.size(),
-        "字段数与 DFM 图纸一致",
-        std::to_string(page.fields.size()) + " vs " + std::to_string(expected.size())
-    );
-
-    for (std::size_t i = 0; i < page.fields.size(); ++i)
-    {
-        const std::string text = context.frame.panel.fieldValueText(i);
-        const bool matches = text == page.fields[i].value;
+        const int count = static_cast<int>(::SendMessageW(tabHandle, TCM_GETITEMCOUNT, 0, 0));
         context.record(
-            matches,
-            "字段文本与页面模型一致: " + page.fields[i].label,
-            "控件=" + (text.empty() ? std::string("(空)") : text) + " 模型=" + page.fields[i].value
+            count == static_cast<int>(context.frame.pages.size()) && count == kConfigPageCount,
+            "页签数量与交付的页面数一致",
+            "count=" + std::to_string(count) + " 期望=" + std::to_string(kConfigPageCount)
         );
     }
 
-    // 控件能响应之一：按钮 -> WM_COMMAND -> 处理器真的跑了
-    // 注意：这些控件的父窗口是页面面板（真实点击时 WM_COMMAND 也发给面板），
-    // 所以要向面板发消息、也在面板上按 ID 找控件。
-    HWND refresh = context.frame.panel.GetDlgItem(kIdcRefresh);
-    if (refresh != nullptr)
+    // 逐页打开、逐页驱动
+    if (tabHandle != nullptr && panelHandle != nullptr)
     {
-        const int before = context.frame.panel.refreshCount;
-        ::SendMessageW(
-            context.frame.panel.m_hWnd,
-            WM_COMMAND,
-            MAKEWPARAM(kIdcRefresh, BN_CLICKED),
-            reinterpret_cast<LPARAM>(refresh)
-        );
-        pumpMessages(3);
-        context.record(
-            context.frame.panel.refreshCount == before + 1,
-            "「重新体检」按钮响应并触发处理器",
-            "before=" + std::to_string(before) + " after=" + std::to_string(context.frame.panel.refreshCount)
-        );
-        context.record(!context.frame.panel.fieldValueText(0).empty(), "重新体检后字段仍有值");
-    }
-    else
-    {
-        context.record(false, "找到「重新体检」按钮");
-    }
-
-    // 控件能响应之二：单选按钮状态可读写
-    HWND cert = context.frame.panel.GetDlgItem(kIdcSrsCert);
-    HWND diy = context.frame.panel.GetDlgItem(kIdcSrsDiy);
-    if (cert != nullptr && diy != nullptr)
-    {
-        ::SendMessageW(cert, BM_SETCHECK, BST_CHECKED, 0);
-        ::SendMessageW(diy, BM_SETCHECK, BST_UNCHECKED, 0);
-        const LRESULT certState = ::SendMessageW(cert, BM_GETCHECK, 0, 0);
-        context.record(
-            certState == BST_CHECKED, "单选按钮状态可读写", "BM_GETCHECK=" + std::to_string(certState)
-        );
-
-        // 走一遍命令处理，确认两个单选互斥
-        ::SendMessageW(
-            context.frame.panel.m_hWnd,
-            WM_COMMAND,
-            MAKEWPARAM(kIdcSrsDiy, BN_CLICKED),
-            reinterpret_cast<LPARAM>(diy)
-        );
-        const LRESULT certAfter = ::SendMessageW(cert, BM_GETCHECK, 0, 0);
-        const LRESULT diyAfter = ::SendMessageW(diy, BM_GETCHECK, 0, 0);
-        context.record(
-            certAfter == BST_UNCHECKED && diyAfter == BST_CHECKED,
-            "两个单选按钮互斥",
-            "cert=" + std::to_string(certAfter) + " diy=" + std::to_string(diyAfter)
-        );
-    }
-    else
-    {
-        context.record(false, "找到 SRS 单选按钮");
-    }
-
-    // 控件能响应之三：下拉框条目可选中
-    HWND combo = context.frame.panel.GetDlgItem(kIdcSrsDrive);
-    if (combo != nullptr)
-    {
-        const LRESULT count = ::SendMessageW(combo, CB_GETCOUNT, 0, 0);
-        context.record(count > 0, "下拉框已填入分区", "count=" + std::to_string(count));
-        if (count > 0)
+        for (int pageIndex = 0; pageIndex < static_cast<int>(context.frame.pages.size()); ++pageIndex)
         {
-            ::SendMessageW(combo, CB_SETCURSEL, count - 1, 0);
-            const LRESULT sel = ::SendMessageW(combo, CB_GETCURSEL, 0, 0);
-            context.record(sel == count - 1, "下拉框选中项可读写", "sel=" + std::to_string(sel));
+            const Page& page = context.frame.pages[static_cast<std::size_t>(pageIndex)];
+
+            // 用真实页签控件选页，再按控件真实的通知码通知父窗口
+            ::SendMessageW(tabHandle, TCM_SETCURSEL, static_cast<WPARAM>(pageIndex), 0);
+            notifyTabChange(context.frame.m_hWnd, tabHandle);
+            pumpMessages(3);
+
+            const int selected = static_cast<int>(::SendMessageW(tabHandle, TCM_GETCURSEL, 0, 0));
+            const bool opened = (selected == pageIndex) && (context.frame.panel->currentPage == pageIndex) &&
+                !context.frame.panel->controls.empty();
+            context.record(
+                opened,
+                "页面能打开: " + page.title + "（" + page.dfmSheet + "）",
+                "tabSel=" + std::to_string(selected) +
+                    " 面板控件数=" + std::to_string(context.frame.panel->controls.size())
+            );
+
+            PageSummary summary;
+            summary.id = page.id;
+            summary.title = page.title;
+            summary.dfmSheet = page.dfmSheet;
+            summary.fields = static_cast<int>(fieldCount(page));
+            summary.controls = static_cast<int>(context.frame.panel->controls.size());
+            summary.opened = opened;
+            context.result.pages.push_back(summary);
+
+            if (!opened)
+            {
+                continue;
+            }
+            ++context.result.pagesOpened;
+
+            context.record(
+                context.frame.panel->controls.size() == fieldCount(page),
+                page.title + " 控件数与页面模型一致",
+                "控件=" + std::to_string(context.frame.panel->controls.size()) +
+                    " 模型=" + std::to_string(fieldCount(page))
+            );
+
+            drivePage(context, context.frame.pages[static_cast<std::size_t>(pageIndex)]);
         }
     }
-    else
+
+    // 计划任务页：点『添加』必须真的往运行计划里加一条，且列表跟着长
+    if (tabHandle != nullptr && panelHandle != nullptr)
     {
-        context.record(false, "找到分区下拉框");
+        const int tasksIndex = 2; // pages 顺序：system/target/tasks/deploy/sysprep/run/done
+        ::SendMessageW(tabHandle, TCM_SETCURSEL, static_cast<WPARAM>(tasksIndex), 0);
+        notifyTabChange(context.frame.m_hWnd, tabHandle);
+        pumpMessages(3);
+
+        Page* tasks = findPage(context.frame.pages, "tasks");
+        context.record(tasks != nullptr && context.frame.panel->currentPage == tasksIndex, "切到计划任务页");
+
+        if (tasks != nullptr)
+        {
+            // 草稿行先填上内容，再点『添加』
+            if (Field* path = findField(*tasks, "Ed_RunPath"))
+            {
+                path->value = "tools\\hello.cmd";
+            }
+            if (Field* args = findField(*tasks, "Ed_CmdLine"))
+            {
+                args->value = "/quiet";
+            }
+
+            int flat = 0;
+            HWND addButton = nullptr;
+            for (const Group& group : tasks->groups)
+            {
+                for (const Field& field : group.fields)
+                {
+                    if (field.id == "Btn_Add")
+                    {
+                        addButton = context.frame.panel->controlAt(flat);
+                    }
+                    ++flat;
+                }
+            }
+            context.record(addButton != nullptr, "找到『添加』按钮");
+
+            const std::size_t before = context.frame.cfg.runPlan.size();
+            if (addButton != nullptr)
+            {
+                ::SendMessageW(addButton, BM_CLICK, 0, 0);
+                pumpMessages(3);
+            }
+            const std::size_t after = context.frame.cfg.runPlan.size();
+            context.record(
+                after == before + 1,
+                "点『添加』后运行计划正好多出一条任务",
+                "before=" + std::to_string(before) + " after=" + std::to_string(after)
+            );
+            if (after > before)
+            {
+                const config::RunPlanTask& task = context.frame.cfg.runPlan.back();
+                context.record(
+                    task.target == "tools\\hello.cmd" && task.arguments == "/quiet",
+                    "添加的任务带上了草稿行的执行路径与参数",
+                    "target=" + task.target + " args=" + task.arguments
+                );
+                context.record(
+                    !task.phase.empty() && !task.type.empty() && !task.windowStyle.empty() &&
+                        !task.waitMode.empty(),
+                    "新增任务带齐阶段/类型/运行方式/运行等待",
+                    "phase=" + task.phase + " type=" + task.type + " mode=" + task.windowStyle +
+                        " wait=" + task.waitMode
+                );
+            }
+
+            Page* refreshed = findPage(context.frame.pages, "tasks");
+            if (refreshed != nullptr)
+            {
+                if (const Field* list = findField(*refreshed, "Lv_Tasklist"))
+                {
+                    context.record(
+                        list->rows.size() == context.frame.cfg.runPlan.size(),
+                        "任务列表行数与运行计划一致",
+                        "rows=" + std::to_string(list->rows.size()) +
+                            " 计划=" + std::to_string(context.frame.cfg.runPlan.size())
+                    );
+                }
+            }
+        }
     }
 
-    // 控件能响应之四：编辑框往返
-    HWND edit = context.frame.panel.GetDlgItem(kIdcSrsPath);
-    if (edit != nullptr)
-    {
-        const wchar_t* probe = L"O:\\drivers\\srs";
-        ::SetWindowTextW(edit, probe);
-        wchar_t buffer[128] = {};
-        ::GetWindowTextW(edit, buffer, static_cast<int>(std::size(buffer)));
-        context.record(std::wstring(buffer) == probe, "编辑框文本往返一致", fromWide(buffer));
-    }
-    else
-    {
-        context.record(false, "找到自定义目录编辑框");
-    }
-
-    // 消息循环确实在跑
-    pumpMessages(5);
-    context.record(true, "消息循环已泵过");
+    // 按钮动作的安全性：这些计数器必须涨，而机器绝不能真的重启/封装
+    context.record(
+        context.frame.srsRunCount >= 1,
+        "SRS 执行按钮只记录意图（不真跑 dism）",
+        "count=" + std::to_string(context.frame.srsRunCount)
+    );
+    context.record(
+        context.frame.sysprepRunCount >= 1,
+        "开始封装按钮只记录意图（不启动 sysprep）",
+        "count=" + std::to_string(context.frame.sysprepRunCount)
+    );
+    context.record(
+        context.frame.scanCount >= 1,
+        "重新体检按钮触发了采集",
+        "count=" + std::to_string(context.frame.scanCount)
+    );
 
     // 退出无崩溃：销毁窗口并确认进程仍能继续
     context.frame.DestroyWindow();
     pumpMessages(5);
     context.record(true, "窗口销毁无崩溃");
+    context.record(context.frame.panel == nullptr, "面板随窗口一起销毁");
 
     if (visible)
     {
         context.record(true, "（可见模式）窗口已按请求显示过");
     }
 
+    context.result.excludedControls = excludedControlIds();
+    context.result.forbiddenBindings = forbiddenBindings();
     result = context.result;
     result.ok = (result.failures == 0);
 
@@ -655,7 +1271,7 @@ SmokeResult runSmokeTest(bool visible)
 std::string smokeReport(const SmokeResult& result)
 {
     std::string out;
-    out += "UI 冒烟测试（宪章 §8 M7a）\n";
+    out += "UI 冒烟测试（宪章 §8 M7b）\n";
 
     if (result.skipped)
     {
@@ -668,25 +1284,85 @@ std::string smokeReport(const SmokeResult& result)
     {
         out += "  " + line + "\n";
     }
-    out +=
-        "\n检查 " + std::to_string(result.checks) + " 项，失败 " + std::to_string(result.failures) + " 项\n";
+    out += "\n打开页面 " + std::to_string(result.pagesOpened) + " 个，驱动控件 " +
+        std::to_string(result.controlsDriven) + " 个\n";
+    out += "检查 " + std::to_string(result.checks) + " 项，失败 " + std::to_string(result.failures) + " 项\n";
     out += result.ok ? "RESULT: SMOKE-OK\n" : "RESULT: SMOKE-FAILED\n";
     return out;
 }
 
 std::string smokeJson(const SmokeResult& result)
 {
+    const auto quote = [](const std::string& text) {
+        std::string out;
+        for (const char ch : text)
+        {
+            if (ch == '"' || ch == '\\')
+            {
+                out += '\\';
+            }
+            if (ch == '\n')
+            {
+                out += "\\n";
+                continue;
+            }
+            out += ch;
+        }
+        return out;
+    };
+
     std::string out = "{\n";
-    out += "  \"schemaVersion\": 1,\n";
+    out += "  \"schemaVersion\": 2,\n";
     out += std::string("  \"ok\": ") + (result.ok ? "true" : "false") + ",\n";
     out += std::string("  \"skipped\": ") + (result.skipped ? "true" : "false") + ",\n";
-    out += "  \"skipReason\": \"" + result.skipReason + "\",\n";
+    out += "  \"skipReason\": \"" + quote(result.skipReason) + "\",\n";
     out += "  \"checks\": " + std::to_string(result.checks) + ",\n";
     out += "  \"failures\": " + std::to_string(result.failures) + ",\n";
+    out += "  \"pagesOpened\": " + std::to_string(result.pagesOpened) + ",\n";
+    out += "  \"controlsDriven\": " + std::to_string(result.controlsDriven) + ",\n";
+
+    // 页面一览：走查时按这份清单核对「哪些页开了、每页多少字段与控件」
+    out += "  \"pages\": [";
+    for (std::size_t i = 0; i < result.pages.size(); ++i)
+    {
+        const PageSummary& page = result.pages[i];
+        out += "\n    {\"id\": \"" + quote(page.id) + "\", \"title\": \"" + quote(page.title) +
+            "\", \"dfmSheet\": \"" + quote(page.dfmSheet) + "\", \"fields\": " + std::to_string(page.fields) +
+            ", \"controls\": " + std::to_string(page.controls) +
+            ", \"opened\": " + (page.opened ? "true" : "false") + "}";
+        if (i + 1 < result.pages.size())
+        {
+            out += ",";
+        }
+    }
+    out += "\n  ],\n";
+
+    out += "  \"excludedControls\": [";
+    for (std::size_t i = 0; i < result.excludedControls.size(); ++i)
+    {
+        out += "\n    \"" + quote(result.excludedControls[i]) + "\"";
+        if (i + 1 < result.excludedControls.size())
+        {
+            out += ",";
+        }
+    }
+    out += "\n  ],\n";
+
+    out += "  \"forbiddenBindings\": [";
+    for (std::size_t i = 0; i < result.forbiddenBindings.size(); ++i)
+    {
+        out += "\n    \"" + quote(result.forbiddenBindings[i]) + "\"";
+        if (i + 1 < result.forbiddenBindings.size())
+        {
+            out += ",";
+        }
+    }
+    out += "\n  ],\n";
+
     out += "  \"lines\": [";
     for (std::size_t i = 0; i < result.lines.size(); ++i)
     {
-        out += "\n    \"" + result.lines[i] + "\"";
+        out += "\n    \"" + quote(result.lines[i]) + "\"";
         if (i + 1 < result.lines.size())
         {
             out += ",";
@@ -696,7 +1372,7 @@ std::string smokeJson(const SmokeResult& result)
     out += "  \"failuresDetail\": [";
     for (std::size_t i = 0; i < result.failuresDetail.size(); ++i)
     {
-        out += "\n    \"" + result.failuresDetail[i] + "\"";
+        out += "\n    \"" + quote(result.failuresDetail[i]) + "\"";
         if (i + 1 < result.failuresDetail.size())
         {
             out += ",";

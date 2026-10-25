@@ -41,6 +41,9 @@ struct Optimization
     bool autoSetIp = false;
     std::string ipMode;          // fixed / random / range
     std::string networkLocation; // home / work / public
+    // M7b 新增（可选，默认值不变）：对位 DFM 里没有宿主的两个字段
+    bool clearSrsDrivers = false; // 清理多余的 SRS 驱动（Cb_ClearSrs）
+    bool setResolution = false;   // 智能设置分辨率（Cb_SetResolution）
 };
 
 // 运行计划：5 个阶段 × 4 种任务类型
@@ -71,6 +74,15 @@ struct DeploySettings
     std::string userName;
     std::string userGroup;
     bool blockVirtualMachine = false;
+    // M7b 新增（可选，默认值不变）：部署过程页的「部署设置」组。
+    // 只承载配置，图形化部署画面按宪章「Direct2D 自绘与换肤后置」不做。
+    std::string backgroundImage;      // 部署背景图路径（Ed_PicPath）
+    int imageSwitchSeconds = 10;      // 多图切换速度，秒（Ed_PicSpeed，图纸默认 10）
+    int deployResolutionX = 0;        // 部署分辨率宽，0 = 不设置（Ed_DeployResolution_Width）
+    int deployResolutionY = 0;        // 部署分辨率高，0 = 不设置（Ed_DeployResolution_Height）
+    std::string fontColor;            // 部署文字颜色（Ed_DeployFontcolour）
+    bool verifyIntegrity = false;     // 校验文件防篡改，用户态校验（Cb_Tampering）
+    bool enableAdministrator = false; // 开启 administrator（Cb_Admin）
 };
 
 struct SysprepSettings
@@ -88,6 +100,10 @@ struct SysprepSettings
     std::string domain;
     std::string domainUser;
     std::string afterAction; // stay / reboot / shutdown
+    // M7b 新增（可选，默认值不变）
+    std::string domainPassword;      // 域用户密码（Ed_Domain_pw）
+    bool perServerLicensing = false; // 每服务器授权（Rb_EverySer）
+    int maxConnections = 5;          // 同时连接数（Se_Serconut，图纸默认 5）
 };
 
 struct Config
