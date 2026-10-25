@@ -212,8 +212,16 @@ def check_workflow(path: str) -> int:
     check("发版阶段核对四份齐全", text.count("--check-artifacts") >= 1)
 
     check("有源码包（git archive）", "git archive" in text)
-    check("源码包里核对了 LICENSE 与第三方许可文件",
-          "third_party/LICENSES.md" in text and "MS-PL.txt" in text and "LICENSE" in text)
+    # 源码包内容核对已搬进 verify_release.py（用 zipfile，不依赖 tar），
+    # 所以这里核对「workflow 确实调了它」+「脚本里确实核对了许可文件」
+    check("源码包内容核对交给 --check-source-package", "--check-source-package" in text)
+    script_path = os.path.join(REPO, "tests", "integration", "verify_release.py")
+    script = open(script_path, encoding="utf-8").read() if os.path.isfile(script_path) else ""
+    check(
+        "脚本里确实核对了 LICENSE 与第三方许可文件",
+        all(item in script for item in ("LICENSE", "third_party/LICENSES.md", "MS-PL.txt")),
+    )
+    check("脚本里确实断言了源码包不含驱动二进制", "驱动二进制" in script)
     # 说明文字由 verify_release.py --emit-notes 生成（内容自检在 emit_notes 里做），
     # 这里只核对「说明确实来自那个生成器并且真的交给了 gh」
     check("Release 说明由 --emit-notes 生成", "--emit-notes" in text)
