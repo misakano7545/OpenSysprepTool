@@ -22,6 +22,27 @@ if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus /EHsc)
   add_compile_definitions(_UNICODE UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+  # ------------------------------------------------------------ Windows 7 SP1
+  # 宪章 §8 M5.1 第一道闸：编译期拦住 Windows 8 及以上的 API。
+  # 这三个宏必须在任何 Windows 头文件（尤其是 sdkddkver.h）之前生效，
+  # 用 /D 传最稳妥 —— 命令行定义永远先于源码里的 #include。
+  #
+  # 定在 0x0601（Win7 SP1）后，SDK 头会按 Win7 的能力给声明：
+  #   - Win8+ 独有 API 直接编译报错（第一道闸）
+  #   - VS2022 STL 会走条件变量回退路径，不再静态导入 WaitOnAddress /
+  #     WakeByAddressSingle / WakeByAddressAll（Win8+）
+  #   - GetSystemTimePreciseAsFileTime 等不回退时也不可用
+  add_compile_definitions(
+    WINVER=0x0601
+    _WIN32_WINNT=0x0601
+    NTDDI_VERSION=0x06010000
+  )
+
+  # 第二道闸的可见前提：PE 的 MajorSubsystemVersion 必须是 6.1。
+  # 默认由 SDK 决定（实测停在 6.0/Vista），显式钉死。
+  # 这是链接器选项，不是编译定义 —— 见本文件末尾的边界说明。
+  add_link_options("/SUBSYSTEM:CONSOLE,6.01")
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

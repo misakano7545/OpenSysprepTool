@@ -16,13 +16,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64]                 # 宪章 §12：M2–M4 只做 x64，M5 起加 x86
+        # 宪章 §12：M2–M4 只做 x64；M5 起加 x86，因为 osptd.exe 是唯一在
+        # 目标系统上运行的产物，而目标系统可能是 32 位 Win7 SP1。
+        # 注意 -A 的取值：x86 在生成器里叫 Win32。
+        include:
+          - arch: x64
+            cmake_arch: x64
+          - arch: x86
+            cmake_arch: Win32
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.arch }}
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -124,6 +131,60 @@ jobs:
           }
 
           Write-Host "runplan 两条路径均通过"
+          exit 0
+
+      # M5 增量（宪章 §9.7）：部署运行时不只打印，等待策略也得真的生效。
+      # 断言等待完成 / 不等待 / 超时+终止 / 超时+继续 四种结果，以及失败中止后
+      # 后续任务不执行。全部用无害命令，不碰系统路径。
+      - name: 部署运行时验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests\integration\verify_deploy_exec.py `
+            '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' |
+            Tee-Object -FilePath deploy-exec.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content deploy-exec.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
+      # M5 增量（宪章 §9.7）：Windows 7 兼容闸门。
+      # 三道闸里，第 1 道（WINVER 拦 Win8+ API）在编译期已经生效；这里查第 2、3 道，
+      # 并把产物自己的 --win7-compat 自述与 PE 实测值交叉比对。
+      # 负例步骤用来证明闸门不是橡皮章 —— 篡改产物后闸门必须失败。
+      - name: Win7 兼容闸门
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $artifacts = @(
+            '.\build\bin\Release\osptd.exe',
+            '.\build\bin\Release\ospt.exe',
+            '.\build\bin\Release\osp_unit_tests.exe'
+          )
+
+          python tests\integration\verify_win7_compat.py @artifacts |
+            Tee-Object -FilePath win7-compat.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content win7-compat.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+
+          python tests\integration\verify_win7_compat_negative.py '.\build\bin\Release\osptd.exe' |
+            Tee-Object -FilePath win7-compat-negative.log
+          $code2 = $LASTEXITCODE
+          if ($code2 -ne 0) {
+            Get-Content win7-compat-negative.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code2
+          }
+
+          Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0
 
       # 上传前先断言产物真实存在且非空，并把实际字节数打进日志。

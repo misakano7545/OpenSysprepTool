@@ -6,6 +6,9 @@ add_library(osp_core STATIC
   sysinfo/sysinfo.cpp
   runplan/runplan.cpp
   unattend/unattend.cpp
+  # M5 新增：Windows 7 兼容层与部署运行时内核
+  win7/win7compat.cpp
+  deploy/deploy.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp
 )
@@ -20,4 +23,5 @@ target_include_directories(osp_core PRIVATE
 target_compile_features(osp_core PUBLIC cxx_std_20)
 
 # 杀软状态走 WMI（root\SecurityCenter2），需要 COM 与 WMI 的运行库
-target_link_libraries(osp_core PRIVATE wbemuuid ole32 oleaut32)
+# advapi32：《ProductName》要从注册表读（RegGetValueW，Vista+）
+target_link_libraries(osp_core PRIVATE wbemuuid ole32 oleaut32 advapi32)

@@ -6,6 +6,8 @@ add_executable(osp_unit_tests
   test_sysinfo.cpp
   test_unattend.cpp
   test_runplan.cpp
+  test_win7.cpp
+  test_deploy.cpp
 )
 
 target_link_libraries(osp_unit_tests PRIVATE osp::core)
