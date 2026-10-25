@@ -18,6 +18,7 @@
 #include <windows.h>
 
 #include <commctrl.h>
+#include <commdlg.h>
 
 #include <atlbase.h>
 #include <atlapp.h>
@@ -27,6 +28,9 @@
 #include <atlwin.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <vector>
@@ -100,6 +104,13 @@ std::string windowText(HWND wnd)
 
 class PagePanel;
 
+// ---------------------------------------------------------------- 菜单命令 ID
+
+constexpr int kIdcMenuOpenConfig = 9100;
+constexpr int kIdcMenuSaveConfigAs = 9101;
+constexpr int kIdcMenuExit = 9102;
+constexpr int kIdcMenuScanNow = 9103; // 与母盘系统页的「封装体检」同一个动作
+
 // ---------------------------------------------------------------- 主框架
 
 class MainFrame : public CWindowImpl<MainFrame>
@@ -115,6 +126,11 @@ public:
     config::Config cfg;
     std::vector<Page> pages;
 
+    // 交互式运行时的状态
+    std::string configPath;   // 当前配置文件名，空 = 未命名
+    bool configDirty = false; // 有未保存的编辑
+    CMenu mainMenu;
+
     // 按钮动作的落地情况，冒烟测试按这些计数器核对「控件真的响应了」
     int scanCount = 0;
     int srsRunCount = 0;
@@ -129,6 +145,7 @@ public:
     MESSAGE_HANDLER(WM_CREATE, OnCreate)
     MESSAGE_HANDLER(WM_SIZE, OnSize)
     MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
+    MESSAGE_HANDLER(WM_COMMAND, OnCommand)
     MESSAGE_HANDLER(WM_CLOSE, OnClose)
     MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
     END_MSG_MAP()
@@ -136,9 +153,21 @@ public:
     void rebuildPages();
     void handleAction(const std::string& action, const std::string& controlId);
 
+    // 交互式运行：菜单命令与配置读写
+    void applyAllPages();
+    void refreshPagesFromConfig();
+    void markDirty();
+    void updateTitle();
+    bool loadConfigFrom(const std::string& path);
+    bool saveConfigTo(const std::string& path);
+    bool promptOpenConfig();
+    bool promptSaveConfigAs();
+    void setStatus(const std::string& text);
+
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSize(UINT, WPARAM, LPARAM lParam, BOOL&);
     LRESULT OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&);
+    LRESULT OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&);
     LRESULT OnClose(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDestroy(UINT, WPARAM, LPARAM, BOOL&);
 };
@@ -258,14 +287,38 @@ public:
                     {
                         continue;
                     }
-                    const Field* other = fieldAt(ref.fieldIndex);
-                    if (other == nullptr || !sameGroup(ref.fieldIndex, index))
+                    if (!sameGroup(ref.fieldIndex, index))
                     {
                         continue;
                     }
                     ::SendMessageW(ref.handle, BM_SETCHECK, BST_UNCHECKED, 0);
-                    Field* mutableOther = fieldAt(ref.fieldIndex);
-                    mutableOther->checked = false;
+                    if (Field* other = fieldAt(ref.fieldIndex))
+                    {
+                        other->checked = false;
+                    }
+                }
+
+                // 选中「工作组」就把域输入清掉：所见即所存，不能让保存时静默丢弃用户输入
+                if (field->id == "Rb_WorkGroup")
+                {
+                    for (const char* domainField : {"Ed_Domain_name", "Ed_Domain_user", "Ed_Domain_pw"})
+                    {
+                        for (ControlRef& ref : controls)
+                        {
+                            if (Field* target = fieldAt(ref.fieldIndex))
+                            {
+                                if (target->id == domainField)
+                                {
+                                    target->value.clear();
+                                    if (ref.handle != nullptr)
+                                    {
+                                        ::SetWindowTextW(ref.handle, L"");
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
             break;
@@ -292,6 +345,13 @@ public:
             break;
         default:
             break;
+        }
+
+        // 编辑类控件动过就标记「有未保存修改」（按钮只是发动作，不算编辑）
+        if (owner != nullptr && field->kind != FieldKind::Button && field->kind != FieldKind::Info &&
+            field->kind != FieldKind::Progress && field->kind != FieldKind::List)
+        {
+            owner->markDirty();
         }
         return 0;
     }
@@ -759,6 +819,24 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
 
     status.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_SUNKEN, 0, kIdcStatus);
 
+    // 菜单：只用系统标准菜单，配置的打开 / 另存为 / 退出，加一个与「封装体检」同源的立即体检
+    if (HMENU menu = ::CreateMenu())
+    {
+        HMENU fileMenu = ::CreatePopupMenu();
+        ::AppendMenuW(fileMenu, MF_STRING, kIdcMenuOpenConfig, L"打开配置(&O)...\tCtrl+O");
+        ::AppendMenuW(fileMenu, MF_STRING, kIdcMenuSaveConfigAs, L"另存为配置(&S)...\tCtrl+S");
+        ::AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
+        ::AppendMenuW(fileMenu, MF_STRING, kIdcMenuExit, L"退出(&X)");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"文件(&F)");
+
+        HMENU toolMenu = ::CreatePopupMenu();
+        ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuScanNow, L"立即封装体检(&R)");
+        ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(toolMenu), L"工具(&T)");
+
+        ::SetMenu(m_hWnd, menu);
+        mainMenu.Attach(menu); // 交给窗口持有，随窗口一起销毁
+    }
+
     pages = pagesFromConfig(cfg);
 
     TCITEMW item = {};
@@ -771,6 +849,178 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     }
     tab.SetCurSel(0);
     panel->setPage(0);
+    updateTitle();
+    return 0;
+}
+
+void MainFrame::updateTitle()
+{
+    const std::string name = configPath.empty() ? std::string("未命名配置") : configPath;
+    const std::wstring title = toWide("OpenSysprepTool 配置 - " + name + (configDirty ? " *" : ""));
+    SetWindowTextW(title.c_str());
+}
+
+void MainFrame::markDirty()
+{
+    if (!configDirty)
+    {
+        configDirty = true;
+        updateTitle();
+    }
+}
+
+void MainFrame::setStatus(const std::string& text)
+{
+    if (status.m_hWnd != nullptr)
+    {
+        status.SetWindowTextW(toWide(text).c_str());
+    }
+}
+
+void MainFrame::applyAllPages()
+{
+    // 界面上改过的值一律先落到配置模型，再谈保存
+    cfg = configFromPages(pages);
+}
+
+void MainFrame::refreshPagesFromConfig()
+{
+    pages = pagesFromConfig(cfg);
+    if (tab.m_hWnd != nullptr)
+    {
+        tab.DeleteAllItems();
+        TCITEMW item = {};
+        item.mask = TCIF_TEXT;
+        for (const Page& page : pages)
+        {
+            std::wstring title = toWide(page.title);
+            item.pszText = title.data();
+            tab.InsertItem(static_cast<int>(tab.GetItemCount()), &item);
+        }
+        tab.SetCurSel(0);
+    }
+    if (panel != nullptr && panel->m_hWnd != nullptr)
+    {
+        panel->setPage(0);
+    }
+    updateTitle();
+}
+
+bool MainFrame::loadConfigFrom(const std::string& path)
+{
+    config::Config loaded;
+    std::string error;
+    if (!loadConfigFile(path, loaded, error))
+    {
+        MessageBoxW(toWide("载入失败：\n" + error).c_str(), L"打开配置", MB_OK | MB_ICONWARNING);
+        setStatus("载入失败：" + error);
+        return false;
+    }
+
+    cfg = loaded;
+    configPath = path;
+    configDirty = false;
+    refreshPagesFromConfig();
+    setStatus("已载入 " + path);
+    return true;
+}
+
+bool MainFrame::saveConfigTo(const std::string& path)
+{
+    applyAllPages();
+    std::string error;
+    if (!saveConfigFile(path, cfg, error))
+    {
+        MessageBoxW(toWide("保存失败：\n" + error).c_str(), L"另存为配置", MB_OK | MB_ICONWARNING);
+        setStatus("保存失败：" + error);
+        return false;
+    }
+
+    configPath = path;
+    configDirty = false;
+    updateTitle();
+    setStatus("已保存到 " + path);
+    return true;
+}
+
+bool MainFrame::promptOpenConfig()
+{
+    if (configDirty)
+    {
+        const int answer = MessageBoxW(
+            L"当前配置有未保存的修改，继续打开会丢弃它们。\n\n要打开其它配置吗？",
+            L"打开配置",
+            MB_YESNO | MB_ICONQUESTION
+        );
+        if (answer != IDYES)
+        {
+            return false;
+        }
+    }
+
+    wchar_t buffer[MAX_PATH] = L"";
+    OPENFILENAMEW dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = m_hWnd;
+    dialog.lpstrFilter = L"配置文件 (*.json)\0*.json\0所有文件 (*.*)\0*.*\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = ARRAYSIZE(buffer);
+    dialog.lpstrDefExt = L"json";
+    dialog.lpstrTitle = L"打开配置";
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+
+    if (GetOpenFileNameW(&dialog) == 0)
+    {
+        return false; // 用户取消
+    }
+    return loadConfigFrom(fromWide(std::wstring(buffer)));
+}
+
+bool MainFrame::promptSaveConfigAs()
+{
+    wchar_t buffer[MAX_PATH] = L"";
+    OPENFILENAMEW dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = m_hWnd;
+    dialog.lpstrFilter = L"配置文件 (*.json)\0*.json\0所有文件 (*.*)\0*.*\0";
+    dialog.lpstrFile = buffer;
+    dialog.nMaxFile = ARRAYSIZE(buffer);
+    dialog.lpstrDefExt = L"json";
+    dialog.lpstrTitle = L"另存为配置";
+    dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+
+    if (GetSaveFileNameW(&dialog) == 0)
+    {
+        return false; // 用户取消
+    }
+    return saveConfigTo(fromWide(std::wstring(buffer)));
+}
+
+LRESULT MainFrame::OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    const int id = LOWORD(wParam);
+    if (HIWORD(wParam) == 0 && lParam == 0)
+    {
+        // 菜单命令：lParam 为 0；子控件通知由各自的面板处理
+        switch (id)
+        {
+        case kIdcMenuOpenConfig:
+            promptOpenConfig();
+            return 0;
+        case kIdcMenuSaveConfigAs:
+            promptSaveConfigAs();
+            return 0;
+        case kIdcMenuExit:
+            SendMessageW(WM_CLOSE, 0, 0);
+            return 0;
+        case kIdcMenuScanNow:
+            handleAction("scan", "Btn_Scan");
+            setStatus("已完成封装体检");
+            return 0;
+        default:
+            return 0;
+        }
+    }
     return 0;
 }
 
@@ -824,6 +1074,22 @@ LRESULT MainFrame::OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&)
 
 LRESULT MainFrame::OnClose(UINT, WPARAM, LPARAM, BOOL&)
 {
+    if (configDirty)
+    {
+        const int answer = MessageBoxW(
+            L"配置有未保存的修改。\n\n点『是』退出前先另存为，点『否』直接退出，点『取消』留在界面上。",
+            L"退出",
+            MB_YESNOCANCEL | MB_ICONQUESTION
+        );
+        if (answer == IDCANCEL)
+        {
+            return 0; // 不关窗
+        }
+        if (answer == IDYES && !promptSaveConfigAs())
+        {
+            return 0; // 用户取消了保存，留在界面上
+        }
+    }
     DestroyWindow();
     return 0;
 }
@@ -1245,6 +1511,104 @@ SmokeResult runSmokeTest(bool visible)
         "count=" + std::to_string(context.frame.scanCount)
     );
 
+    // ---------------------------------------------------------------- 菜单与配置读写
+    if (handle != nullptr)
+    {
+        HMENU menu = ::GetMenu(handle);
+        const int topCount = menu != nullptr ? static_cast<int>(::GetMenuItemCount(menu)) : 0;
+        context.record(
+            menu != nullptr && topCount == 2,
+            "主菜单有『文件』与『工具』两项",
+            "顶层项数=" + std::to_string(topCount)
+        );
+
+        wchar_t firstItem[64] = {};
+        if (menu != nullptr)
+        {
+            ::GetMenuStringW(menu, 0, firstItem, static_cast<int>(std::size(firstItem)), MF_BYPOSITION);
+        }
+        const std::string firstLabel = fromWide(std::wstring(firstItem));
+        context.record(
+            firstLabel.find("文件") != std::string::npos, "第一项是『文件』菜单", "实际=" + firstLabel
+        );
+
+        HMENU fileMenu = menu != nullptr ? ::GetSubMenu(menu, 0) : nullptr;
+        const int fileCount = fileMenu != nullptr ? static_cast<int>(::GetMenuItemCount(fileMenu)) : 0;
+        context.record(
+            fileCount == 4,
+            "『文件』菜单是 打开配置 / 另存为配置 / 分隔线 / 退出",
+            "项数=" + std::to_string(fileCount)
+        );
+
+        // 菜单命令走真实 WM_COMMAND（与用户点菜单同一条路径）
+        const int scanBefore = context.frame.scanCount;
+        ::SendMessageW(handle, WM_COMMAND, MAKEWPARAM(kIdcMenuScanNow, 0), 0);
+        pumpMessages(2);
+        context.record(
+            context.frame.scanCount == scanBefore + 1,
+            "菜单命令『立即封装体检』真的执行了体检",
+            "before=" + std::to_string(scanBefore) + " after=" + std::to_string(context.frame.scanCount)
+        );
+
+        // 动过控件之后必须被标记成「有未保存修改」
+        context.record(
+            context.frame.configDirty,
+            "编辑过控件后进入未保存状态",
+            std::string("configDirty=") + (context.frame.configDirty ? "1" : "0")
+        );
+        context.record(
+            windowText(handle).find("*") != std::string::npos,
+            "窗口标题里出现了未保存标记 *",
+            windowText(handle)
+        );
+    }
+
+    // 配置读写：界面上改过的值存成 cfg.json，再读回来必须与内存里的页面模型一致
+    {
+        const std::filesystem::path work = std::filesystem::temp_directory_path() / "ospt-ui-smoke";
+        std::error_code ec;
+        std::filesystem::create_directories(work, ec);
+        const std::filesystem::path cfgPath = work / "roundtrip.json";
+
+        context.frame.applyAllPages();
+        const std::string savedJson = config::toJson(context.frame.cfg);
+        std::string error;
+        context.record(
+            saveConfigFile(cfgPath.string(), context.frame.cfg, error),
+            "配置能存成 cfg.json",
+            error.empty() ? cfgPath.string() : error
+        );
+
+        config::Config reloaded;
+        error.clear();
+        const bool loaded = loadConfigFile(cfgPath.string(), reloaded, error);
+        context.record(loaded, "cfg.json 能读回来", error.empty() ? cfgPath.string() : error);
+        if (loaded)
+        {
+            context.record(
+                config::toJson(reloaded) == savedJson,
+                "读回来的配置与存出去前逐字一致",
+                std::to_string(savedJson.size()) + " 字节"
+            );
+            context.record(
+                toJson(pagesFromConfig(reloaded)) == toJson(pagesFromConfig(context.frame.cfg)),
+                "用文件里的配置重建页面与当前页面一致"
+            );
+        }
+
+        // 错误路径：非法 JSON 必须被拒绝、给出原因，而且不崩
+        const std::filesystem::path badPath = work / "broken.json";
+        {
+            std::ofstream bad(badPath, std::ios::binary | std::ios::trunc);
+            bad << "{ this is not json ";
+        }
+        config::Config ignored;
+        error.clear();
+        const bool badLoaded = loadConfigFile(badPath.string(), ignored, error);
+        context.record(!badLoaded && !error.empty(), "非法 JSON 被拒绝并给出原因", error);
+        context.record(true, "非法 JSON 没有把程序搞崩");
+    }
+
     // 退出无崩溃：销毁窗口并确认进程仍能继续
     context.frame.DestroyWindow();
     pumpMessages(5);
@@ -1266,6 +1630,58 @@ SmokeResult runSmokeTest(bool visible)
         _Module.Term();
     }
     return result;
+}
+
+int runApplication(const std::string& initialConfigPath)
+{
+    if (GetProcessWindowStation() == nullptr) // NOLINT
+    {
+        std::fputs("无窗口站（无头环境），打不开配置界面。用 --ui-smoke-test 做无人值守检查。\n", stderr);
+        return 3;
+    }
+
+    MainFrame frame;
+
+    _Module.Init(nullptr, GetModuleHandleW(nullptr));
+
+    INITCOMMONCONTROLSEX controls = {};
+    controls.dwSize = sizeof(controls);
+    controls.dwICC =
+        ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
+    ::InitCommonControlsEx(&controls);
+
+    RECT rect = {0, 0, 980, 700};
+    if (frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW) == nullptr)
+    {
+        _Module.Term();
+        std::fprintf(stderr, "创建主窗口失败，GetLastError=%lu\n", GetLastError());
+        return 4;
+    }
+
+    frame.ShowWindow(SW_SHOWNORMAL);
+    frame.UpdateWindow();
+
+    // 启动时带了配置文件就直接载入；载入失败只在界面上报警，不退出
+    if (!initialConfigPath.empty())
+    {
+        frame.loadConfigFrom(initialConfigPath);
+    }
+    else
+    {
+        frame.setStatus("就绪：文件菜单可打开 / 另存为配置（cfg.json）");
+    }
+
+    // 常驻消息循环：等到窗口关闭（WM_QUIT）才返回
+    MSG message = {};
+    while (::GetMessageW(&message, nullptr, 0, 0) > 0)
+    {
+        ::TranslateMessage(&message);
+        ::DispatchMessageW(&message);
+        ++frame.messageCount;
+    }
+
+    _Module.Term();
+    return static_cast<int>(message.wParam);
 }
 
 std::string smokeReport(const SmokeResult& result)

@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -176,6 +178,44 @@ int toInt(const std::string& text, int fallback)
         return fallback;
     }
     return static_cast<int>(value);
+}
+
+std::string toLowerAscii(const std::string& text)
+{
+    std::string out = text;
+    for (char& ch : out)
+    {
+        if (ch >= 'A' && ch <= 'Z')
+        {
+            ch = static_cast<char>(ch - 'A' + 'a');
+        }
+    }
+    return out;
+}
+
+bool containsFold(const std::string& haystack, const std::string& needle)
+{
+    if (needle.empty())
+    {
+        return false;
+    }
+    return toLowerAscii(haystack).find(toLowerAscii(needle)) != std::string::npos;
+}
+
+// 「系统名称」：Windows 11 的 ProductName 仍报 "Windows 10 ..."，而 EditionID 往往已经
+// 含在里面了（ProductName="Windows 10 Enterprise" + EditionID="Enterprise"），
+// 直接拼接会显示成「Windows 10 Enterprise Enterprise」，所以先判包含再决定要不要补。
+std::string composeOsName(const std::string& productName, const std::string& editionId)
+{
+    if (productName.empty())
+    {
+        return "未知";
+    }
+    if (editionId.empty() || containsFold(productName, editionId))
+    {
+        return productName;
+    }
+    return productName + " " + editionId;
 }
 
 // "1024x768" 这类组合串拆成宽高
@@ -351,11 +391,7 @@ Page systemPage()
         }
     }
 
-    std::string osName = report.os.productName.empty() ? std::string("未知") : report.os.productName;
-    if (!report.os.editionId.empty())
-    {
-        osName += " " + report.os.editionId;
-    }
+    std::string osName = composeOsName(report.os.productName, report.os.editionId);
 
     std::string arch = report.os.architecture.empty() ? std::string("unknown") : report.os.architecture;
     arch += report.os.is64BitOs ? "（64 位系统）" : "（32 位系统）";
@@ -1414,6 +1450,71 @@ void applyTo(const Page& page, config::Config& cfg)
             cfg.sysprep.perServerLicensing = perserver->checked && !everyone->checked;
         }
     }
+}
+
+// ---------------------------------------------------------------- 页面 <-> 配置
+
+config::Config configFromPages(const std::vector<Page>& pages)
+{
+    config::Config cfg;
+    for (const Page& page : pages)
+    {
+        if (!page.configPage)
+        {
+            continue; // 运行 / 完成是运行期页面，不参与配置
+        }
+        applyTo(page, cfg);
+    }
+    return cfg;
+}
+
+bool loadConfigFile(const std::string& path, config::Config& out, std::string& error)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+    {
+        error = "打不开文件：" + path;
+        return false;
+    }
+    std::string text((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    if (text.empty())
+    {
+        error = "文件是空的：" + path;
+        return false;
+    }
+    // 配置模型的解析失败会返回错误而不是抛异常，这里照原样转成可读信息
+    const config::ParseResult parsed = config::fromJson(text);
+    if (!parsed.ok)
+    {
+        error = "不是合法的配置 JSON：" + parsed.error;
+        return false;
+    }
+    if (parsed.config.schemaVersion != config::kSchemaVersion)
+    {
+        error = "schemaVersion 不符：文件是 " + std::to_string(parsed.config.schemaVersion) +
+            "，本程序支持 " + std::to_string(config::kSchemaVersion);
+        return false;
+    }
+    out = parsed.config;
+    return true;
+}
+
+bool saveConfigFile(const std::string& path, const config::Config& cfg, std::string& error)
+{
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream)
+    {
+        error = "写不了文件：" + path;
+        return false;
+    }
+    const std::string text = config::toJson(cfg);
+    stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+    if (!stream)
+    {
+        error = "写文件失败：" + path;
+        return false;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------- 任务草稿

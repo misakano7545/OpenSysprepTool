@@ -66,6 +66,8 @@ cmake --build build --config Release --parallel
 ## 命令行
 
 ```
+ospt                                                    打开配置界面（等同 --ui）
+ospt --ui [--config <cfg.json>]                         打开配置界面，可带一个初始配置
 ospt --selftest                                        配置 JSON 往返自检
 ospt --checkup [--json <path>]                          系统体检
 ospt --gen-unattend <cfg.json> --out <unattend.xml>     生成应答文件
@@ -75,6 +77,7 @@ ospt --inject-drivers --image <挂载点> --srs <目录> --dry-run         模�
 ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]        封装编排
 ospt --ui-smoke-test [--visible] [--report <json>]      界面冒烟测试
 ospt --version                                          版本与源码地址
+ospt --help                                             用法
 
 osptd --dry-run --plan <run/>                           逐阶段打印将要执行的动作，不启动进程
 osptd --plan <run/> [--log <log.txt>] [--report <report.json>]        真正执行运行计划
@@ -87,6 +90,21 @@ osptd --version                                         版本与源码地址
 命令行必须显式加 `--execute` 才会真正落地。`--ui-smoke-test` 在无头环境下会打印
 `SMOKE-SKIP` 与原因并返回 0，绝不静默略过。
 
+### 配置界面
+
+双击 `ospt.exe`（或 `ospt` / `ospt --ui`）就打开配置界面，**关掉窗口才退出**。7 个页签：
+母盘系统 / 目标系统 / 计划任务 / 部署过程 / 封装过程 / 运行 / 完成。
+
+- **文件 → 打开配置… / 另存为配置…**：读写 `cfg.json`（就是 `--gen-unattend` /
+  `--gen-runplan` 吃的那种配置文件，同一份模型）。标题栏显示当前文件名，改过没存会带 `*`，
+  关窗时会问你要不要先存。载入失败（非法 JSON / 空文件 / schemaVersion 不符）会弹出原因，
+  不会崩，也不会悄悄用默认值顶替。
+- **工具 → 立即封装体检**：重跑一遍 M2 的采集（等同 `--checkup`）。
+- 界面上的按钮**只改配置**，不会真的装驱动、跑 sysprep 或关机；要真正执行仍走命令行
+  的 `--execute`。这是刻意的安全边界。
+- 界面是原生 Win32 标准控件（页签、编辑框、复选框、下拉框、进度条、列表视图），
+  视觉完全自研，不做换肤，不引入任何图片或字体资源。
+
 ## 测试与验收
 
 ### 本地验收
@@ -98,6 +116,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 build/bin/Release/ospt.exe --selftest
 build/bin/Release/ospt.exe --ui-smoke-test
+build/bin/Release/ospt.exe --ui          # 打开配置界面，关窗即退出
 
 build/bin/Release/ospt.exe --checkup --json out.json
 python tests/integration/verify_checkup.py out.json
@@ -122,7 +141,8 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 | `cmake --build build --config Release` | 0 error 0 warning（x64 与 x86 两个架构都要） |
 | `ctest --test-dir build -C Release` | 全绿。**零用例时 ctest 返回 exit code 8，视为失败**，不用 `--no-tests=ignore` 掩盖 |
 | `ospt.exe --selftest` | 打印 `config roundtrip OK` |
-| `ospt.exe --ui-smoke-test` | 退出码 0；7 个配置页全部打开、控件全部响应、退出无崩溃 |
+| `ospt.exe --ui-smoke-test` | 退出码 0；7 个配置页全部打开、控件全部响应、菜单与配置读写都能跑通、退出无崩溃 |
+| `ospt.exe --ui` | 开出常驻窗口（类名 `OSPTMainFrame`），关窗后退出码 0；`verify_ui.py` 会启动它、等窗口出现、确认 2 秒后仍在运行、再发 `WM_CLOSE` 核对退出 |
 | `verify_checkup.py` | 全绿；含「OS 版本与 `cmd /c ver` 一致」「sysprep.exe 真实存在」「分区容量偏差 ≤1%」三条硬证据 |
 | `verify_unattend.py` | 全绿；含命名空间、元素顺序、父子嵌套、pass 合法性、计算机名规则、AutoLogon 次数、登录阶段落点 |
 | `verify_runplan.py` | 全绿；覆盖 5 阶段 × 4 类型 × 4 运行方式 × 3 等待策略 × 4 路径类型 |

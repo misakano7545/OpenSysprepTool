@@ -7,8 +7,13 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <set>
+#include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "core/config.hpp"
@@ -490,4 +495,129 @@ TEST_CASE("toJson 报告带页面、绑定与不做清单")
 TEST_CASE("无头跳过的标记常量稳定（CI 按它判断是否显式声明）")
 {
     CHECK(std::string(osp::ui::kSkipMarker) == "SMOKE-SKIP");
+}
+
+TEST_CASE("全部配置页能合并成一份配置，运行期页面不参与")
+{
+    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(osp::config::Config());
+
+    osp::ui::findField(*osp::ui::findPage(pages, "target"), "Ed_Owner")->value = "小御坂";
+    osp::ui::findField(*osp::ui::findPage(pages, "target"), "Cb_ShowDevmgmt")->checked = true;
+    osp::ui::findField(*osp::ui::findPage(pages, "deploy"), "Ed_DeployFontcolour")->value = "#ABCDEF";
+    // 域信息只有在「加入域」被选中时才会写进配置：选中「工作组」时域输入会被清掉
+    osp::ui::findField(*osp::ui::findPage(pages, "sysprep"), "Rb_WorkGroup")->checked = false;
+    osp::ui::findField(*osp::ui::findPage(pages, "sysprep"), "Rb_Domain")->checked = true;
+    osp::ui::findField(*osp::ui::findPage(pages, "sysprep"), "Ed_Domain_name")->value = "corp.local";
+    osp::ui::findField(*osp::ui::findPage(pages, "sysprep"), "Ed_Domain_pw")->value = "pw123";
+
+    const osp::config::Config merged = osp::ui::configFromPages(pages);
+    CHECK(merged.systemInfo.registeredName == "小御坂");
+    CHECK(merged.firstLogon.runDeviceManager);
+    CHECK(merged.deploy.fontColor == "#ABCDEF");
+    CHECK(merged.sysprep.domain == "corp.local");
+    CHECK(merged.sysprep.domainPassword == "pw123");
+
+    // 与「逐页 applyTo」的结果必须一致：configFromPages 只是把这一步包起来
+    osp::config::Config manual;
+    for (const osp::ui::Page& page : pages)
+    {
+        if (page.configPage)
+        {
+            osp::ui::applyTo(page, manual);
+        }
+    }
+    CHECK(osp::config::toJson(merged) == osp::config::toJson(manual));
+
+    // 运行 / 完成页在模型里就不带绑定，合并时也不会把它们的值写进配置
+    for (const char* id : {"run", "done"})
+    {
+        const osp::ui::Page* page = osp::ui::findPage(pages, id);
+        REQUIRE(page != nullptr);
+        CHECK(!page->configPage);
+    }
+}
+
+TEST_CASE("配置文件读写往返一致，错误路径都给出原因")
+{
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "ospt-ui-unit";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path goodPath = dir / "roundtrip.json";
+
+    osp::config::Config cfg;
+    cfg.systemInfo.registeredName = "小御坂";
+    cfg.systemInfo.bootMenuTimeoutSec = 7;
+    cfg.deploy.fontColor = "#102030";
+    cfg.sysprep.afterAction = "reboot";
+
+    std::string error;
+    CHECK(osp::ui::saveConfigFile(goodPath.string(), cfg, error));
+    CHECK(error.empty());
+
+    osp::config::Config loaded;
+    CHECK(osp::ui::loadConfigFile(goodPath.string(), loaded, error));
+    CHECK(error.empty());
+    CHECK(loaded.systemInfo.registeredName == "小御坂");
+    CHECK(loaded.systemInfo.bootMenuTimeoutSec == 7);
+    CHECK(loaded.deploy.fontColor == "#102030");
+    CHECK(osp::config::toJson(loaded) == osp::config::toJson(cfg));
+
+    // 非法 JSON：必须拒绝并说明原因
+    const std::filesystem::path badJson = dir / "broken.json";
+    {
+        std::ofstream out(badJson, std::ios::binary | std::ios::trunc);
+        out << "{ this is not json ";
+    }
+    osp::config::Config ignored;
+    error.clear();
+    CHECK_FALSE(osp::ui::loadConfigFile(badJson.string(), ignored, error));
+    CHECK(!error.empty());
+
+    // 空文件
+    const std::filesystem::path emptyPath = dir / "empty.json";
+    {
+        std::ofstream out(emptyPath, std::ios::binary | std::ios::trunc);
+    }
+    error.clear();
+    CHECK_FALSE(osp::ui::loadConfigFile(emptyPath.string(), ignored, error));
+    CHECK(!error.empty());
+
+    // 不存在的文件
+    error.clear();
+    CHECK_FALSE(osp::ui::loadConfigFile((dir / "no-such-file.json").string(), ignored, error));
+    CHECK(!error.empty());
+
+    // schemaVersion 不符
+    const std::filesystem::path wrongSchema = dir / "wrong-schema.json";
+    {
+        std::ofstream out(wrongSchema, std::ios::binary | std::ios::trunc);
+        out << "{\"schemaVersion\": 99}";
+    }
+    error.clear();
+    CHECK_FALSE(osp::ui::loadConfigFile(wrongSchema.string(), ignored, error));
+    CHECK(error.find("schemaVersion") != std::string::npos);
+
+    // 保存到不存在的目录：必须失败并给出原因，而不是崩
+    error.clear();
+    CHECK_FALSE(osp::ui::saveConfigFile((dir / "no-such-dir" / "x.json").string(), cfg, error));
+    CHECK(!error.empty());
+}
+
+TEST_CASE("系统名称不会把版本名重复拼两遍")
+{
+    // Windows 11 上 ProductName 报 "Windows 10 Enterprise"，EditionID 又是 "Enterprise"，
+    // 早期实现直接拼接会显示成「Windows 10 Enterprise Enterprise」
+    const osp::ui::Page page = osp::ui::systemPage();
+    const osp::ui::Field* field = osp::ui::findField(page, "Lab_Osnamev");
+    REQUIRE(field != nullptr);
+
+    std::istringstream stream(field->value);
+    const std::vector<std::string> words{
+        std::istream_iterator<std::string>(stream), std::istream_iterator<std::string>()
+    };
+    REQUIRE(!words.empty());
+    for (std::size_t i = 1; i < words.size(); ++i)
+    {
+        CHECK(words[i] != words[i - 1]);
+    }
 }

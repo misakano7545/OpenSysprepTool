@@ -116,6 +116,98 @@ def appears_as_token(text: str, name: str) -> bool:
     return re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
 
 
+def check_interactive_ui(ospt: str) -> None:
+    """--ui 必须真的开出一个常驻窗口，并在 WM_CLOSE 后正常退出。
+
+    这是「能不能当 GUI 用」的判据：光有冒烟测试不够 —— 冒烟是自动驱动完就销毁窗口，
+    人根本插不上手。
+    """
+    import ctypes
+    import time
+
+    user32 = ctypes.windll.user32
+
+    class RECT(ctypes.Structure):
+        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                    ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+    proc = subprocess.Popen([ospt, "--ui"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    target_pid = proc.pid
+    found: list[int] = []
+
+    def enum_callback(hwnd, _lparam):
+        pid = ctypes.c_ulong(0)
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value != target_pid:
+            return True
+        buffer = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buffer, 256)
+        if buffer.value == "OSPTMainFrame":
+            found.append(hwnd)
+            return False
+        return True
+
+    enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(enum_callback)
+
+    deadline = time.time() + 15
+    while time.time() < deadline and not found:
+        if proc.poll() is not None:
+            break
+        user32.EnumWindows(enum_proc, 0)
+        time.sleep(0.2)
+
+    if not found:
+        code = proc.poll()
+        output = ""
+        if proc.stdout is not None:
+            try:
+                output = proc.stdout.read().decode("utf-8", "replace")
+            except Exception:
+                output = ""
+        if "无窗口站" in output:
+            # 无头环境：程序自己已经显式说明了原因，这里同样不静默略过
+            check("无窗口站环境：--ui 显式说明了跳过原因并退出", code == 3, f"code={code} / {output.strip()[:80]}")
+            _say("  本机没有窗口站，--ui 的常驻检查被显式跳过（原因由程序自己打印）")
+        else:
+            check("ospt.exe --ui 开出了主窗口（类名 OSPTMainFrame）", False, f"进程状态={code} 输出={output[:120]}")
+        proc.kill()
+        return
+    check("ospt.exe --ui 开出了主窗口（类名 OSPTMainFrame）", True)
+
+    hwnd = found[0]
+    check("窗口可见", bool(user32.IsWindowVisible(hwnd)))
+
+    rect = RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    check("窗口尺寸合理（>600x400）", width > 600 and height > 400, f"{width}x{height}")
+
+    # 常驻：再等一会儿，进程不能自己退出（这正是「能用」与「跑完就关」的区别）
+    time.sleep(2.0)
+    alive = proc.poll() is None
+    check("窗口起来 2 秒后进程仍在运行（常驻，不是跑完就退）", alive, f"退出码={proc.poll()}")
+
+    # 关窗即退出：发 WM_CLOSE，等同用户点右上角 X
+    user32.PostMessageW(hwnd, 0x0010, 0, 0)
+    try:
+        code = proc.wait(timeout=15)
+        check("关窗后进程正常退出（退出码 0）", code == 0, f"code={code}")
+    except subprocess.TimeoutExpired:
+        check("关窗后进程正常退出（退出码 0）", False, "15 秒内没退出，消息循环可能有问题")
+        proc.kill()
+
+
+def check_usage_lists_ui(ospt: str) -> None:
+    """用法里必须能找到打开界面的入口，否则用户不知道界面怎么起"""
+    code, output = run([ospt, "--help"])
+    check("--help 退出码 0", code == 0, f"code={code}")
+    check("用法里列出 --ui（打开配置界面）", "--ui" in output)
+    check("用法里列出无参数直接打开界面", re.search(r"^\s*ospt\s+打开配置界面", output, re.M) is not None)
+    check("用法里仍有 --ui-smoke-test", "--ui-smoke-test" in output)
+
+
 def main(argv: list[str]) -> int:
     ospt = argv[1] if len(argv) > 1 else os.path.join(REPO, "build", "bin", "Release", "ospt.exe")
     report_path = os.path.join(REPO, "build", "m7b", "smoke.json")
@@ -225,6 +317,13 @@ def main(argv: list[str]) -> int:
         lines = "\n".join(report.get("lines", []))
         leaked = [name for name in excluded if appears_as_token(lines, name)]
         check("冒烟记录里没有任何红线/不做控件名", not leaked, ", ".join(leaked[:8]))
+
+    section("交互式界面：--ui 能开、能常驻、能关")
+    check_usage_lists_ui(ospt)
+    if not skipped:
+        check_interactive_ui(ospt)
+    else:
+        _say("  本机没有窗口站，跳过 --ui 的常驻检查（原因已在上方打印）")
 
     section("约束：原生控件进了产物、且 Win7 三道闸没破")
     dlls = [d.lower() for d in imported_dlls(ospt)]

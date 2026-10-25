@@ -101,6 +101,13 @@ std::vector<Page> pagesFromConfig(const config::Config& cfg);
 // 把页面上的编辑结果写回配置模型；Info / Progress / List 字段忽略
 void applyTo(const Page& page, config::Config& cfg);
 
+// 把全部配置页上的编辑合并成一份配置（逐页 applyTo）
+config::Config configFromPages(const std::vector<Page>& pages);
+
+// 配置文件的读写。失败时不抛异常，error 填原因；schemaVersion 不符或 JSON 不合法都算失败。
+bool loadConfigFile(const std::string& path, config::Config& out, std::string& error);
+bool saveConfigFile(const std::string& path, const config::Config& cfg, std::string& error);
+
 // 计划任务页：把当前草稿行读成一条 runPlan 任务
 config::RunPlanTask taskFromPage(const Page& tasksPage);
 // 计划任务页：用一条任务刷新草稿行（列表选中项回填编辑器）
@@ -127,6 +134,10 @@ std::vector<std::string> allExpectedControlIds();
 std::vector<std::string> excludedControlIds();
 // 界面上不得出现的 config 绑定（红线字段在我们模型里存在，但不许露到 UI）
 std::vector<std::string> forbiddenBindings();
+
+// 打开窗口并常驻，直到用户关闭；返回进程退出码。
+// initialConfigPath 非空时启动就载入该 cfg.json；载入失败只报错、不退出。
+int runApplication(const std::string& initialConfigPath);
 
 // ---------------------------------------------------------------- 冒烟测试
 

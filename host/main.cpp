@@ -32,6 +32,8 @@ void printUsage()
 {
     std::printf("ospt %s\n\n", osp::versionString());
     std::printf("usage:\n");
+    std::printf("  ospt                                             打开配置界面（等同 --ui）\n");
+    std::printf("  ospt --ui [--config <cfg.json>]                  打开配置界面，可带一个初始配置\n");
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
@@ -42,6 +44,7 @@ void printUsage()
     std::printf("  ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]     封装编排\n");
     std::printf("  ospt --ui-smoke-test [--visible] [--report <json>]        界面冒烟测试\n");
     std::printf("  ospt --version     版本与源码地址\n");
+    std::printf("  ospt --help        本说明\n");
 }
 
 osp::config::Config makeSampleConfig()
@@ -812,6 +815,43 @@ int runSysprep(int argc, char** argv)
 
 // ---------------------------------------------------------------- M7a：UI 冒烟测试
 
+int runUi(int argc, char** argv)
+{
+    std::string configPath;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--ui")
+        {
+            continue;
+        }
+        if (arg == "--config")
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--config 需要一个值\n");
+                return 2;
+            }
+            configPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    std::printf("OpenSysprepTool %s 配置界面\n", osp::versionString());
+    if (!configPath.empty())
+    {
+        std::printf("启动时载入：%s\n", configPath.c_str());
+    }
+    std::printf("关掉窗口即退出。\n");
+    return osp::ui::runApplication(configPath);
+}
+
 int runUiSmokeTest(int argc, char** argv)
 {
     bool visible = false;
@@ -871,13 +911,24 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    // 不带参数 = 打开配置界面（双击 exe 就能用）
     if (argc < 2)
+    {
+        return runUi(argc, argv);
+    }
+
+    const char* arg = argv[1];
+
+    if (std::strcmp(arg, "--help") == 0 || std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "/?") == 0)
     {
         printUsage();
         return 0;
     }
 
-    const char* arg = argv[1];
+    if (std::strcmp(arg, "--ui") == 0)
+    {
+        return runUi(argc, argv);
+    }
 
     if (std::strcmp(arg, "--selftest") == 0)
     {

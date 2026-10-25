@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+M7 收尾：把配置界面接成能日常使用的程序（可启动、可常驻、配置能读写）。
+
+### Added
+
+- `ospt` **不带参数**或 `ospt --ui [--config <cfg.json>]` 打开配置界面，窗口**常驻到关闭**
+  才退出；补 `--help` 打印用法（此前不带参数只打用法就退，界面只能靠冒烟测试间接看到）
+- 主菜单（系统标准菜单）：**文件 → 打开配置… / 另存为配置… / 退出**（带 `Ctrl+O` / `Ctrl+S`
+  提示）、**工具 → 立即封装体检**（等同 `--checkup`）
+- 配置文件读写走的就是 `--gen-unattend` / `--gen-runplan` 那份 `cfg.json` 模型：
+  打开即重建全部页面，另存为即把界面上的编辑合并成配置；标题栏显示文件名，
+  有未保存修改时带 `*`，关窗时询问是否先保存
+- `host/ui` 新增 `runApplication()`（常驻消息循环）、`configFromPages()`、
+  `loadConfigFile()` / `saveConfigFile()`；载入失败（非法 JSON / 空文件 / schemaVersion
+  不符 / 打不开）都给出可读原因，不崩、也不用默认值顶替
+- `--ui-smoke-test` 增加菜单与配置读写的检查：菜单项与文字、菜单命令走真实 `WM_COMMAND`、
+  未保存标记、配置存盘再读回逐字一致、非法 JSON 被拒绝 —— 共 127 项
+- `verify_ui.py` 增加交互式检查：启动 `--ui`、等窗口出现、确认 2 秒后进程仍在运行、
+  发 `WM_CLOSE` 核对退出码 0；并核对 `--help` 里列出的入口
+- `tests/unit/test_ui.cpp` 增加配置合并、文件读写与全部错误路径、系统名称不重复拼接
+
+### Fixed
+
+- **「系统名称」重复拼接**：Windows 11 上 `ProductName` 报 `Windows 10 Enterprise`、
+  `EditionID` 又是 `Enterprise`，直接拼接会显示成「Windows 10 Enterprise Enterprise」；
+  改为先判包含再决定要不要补（活窗口实测发现）
+- **选中「工作组」时域输入被静默丢弃**：改选工作组现在会同时清空域名 / 域用户 / 域密码
+  三个输入框，做到所见即所存（单测发现）
+- 界面按钮仍然**只改配置不执行**：装驱动 / sysprep / 关机依旧只能由命令行 `--execute` 触发
+
 ## [0.1.0] - 2026-10-25
 
 M1–M8：工程骨架、系统体检、unattend.xml 生成、运行计划调度器、部署运行时与
