@@ -247,8 +247,9 @@ jobs:
           }
           exit 0
 
-      # 按发布资产名收口，并在这里就核对「架构对不对、子系统是不是 6.1」
-      - name: 收口四份二进制并核验架构
+      # 按发布资产名收口本架构的两份，并在这里就核对「架构对不对、子系统是不是 6.1」。
+      # 四份齐全由发版 job 统一核对（每个矩阵 job 手里只有自己那一个架构）。
+      - name: 收口本架构两份二进制并核验架构
         shell: pwsh
         run: |
           $release = 'release'
@@ -260,7 +261,8 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'release-artifacts.log'
-          python tests\integration\verify_release.py --check-artifacts $release *>&1 | Tee-Object -FilePath $log
+          python tests\integration\verify_release.py --check-arch-artifacts $release --arch '${{ matrix.arch }}' *>&1 |
+            Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
             Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |

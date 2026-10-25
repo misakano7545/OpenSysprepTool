@@ -206,6 +206,10 @@ def check_workflow(path: str) -> int:
     check("Release 挂上了源码包", "-src.zip" in text)
     check("Release 挂上了矩阵记录", "acceptance-matrix" in text)
     check("发布后回读 assets 逐个核对", "gh release view" in text and "assets" in text)
+    # 每个架构的构建 job 手里只有自己那两份，所以构建阶段要按架构收窄校验，
+    # 四份齐全只在发版 job 里核对 —— 写成「每个 job 都校验四份」会必然失败
+    check("构建阶段按架构收窄校验产物", "--check-arch-artifacts" in text and "--arch" in text)
+    check("发版阶段核对四份齐全", text.count("--check-artifacts") >= 1)
 
     check("有源码包（git archive）", "git archive" in text)
     check("源码包里核对了 LICENSE 与第三方许可文件",
@@ -224,11 +228,23 @@ def check_workflow(path: str) -> int:
 # ---------------------------------------------------------------- 四份产物
 
 
-def check_artifacts(directory: str) -> int:
-    section(f"四个发布产物：{directory}")
+def check_artifacts(directory: str, only_arch: str | None = None) -> int:
+    if only_arch:
+        section(f"{only_arch} 架构的两份产物：{directory}")
+    else:
+        section(f"四个发布产物：{directory}")
+
+    # 每个架构的构建 job 手里只有自己那两份，发版 job 才核对四份齐全；
+    # 所以这里要能按架构收窄，而不是把「四份都在」当成每个 job 的义务。
+    expected = {
+        asset: spec for asset, spec in RELEASE_BINARIES.items() if only_arch is None or spec[1] == only_arch
+    }
+    if only_arch and not expected:
+        check(f"架构名合法（{only_arch}）", False, "只支持 x64 / x86")
+        return 1
 
     missing = []
-    for asset, (machine, arch) in RELEASE_BINARIES.items():
+    for asset, (machine, arch) in expected.items():
         path = os.path.join(directory, asset)
         if not os.path.isfile(path):
             missing.append(asset)
@@ -533,6 +549,9 @@ def main(argv: list[str]) -> int:
             exit_code = exit_code or check_workflow(value or os.path.join(REPO, ".github/workflows/release.yml"))
         elif arg == "--check-artifacts":
             exit_code = exit_code or check_artifacts(value or "")
+        elif arg == "--check-arch-artifacts":
+            # 单个架构的构建 job 只核对本架构那两份（发版 job 才核对四份齐全）
+            exit_code = exit_code or check_artifacts(value or "", _value_of(args, "--arch") or "x64")
         elif arg == "--emit-matrix":
             tag = _tag_from_argv(args) or tag
             markdown = _value_of(args, "--markdown") or ""

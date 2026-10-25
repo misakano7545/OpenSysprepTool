@@ -156,7 +156,8 @@ Windows 7 SP1 兼容、驱动注入与 sysprep 编排、主程序配置界面、
   不一致时整条流水线失败、**绝不产出 Release**
 - 双架构构建（x64 与 x86）后按发布资产名收口四份二进制：
   `ospt-x64.exe`、`osptd-x64.exe`、`ospt-x86.exe`、`osptd-x86.exe`，
-  并核对机器码（0x8664 / 0x14C）与子系统版本 6.1
+  并核对机器码（0x8664 / 0x14C）与子系统版本 6.1。
+  每个架构的构建 job 只收口自己那两份（手里也只有那两份），四份齐全由发版 job 统一核对
 - 源码包：`git archive <tag>` 生成 `OpenSysprepTool-<tag>-src.zip`，并核对包内含
   `LICENSE`、`third_party/LICENSES.md`、`third_party/WTL/MS-PL.txt` 与 `version.hpp`。
   GPL-3.0 要求二进制与源码同时提供，所以 Release 说明里写明三种源码获取方式
