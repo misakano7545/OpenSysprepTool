@@ -42,6 +42,7 @@ const std::vector<const char*>& oobeChildOrder();
 const std::vector<const char*>& autoLogonChildOrder();
 const std::vector<const char*>& displayChildOrder();
 const std::vector<const char*>& synchronousCommandChildOrder();
+const std::vector<const char*>& asynchronousCommandChildOrder();
 const std::vector<const char*>& localAccountChildOrder();
 
 } // namespace osp::unattend

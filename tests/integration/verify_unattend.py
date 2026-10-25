@@ -43,6 +43,7 @@ SHELL_SETUP_OOBE_ORDER = [
     "AutoLogon",
     "Display",
     "FirstLogonCommands",
+    "LogonCommands",
     "OOBE",
     "UserAccounts",
 ]
@@ -69,6 +70,9 @@ DISPLAY_CHILD_ORDER = [
 ]
 
 SYNC_COMMAND_CHILD_ORDER = ["CommandLine", "Description", "Order", "RequiresUserInput"]
+
+# AsynchronousCommand 页把 RequiresUserInput 标为 "This setting is not used."，不生成
+ASYNC_COMMAND_CHILD_ORDER = ["CommandLine", "Description", "Order"]
 
 LOCAL_ACCOUNT_CHILD_ORDER = ["Description", "DisplayName", "Group", "Name", "Password"]
 
@@ -110,6 +114,7 @@ VALID_PASSES = {
     ("Microsoft-Windows-Shell-Setup", "OOBE"): {"oobeSystem"},
     ("Microsoft-Windows-Shell-Setup", "AutoLogon"): {"auditSystem", "oobeSystem", "specialize"},
     ("Microsoft-Windows-Shell-Setup", "FirstLogonCommands"): {"oobeSystem"},
+    ("Microsoft-Windows-Shell-Setup", "LogonCommands"): {"oobeSystem"},
     ("Microsoft-Windows-Shell-Setup", "UserAccounts"): {"auditSystem", "oobeSystem"},
     ("Microsoft-Windows-Shell-Setup", "Display"): {
         "auditSystem",
@@ -130,6 +135,7 @@ PARENT_RULES = {
     "AutoLogon": {"component"},
     "Display": {"component"},
     "FirstLogonCommands": {"component"},
+    "LogonCommands": {"component"},
     "OOBE": {"component"},
     "UserAccounts": {"component"},
     "RunSynchronous": {"component"},
@@ -147,9 +153,10 @@ PARENT_RULES = {
     "RefreshRate": {"Display"},
     "VerticalResolution": {"Display"},
     "SynchronousCommand": {"FirstLogonCommands"},
-    "CommandLine": {"SynchronousCommand"},
-    "Description": {"SynchronousCommand"},
-    "Order": {"SynchronousCommand", "RunSynchronousCommand"},
+    "AsynchronousCommand": {"LogonCommands"},
+    "CommandLine": {"SynchronousCommand", "AsynchronousCommand"},
+    "Description": {"SynchronousCommand", "AsynchronousCommand"},
+    "Order": {"SynchronousCommand", "AsynchronousCommand", "RunSynchronousCommand"},
     "RunSynchronousCommand": {"RunSynchronous"},
     "Path": {"RunSynchronousCommand"},
     "LocalAccounts": {"UserAccounts"},
@@ -301,6 +308,8 @@ def verify_element_order(components: list[tuple[str, str, ET.Element]]) -> None:
                                      IDENTIFICATION_CHILD_ORDER)
             elif cname in ("SynchronousCommand", "RunSynchronousCommand"):
                 ordered_subset_check(f"{name}/{cname}", grandchildren, SYNC_COMMAND_CHILD_ORDER)
+            elif cname == "AsynchronousCommand":
+                ordered_subset_check(f"{name}/{cname}", grandchildren, ASYNC_COMMAND_CHILD_ORDER)
             elif cname == "LocalAccount":
                 ordered_subset_check(f"{name}/LocalAccount", grandchildren,
                                      LOCAL_ACCOUNT_CHILD_ORDER)
@@ -441,9 +450,10 @@ def verify_autologon(components: list[tuple[str, str, ET.Element]], cfg: dict | 
           f"xml={username} cfg={expected_user}")
 
 
-def verify_first_logon_commands(components: list[tuple[str, str, ET.Element]],
-                                cfg: dict | None) -> None:
-    section("验收：FirstLogonCommands 条数")
+def verify_logon_landing(components: list[tuple[str, str, ET.Element]],
+                         cfg: dict | None) -> None:
+    """落点：登录时 -> FirstLogonCommands（同步）；进桌面 -> LogonCommands（异步）。"""
+    section("验收：阶段落点与命令条数")
     component = None
     for pass_name, name, node in components:
         if name == "Microsoft-Windows-Shell-Setup" and pass_name == "oobeSystem":
@@ -453,43 +463,71 @@ def verify_first_logon_commands(components: list[tuple[str, str, ET.Element]],
         check("oobeSystem 中存在 Shell-Setup 组件", False)
         return
 
-    container = component.find(f"{{{NS}}}FirstLogonCommands")
-    if container is None:
-        container = component.find("FirstLogonCommands")
+    def collect(container_tag: str, child_tag: str) -> list[ET.Element]:
+        container = component.find(f"{{{NS}}}{container_tag}")
+        if container is None:
+            container = component.find(container_tag)
+        if container is None:
+            return []
+        return [c for c in container
+                if isinstance(c.tag, str) and local_name(c.tag) == child_tag]
 
-    commands = [] if container is None else [
-        c for c in container if isinstance(c.tag, str) and local_name(c.tag) == "SynchronousCommand"
-    ]
+    sync_commands = collect("FirstLogonCommands", "SynchronousCommand")
+    async_commands = collect("LogonCommands", "AsynchronousCommand")
 
-    for index, command in enumerate(commands, start=1):
-        order = None
-        for child in command:
-            if local_name(child.tag) == "Order":
-                order = (child.text or "").strip()
-        check(f"第 {index} 条 SynchronousCommand 的 Order 连续",
-              order is not None and order.isdigit() and int(order) == index, str(order))
+    for label, commands in (("SynchronousCommand", sync_commands),
+                            ("AsynchronousCommand", async_commands)):
+        for index, command in enumerate(commands, start=1):
+            order = None
+            for child in command:
+                if local_name(child.tag) == "Order":
+                    order = (child.text or "").strip()
+            check(f"第 {index} 条 {label} 的 Order 连续",
+                  order is not None and order.isdigit() and int(order) == index, str(order))
+
+    # AsynchronousCommand 不得出现 RequiresUserInput（参考标注为未使用）
+    for command in async_commands:
+        names = {local_name(c.tag) for c in command if isinstance(c.tag, str)}
+        check("AsynchronousCommand 不含 RequiresUserInput", "RequiresUserInput" not in names,
+              ", ".join(sorted(names)))
 
     if cfg is None:
-        skip("FirstLogonCommands 条数与输入一致", "未提供 cfg.json")
+        skip("阶段落点条数与输入一致", "未提供 cfg.json")
         return
 
     run_plan = cfg.get("runPlan", [])
-    first_logon_tasks = [t for t in run_plan if t.get("phase") in ("desktop", "logon")]
-    expected = len(first_logon_tasks) + (1 if cfg.get("firstLogon", {}).get("runDeviceManager") else 0)
+    logon_tasks = [t for t in run_plan if t.get("phase") == "logon"]
+    desktop_tasks = [t for t in run_plan if t.get("phase") == "desktop"]
+    device_manager = 1 if cfg.get("firstLogon", {}).get("runDeviceManager") else 0
 
-    check("FirstLogonCommands 条数与输入一致", len(commands) == expected,
-          f"xml={len(commands)} cfg={expected}")
+    expected_sync = len(logon_tasks) + device_manager
+    check("FirstLogonCommands 条数与输入一致（设备管理器 + 登录时）",
+          len(sync_commands) == expected_sync,
+          f"xml={len(sync_commands)} cfg={expected_sync}")
+    check("LogonCommands 条数与输入一致（进桌面）",
+          len(async_commands) == len(desktop_tasks),
+          f"xml={len(async_commands)} cfg={len(desktop_tasks)}")
 
-    if commands:
-        command_lines = []
-        for command in commands:
-            for child in command:
-                if local_name(child.tag) == "CommandLine":
-                    command_lines.append((child.text or "").strip())
-        for task in first_logon_tasks:
-            target = task.get("target", "")
-            check(f"desktop/logon 任务已写入: {target or '(空)'}",
-                  any(line.startswith(target) for line in command_lines), ", ".join(command_lines))
+    sync_lines = [child.text or "" for command in sync_commands for child in command
+                  if local_name(child.tag) == "CommandLine"]
+    async_lines = [child.text or "" for command in async_commands for child in command
+                   if local_name(child.tag) == "CommandLine"]
+
+    for task in logon_tasks:
+        target = task.get("target", "")
+        check(f"登录时任务落在 FirstLogonCommands: {target or '(空)'}",
+              any(line.strip().startswith(target) for line in sync_lines),
+              ", ".join(line.strip() for line in sync_lines))
+    for task in desktop_tasks:
+        target = task.get("target", "")
+        check(f"进桌面任务落在 LogonCommands: {target or '(空)'}",
+              any(line.strip().startswith(target) for line in async_lines),
+              ", ".join(line.strip() for line in async_lines))
+
+    if device_manager:
+        check("设备管理器命令落在 FirstLogonCommands",
+              any("devmgmt.msc" in line for line in sync_lines),
+              ", ".join(line.strip() for line in sync_lines))
 
 
 def verify_run_synchronous(components: list[tuple[str, str, ET.Element]],
@@ -599,7 +637,7 @@ def main(argv: list[str]) -> int:
     verify_pass_validity(components)
     verify_computer_name(components, cfg)
     verify_autologon(components, cfg)
-    verify_first_logon_commands(components, cfg)
+    verify_logon_landing(components, cfg)
     verify_run_synchronous(components, cfg)
     verify_values(components)
 

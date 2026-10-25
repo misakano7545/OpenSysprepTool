@@ -124,9 +124,21 @@ const char* networkLocationValue(const std::string& raw)
     return nullptr;
 }
 
+// 落点依据 ADK 离线参考 Unattend.chm：
+//   FirstLogonCommands -> SynchronousCommand：「run the first time a user logs on」，
+//     「after logon but before the user sees the desktop」，逐条同步等待 -> 登录时
+//   LogonCommands     -> AsynchronousCommand：「the first time that a user logs onto
+//     the computer」，「The computer does not wait for one command to finish」
+//     （不推迟桌面出现）-> 进桌面
+// 两个元素的合法 pass 都是 oobeSystem。
 bool isFirstLogonPhase(const std::string& phase)
 {
-    return phase == "desktop" || phase == "logon";
+    return phase == "logon";
+}
+
+bool isLogonCommandsPhase(const std::string& phase)
+{
+    return phase == "desktop";
 }
 
 std::string buildCommandLine(const osp::config::RunPlanTask& task)
@@ -158,8 +170,16 @@ const std::vector<const char*>& shellSetupSpecializeOrder()
 const std::vector<const char*>& shellSetupOobeSystemOrder()
 {
     static const std::vector<const char*> kOrder{
-        "AutoLogon", "Display", "FirstLogonCommands", "OOBE", "UserAccounts"
+        "AutoLogon", "Display", "FirstLogonCommands", "LogonCommands", "OOBE", "UserAccounts"
     };
+    return kOrder;
+}
+
+const std::vector<const char*>& asynchronousCommandChildOrder()
+{
+    // 参考 AsynchronousCommand 页：CommandLine / Description / Order，
+    // 同页另有一个 RequiresUserInput 标注为 "This setting is not used."，故不生成
+    static const std::vector<const char*> kOrder{"CommandLine", "Description", "Order"};
     return kOrder;
 }
 
@@ -352,6 +372,7 @@ GenResult generate(const osp::config::Config& cfg)
             addTextChild(display, "VerticalResolution", cfg.firstLogon.resolutionY);
         }
 
+        // 登录时 -> FirstLogonCommands（桌面出现前同步执行）
         CommandList commands;
         if (cfg.firstLogon.runDeviceManager)
         {
@@ -378,6 +399,33 @@ GenResult generate(const osp::config::Config& cfg)
                 // 顺序按 synchronousCommandChildOrder()
                 addTextChild(command, "CommandLine", commands.commandLines[i]);
                 addTextChild(command, "Description", commands.descriptions[i]);
+                addTextChild(command, "Order", order);
+                ++order;
+            }
+        }
+
+        // 进桌面 -> LogonCommands（异步执行，不推迟桌面出现）
+        CommandList logonCommands;
+        for (const auto& task : cfg.runPlan)
+        {
+            if (isLogonCommandsPhase(task.phase))
+            {
+                logonCommands.commandLines.push_back(buildCommandLine(task));
+                logonCommands.descriptions.emplace_back(task.phase);
+            }
+        }
+
+        if (!logonCommands.commandLines.empty())
+        {
+            pugi::xml_node logon = addChild(component, "LogonCommands");
+            int order = 1;
+            for (std::size_t i = 0; i < logonCommands.commandLines.size(); ++i)
+            {
+                pugi::xml_node command = addChild(logon, "AsynchronousCommand");
+                command.append_attribute("wcm:action") = "add";
+                // 顺序按 asynchronousCommandChildOrder()
+                addTextChild(command, "CommandLine", logonCommands.commandLines[i]);
+                addTextChild(command, "Description", logonCommands.descriptions[i]);
                 addTextChild(command, "Order", order);
                 ++order;
             }

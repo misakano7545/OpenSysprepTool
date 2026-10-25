@@ -166,7 +166,7 @@ TEST_CASE("shell-setup oobeSystem children follow the documented order")
 
     const std::vector<std::string> names = childNames(component);
     checkOrderedSubset(names, osp::unattend::shellSetupOobeSystemOrder());
-    CHECK(names.size() == 5); // AutoLogon, Display, FirstLogonCommands, OOBE, UserAccounts
+    CHECK(names.size() == 6); // AutoLogon, Display, FirstLogonCommands, LogonCommands, OOBE, UserAccounts
 }
 
 TEST_CASE("nested element order matches the reference child lists")
@@ -186,6 +186,10 @@ TEST_CASE("nested element order matches the reference child lists")
     pugi::xml_node command = component.child("FirstLogonCommands").child("SynchronousCommand");
     REQUIRE(command);
     checkOrderedSubset(childNames(command), osp::unattend::synchronousCommandChildOrder());
+
+    pugi::xml_node async = component.child("LogonCommands").child("AsynchronousCommand");
+    REQUIRE(async);
+    checkOrderedSubset(childNames(async), osp::unattend::asynchronousCommandChildOrder());
 
     pugi::xml_node account = component.child("UserAccounts").child("LocalAccounts").child("LocalAccount");
     REQUIRE(account);
@@ -291,7 +295,7 @@ TEST_CASE("autologon carries the configured logon count")
     CHECK(std::string(autoLogon.child("Username").text().as_string()) == "User");
 }
 
-TEST_CASE("first logon commands count matches the config")
+TEST_CASE("phase landing matches the documented logon semantics")
 {
     const auto generated = osp::unattend::generate(sampleConfig());
     REQUIRE(generated.ok);
@@ -301,16 +305,77 @@ TEST_CASE("first logon commands count matches the config")
         settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
     REQUIRE(component);
 
-    // 设备管理器 1 条 + runPlan 中 desktop 阶段 1 条 = 2
-    int count = 0;
+    // 登录时 -> FirstLogonCommands：设备管理器 1 条 + runPlan 中 logon 阶段 0 条 = 1
+    int firstLogonCount = 0;
     int expectedOrder = 1;
     for (pugi::xml_node command : component.child("FirstLogonCommands").children("SynchronousCommand"))
     {
-        ++count;
+        ++firstLogonCount;
         CHECK(command.child("Order").text().as_int() == expectedOrder);
         ++expectedOrder;
     }
-    CHECK(count == 2);
+    CHECK(firstLogonCount == 1);
+
+    // 进桌面 -> LogonCommands：runPlan 中 desktop 阶段 1 条
+    int logonCount = 0;
+    expectedOrder = 1;
+    for (pugi::xml_node command : component.child("LogonCommands").children("AsynchronousCommand"))
+    {
+        ++logonCount;
+        CHECK(command.child("Order").text().as_int() == expectedOrder);
+        ++expectedOrder;
+    }
+    CHECK(logonCount == 1);
+
+    // desktop 的命令不能出现在 FirstLogonCommands 里，反之亦然
+    const std::string firstLogonLine = component.child("FirstLogonCommands")
+                                           .child("SynchronousCommand")
+                                           .child("CommandLine")
+                                           .text()
+                                           .as_string();
+    CHECK(firstLogonLine == "devmgmt.msc");
+
+    const std::string logonLine =
+        component.child("LogonCommands").child("AsynchronousCommand").child("CommandLine").text().as_string();
+    CHECK(logonLine == "C:\\Windows\\System32\\notepad.exe");
+
+    // AsynchronousCommand 不使用 RequiresUserInput（参考标注 "This setting is not used."）
+    pugi::xml_node async = component.child("LogonCommands").child("AsynchronousCommand");
+    CHECK_FALSE(async.child("RequiresUserInput"));
+}
+
+TEST_CASE("logon phase tasks land in FirstLogonCommands, not LogonCommands")
+{
+    osp::config::Config cfg = sampleConfig();
+
+    osp::config::RunPlanTask logonTask;
+    logonTask.phase = "logon";
+    logonTask.target = "C:\\tools\\at-logon.exe";
+    cfg.runPlan.push_back(logonTask);
+
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    pugi::xml_document doc = parseOk(generated.xml);
+
+    pugi::xml_node component =
+        settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
+    REQUIRE(component);
+
+    int firstLogon = 0;
+    for (pugi::xml_node command : component.child("FirstLogonCommands").children("SynchronousCommand"))
+    {
+        ++firstLogon;
+        (void)command;
+    }
+    CHECK(firstLogon == 2); // devmgmt.msc + at-logon.exe
+
+    int logonCommands = 0;
+    for (pugi::xml_node command : component.child("LogonCommands").children("AsynchronousCommand"))
+    {
+        ++logonCommands;
+        (void)command;
+    }
+    CHECK(logonCommands == 1); // 只有 desktop 那条
 }
 
 TEST_CASE("run synchronous commands are emitted for the postinstall phase only")
