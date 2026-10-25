@@ -5,10 +5,10 @@
 
 ## [Unreleased]
 
-## [0.1.0] - 待发布
+## [0.1.0] - 2026-10-25
 
-M1–M7b：工程骨架、系统体检、unattend.xml 生成、运行计划调度器、部署运行时与
-Windows 7 SP1 兼容、驱动注入与 sysprep 编排、主程序配置界面。
+M1–M8：工程骨架、系统体检、unattend.xml 生成、运行计划调度器、部署运行时与
+Windows 7 SP1 兼容、驱动注入与 sysprep 编排、主程序配置界面、集成测试矩阵与发版。
 
 ### Added
 
@@ -149,6 +149,30 @@ Windows 7 SP1 兼容、驱动注入与 sysprep 编排、主程序配置界面。
 - `tests/unit/test_ui.cpp`：页签清单与 DFM 页对象一一对应、走查名单、红线字段不出现、
   下拉取值来自 `core/runplan` 的四个维度、配置→页面→配置往返逐字一致
 
+**M8 —— 集成测试矩阵与发版**
+
+- `.github/workflows/release.yml`：tag（`v*`）触发。第一步就是**版本一致性硬校验**：
+  tag 去掉前缀 `v` 后必须与 `core/include/core/version.hpp` 的三段版本号完全一致，
+  不一致时整条流水线失败、**绝不产出 Release**
+- 双架构构建（x64 与 x86）后按发布资产名收口四份二进制：
+  `ospt-x64.exe`、`osptd-x64.exe`、`ospt-x86.exe`、`osptd-x86.exe`，
+  并核对机器码（0x8664 / 0x14C）与子系统版本 6.1
+- 源码包：`git archive <tag>` 生成 `OpenSysprepTool-<tag>-src.zip`，并核对包内含
+  `LICENSE`、`third_party/LICENSES.md`、`third_party/WTL/MS-PL.txt` 与 `version.hpp`。
+  GPL-3.0 要求二进制与源码同时提供，所以 Release 说明里写明三种源码获取方式
+  （附带的源码包、仓库地址、`git clone` 与 `git checkout <tag>` 命令），不只挂 exe
+- Release 说明 = CHANGELOG 摘要 + 产物清单 + GPL 源码声明 + 集成测试矩阵 + 人工验证清单；
+  创建 Release 后**回读 assets** 逐个核对，缺一即失败
+- `tests/integration/verify_release.py`：tag 一致性（`--check-tag`）、发版契约
+  （`--check-workflow`）、四产物架构与子系统（`--check-artifacts`）、
+  矩阵记录（`--emit-matrix`）、发布说明（`--emit-notes`）
+- 集成测试矩阵 3 系统 × 2 架构 = 6 格（Win7 SP1 / Win10 22H2 / Win11 23H2 × x64/x86），
+  每格分开「CI 已证（代码层）」与「需人工真机验证」两部分；托管 runner 上只有
+  Windows Server 2022，没有这三套真机，流水线里逐格用 `::notice::` **显式打印跳过原因**
+  并列出人工清单，不静默略过
+- Win7 真机验证的前置补丁写进 README、CHANGELOG 与 Release 说明：**必须已装 SP1**；
+  用 `--inject-drivers` 装驱动前**必须先装 KB4474419**（SHA-2 代码签名支持）
+
 ### Changed
 
 - CI 的 Test 步骤在失败时把 ctest 输出里的断言行打成 `::error::` annotation，
@@ -162,6 +186,8 @@ Windows 7 SP1 兼容、驱动注入与 sysprep 编排、主程序配置界面。
 - CI 增加 M6 驱动注入验收步骤（M6 增量，宪章 §9.7）
 - CI 增加 UI 冒烟测试步骤（M7 增量，宪章 §9.7）；无头跳过时用 `::warning::`
   把 `SMOKE-SKIP` 的原因浮到日志里，不当失败处理
+- 新增 `release.yml` 工作流（M8 增量，宪章 §9.7）：tag 触发，版本一致性校验不通过
+  即整条失败；三个工作流都带 `concurrency` 组
 - 所有验收脚本统一强制 UTF-8 stdout：GitHub `windows-*` runner 的 Python stdout
   是 cp1252，打印中文会在任何断言之前抛 `UnicodeEncodeError`
 - CI 步骤统一「合并所有流」的写法（`Continue` +

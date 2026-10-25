@@ -1,0 +1,408 @@
+name: Release
+
+# 宪章 §8 M8 与 §9：tag 上跑通并产出 GitHub Release。
+#
+# 三条硬要求：
+#   1. tag 去掉 v 后必须与 core/include/core/version.hpp 的三段版本号完全一致，
+#      不一致时**必须失败**，绝不产出 Release（见 verify job）。
+#   2. Release 里必须同时有四份二进制（ospt/osptd × x64/x86）、源码包、CHANGELOG 摘要，
+#      并在说明里写明 GPL-3.0 的源码获取方式 —— 只挂 exe 不合规。
+#   3. 集成测试矩阵共 6 格（Win7 SP1 / Win10 22H2 / Win11 23H2 × x64/x86），每格都要有
+#      验收记录；托管 runner 跑不了真机，必须在流水线里**显式打印跳过原因**，
+#      并把需要人工跑的部分列成清单（verify_release.py --emit-matrix 负责）。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发版的 tag（例如 v0.1.0），必须与 version.hpp 一致'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------- 版本一致性
+  verify:
+    name: 版本一致性校验
+    runs-on: windows-2022
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 解析 tag
+        id: resolve
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') { $tag = '${{ inputs.tag }}' }
+          if ([string]::IsNullOrWhiteSpace($tag) -or $tag -notlike 'v*') {
+            Write-Host "::error::tag 必须以 v 开头，实际为 '$tag'"
+            exit 1
+          }
+          Write-Host "tag = $tag"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          $version = $tag.TrimStart('v')
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # 这里是发版的总闸门：tag 与版本号不一致就整条流水线红，Release 不会生成。
+      - name: tag 必须与 version.hpp 三段版本号完全一致
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-tag-check.log'
+
+          python tests\integration\verify_release.py --check-tag '${{ steps.resolve.outputs.tag }}' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|::error::|Traceback'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 20 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            Write-Host "::error::发版被拦下：tag 与 core/include/core/version.hpp 不一致"
+            exit 1
+          }
+          Write-Host "tag 与版本号一致，允许发版"
+          exit 0
+
+      - name: 发版契约自检（四产物 / 源码包 / CHANGELOG 摘要 / GPL 说明 / 人工清单）
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-contract.log'
+
+          python tests\integration\verify_release.py `
+            --check-workflow '.github/workflows/release.yml' `
+            --check-changelog 'CHANGELOG.md' `
+            --check-readme 'README.md' *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
+  # ---------------------------------------------------------------- 双架构构建
+  build:
+    name: build (${{ matrix.arch }})
+    needs: verify
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+          - arch: x86
+            cmake_arch: Win32
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.cmake_arch }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          ctest --test-dir build -C Release --output-on-failure *>&1 | Tee-Object -FilePath ctest.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content ctest.log | Select-String -Pattern 'Failed|FAILED|Errors while|error:' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
+      - name: Selftest
+        run: .\build\bin\Release\ospt.exe --selftest
+
+      # GPL-3.0 要求二进制可用时能对到源码：产物自身必须能报出版本与仓库地址
+      - name: Version
+        shell: pwsh
+        run: |
+          $out = & '.\build\bin\Release\ospt.exe' --version
+          $out
+          if (-not ($out -match 'github\.com/misakano7545/OpenSysprepTool')) {
+            Write-Host "::error::--version 没有打印仓库地址，GPL-3.0 的源码指引缺失"
+            exit 1
+          }
+          if (-not ($out -match 'GPL-3.0')) {
+            Write-Host "::error::--version 没有打印许可证"
+            exit 1
+          }
+
+      - name: 部署运行时验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-deploy.log'
+          python tests\integration\verify_deploy_exec.py '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            exit $code
+          }
+          exit 0
+
+      # Win7 三道闸：子系统 6.1 + 导入表无 Win8+ API + 无动态 VC 运行库，外带篡改负例
+      - name: Win7 兼容闸门
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-win7.log'
+          $failed = $false
+
+          python tests\integration\verify_win7_compat.py `
+            '.\build\bin\Release\osptd.exe' `
+            '.\build\bin\Release\ospt.exe' `
+            '.\build\bin\Release\osp_unit_tests.exe' *>&1 | Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
+
+          python tests\integration\verify_win7_compat_negative.py '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
+
+          if ($failed) {
+            Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit 1
+          }
+          Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
+          exit 0
+
+      - name: UI 冒烟测试
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-ui.log'
+
+          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            exit $code
+          }
+          Get-Content $log | Select-String -Pattern 'SMOKE-SKIP' |
+            ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
+          exit 0
+
+      - name: M6 驱动注入验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-drivers.log'
+
+          python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
+            }
+            exit $code
+          }
+          exit 0
+
+      # 按发布资产名收口，并在这里就核对「架构对不对、子系统是不是 6.1」
+      - name: 收口四份二进制并核验架构
+        shell: pwsh
+        run: |
+          $release = 'release'
+          New-Item -ItemType Directory -Force -Path $release | Out-Null
+          Copy-Item '.\build\bin\Release\ospt.exe'  "$release\ospt-${{ matrix.arch }}.exe"  -Force
+          Copy-Item '.\build\bin\Release\osptd.exe' "$release\osptd-${{ matrix.arch }}.exe" -Force
+          Get-ChildItem $release | Select-Object Name, Length | Format-Table -AutoSize
+
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-artifacts.log'
+          python tests\integration\verify_release.py --check-artifacts $release *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
+      - name: 上传 ${{ matrix.arch }} 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: release/*
+
+  # ---------------------------------------------------------------- 发布
+  publish:
+    name: 产出 GitHub Release
+    needs: [verify, build]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 取回两个架构的产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+
+      - name: 源码包（GPL-3.0 要求与二进制同时提供）
+        shell: pwsh
+        run: |
+          $tag = '${{ needs.verify.outputs.tag }}'
+          $src = "release\OpenSysprepTool-$tag-src.zip"
+          git archive --format=zip --prefix="OpenSysprepTool-$tag/" -o $src $tag
+          if (-not (Test-Path $src)) {
+            Write-Host "::error::源码包没生成"
+            exit 1
+          }
+          Get-Item $src | Select-Object Name, Length | Format-Table -AutoSize
+          # 源码包必须真含第三方目录与许可证，否则不能作为「对应源码」
+          $entries = & tar -tf $src
+          foreach ($must in @('third_party/WTL/MS-PL.txt', 'third_party/LICENSES.md', 'LICENSE', 'core/include/core/version.hpp')) {
+            if (-not ($entries -match [regex]::Escape($must))) {
+              Write-Host "::error::源码包里缺少 $must"
+              exit 1
+            }
+          }
+          Write-Host "源码包内容核对通过"
+
+      - name: 集成测试矩阵逐格记录（含显式跳过原因与人工清单）
+        shell: pwsh
+        run: |
+          $tag = '${{ needs.verify.outputs.tag }}'
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          python tests\integration\verify_release.py `
+            --check-tag $tag `
+            --emit-matrix "release\acceptance-matrix-$tag.json" `
+            --markdown "release\acceptance-matrix-$tag.md" `
+            --tag $tag *>&1 | Tee-Object -FilePath matrix.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content matrix.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          Write-Host "::notice::矩阵共 6 格；流水线内无法执行的真机部分已逐格打印跳过原因"
+          Write-Host "::notice::需要人工在真机上验证的清单已写进矩阵记录与发布说明"
+          exit 0
+
+      - name: 四份二进制 + 源码包齐套核对
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'release-final.log'
+          python tests\integration\verify_release.py --check-artifacts 'release' *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
+      - name: 生成发布说明（CHANGELOG 摘要 + GPL 源码声明 + 矩阵 + 人工清单）
+        shell: pwsh
+        run: |
+          $tag = '${{ needs.verify.outputs.tag }}'
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          python tests\integration\verify_release.py `
+            --emit-notes 'release-notes.md' `
+            --tag $tag `
+            --check-tag $tag `
+            --changelog 'CHANGELOG.md' `
+            --matrix "release\acceptance-matrix-$tag.json" *>&1 | Tee-Object -FilePath notes.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content notes.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          Get-Content release-notes.md -TotalCount 20
+          exit 0
+
+      - name: 创建 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ needs.verify.outputs.tag }}'
+          $version = '${{ needs.verify.outputs.version }}'
+
+          gh release create $tag `
+            --title "OpenSysprepTool $tag" `
+            --notes-file release-notes.md `
+            "release/ospt-x64.exe" `
+            "release/osptd-x64.exe" `
+            "release/ospt-x86.exe" `
+            "release/osptd-x86.exe" `
+            "release/OpenSysprepTool-$tag-src.zip" `
+            "release/acceptance-matrix-$tag.json" `
+            "release/acceptance-matrix-$tag.md"
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::gh release create 失败"
+            exit $LASTEXITCODE
+          }
+
+          # 发布后立刻回读，确认四份二进制与源码包真的在 Release 上
+          $assets = gh release view $tag --json assets --jq '.assets[].name'
+          $assets | ForEach-Object { Write-Host $_ }
+          foreach ($must in @('ospt-x64.exe', 'osptd-x64.exe', 'ospt-x86.exe', 'osptd-x86.exe',
+                              "OpenSysprepTool-$tag-src.zip", "acceptance-matrix-$tag.json")) {
+            if (-not ($assets -contains $must)) {
+              Write-Host "::error::Release 里缺少 $must"
+              exit 1
+            }
+          }
+          Write-Host "Release $tag 已发布，四份二进制与源码包齐全，版本 $version"
+          exit 0
