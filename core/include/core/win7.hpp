@@ -111,4 +111,48 @@ std::uint64_t tickCountMs();
 // 把 fileTimeNow() 的 100ns 计数格式化成带毫秒的本地时间字符串
 std::string formatFileTime(std::uint64_t fileTime);
 
+// ---------------------------------------------------------------- WOW64 文件系统重定向
+//
+// 32 位进程在 64 位 Windows 上访问 %SystemRoot%\System32 会被静默重定向到
+// SysWOW64 —— 而 sysprep.exe / dism.exe / bcdedit.exe 都是 64 位专有工具，
+// 在 SysWOW64 里根本不存在。不关掉重定向就探测，报出来的「文件不存在」是假的。
+//
+// Wow64DisableWow64FsRedirection / Wow64RevertWow64FsRedirection 只存在于
+// **64 位 Windows** 的 kernel32 里。32 位系统上静态导入会让进程直接加载失败，
+// 所以这两个只能动态取；取不到正说明系统本来就没有重定向，什么都不用做。
+class ScopedWow64FsRedirection
+{
+public:
+    ScopedWow64FsRedirection();
+    ~ScopedWow64FsRedirection();
+
+    ScopedWow64FsRedirection(const ScopedWow64FsRedirection&) = delete;
+    ScopedWow64FsRedirection& operator=(const ScopedWow64FsRedirection&) = delete;
+
+    // 重定向是否真的被关掉了（32 位系统上恒为 false）
+    bool disabled() const
+    {
+        return disabled_;
+    }
+
+    // 这两个 API 在本机是否可用（即：是不是 64 位 Windows）
+    static bool available();
+
+    // 当前进程是否跑在 WOW64 下（32 位进程 + 64 位系统）
+    static bool processIsWow64();
+
+private:
+    void* savedValue_ = nullptr;
+    bool disabled_ = false;
+};
+
+struct NativeFileInfo
+{
+    bool exists = false;
+    std::uint64_t sizeBytes = 0;
+};
+
+// 在关掉 WOW64 重定向的前提下探测文件。调用方不必自己关心重定向。
+NativeFileInfo probeFileNative(const std::wstring& path);
+
 } // namespace osp::win7

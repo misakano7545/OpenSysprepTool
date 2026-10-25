@@ -109,6 +109,12 @@ def load_report(path: str) -> dict | None:
 
 
 def main(argv: list[str]) -> int:
+    # GitHub 的 windows runner 上 Python 的 stdout 是 cp1252，打印中文会直接抛
+    # UnicodeEncodeError 并让整步挂掉（而且 Traceback 走 stderr，Tee-Object 抓不到，
+    # 日志里只剩一句「Process completed with exit code 1」）。脚本自己切到 UTF-8。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
     ospt = argv[1] if len(argv) > 1 else os.path.join(REPO, "build", "bin", "Release", "ospt.exe")
     osptd = argv[2] if len(argv) > 2 else os.path.join(REPO, "build", "bin", "Release", "osptd.exe")
     work = os.path.join(REPO, "build", "m5exec")

@@ -329,4 +329,95 @@ std::string formatFileTime(std::uint64_t fileTime)
     return std::string(buffer);
 }
 
+// ---------------------------------------------------------------- WOW64 文件系统重定向
+
+namespace {
+
+// 只存在于 64 位 Windows 的 kernel32 里 —— 32 位系统上静态导入会让进程加载失败。
+using Wow64DisableFsRedirectionFn = BOOL(WINAPI*)(PVOID*);
+using Wow64RevertFsRedirectionFn = BOOL(WINAPI*)(PVOID);
+
+Wow64DisableFsRedirectionFn wow64DisableFsRedirection()
+{
+    static const auto fn = reinterpret_cast<Wow64DisableFsRedirectionFn>(
+        resolve("kernel32.dll", "Wow64DisableWow64FsRedirection")
+    );
+    return fn;
+}
+
+Wow64RevertFsRedirectionFn wow64RevertFsRedirection()
+{
+    static const auto fn =
+        reinterpret_cast<Wow64RevertFsRedirectionFn>(resolve("kernel32.dll", "Wow64RevertWow64FsRedirection")
+        );
+    return fn;
+}
+
+} // namespace
+
+bool ScopedWow64FsRedirection::available()
+{
+    return wow64DisableFsRedirection() != nullptr && wow64RevertFsRedirection() != nullptr;
+}
+
+bool ScopedWow64FsRedirection::processIsWow64()
+{
+    // IsWow64Process 自 XP SP2 起就在 kernel32 里（32 位系统上也有，返回 FALSE），
+    // 所以这里可以静态调用。
+    BOOL result = FALSE;
+    if (IsWow64Process(GetCurrentProcess(), &result) == 0)
+    {
+        return false;
+    }
+    return result != FALSE;
+}
+
+ScopedWow64FsRedirection::ScopedWow64FsRedirection()
+{
+    const Wow64DisableFsRedirectionFn disable = wow64DisableFsRedirection();
+    if (disable == nullptr || wow64RevertFsRedirection() == nullptr)
+    {
+        // 32 位 Windows：本来就没有重定向，什么都不用做
+        return;
+    }
+
+    PVOID saved = nullptr;
+    if (disable(&saved) != 0)
+    {
+        savedValue_ = saved;
+        disabled_ = true;
+    }
+}
+
+ScopedWow64FsRedirection::~ScopedWow64FsRedirection()
+{
+    if (!disabled_)
+    {
+        return;
+    }
+    const Wow64RevertFsRedirectionFn revert = wow64RevertFsRedirection();
+    if (revert != nullptr)
+    {
+        revert(savedValue_);
+    }
+}
+
+NativeFileInfo probeFileNative(const std::wstring& path)
+{
+    NativeFileInfo info;
+
+    ScopedWow64FsRedirection guard; // 只对本作用域生效，离开即还原
+
+    WIN32_FILE_ATTRIBUTE_DATA attributes = {};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes) == 0)
+    {
+        return info;
+    }
+
+    info.exists = true;
+    info.sizeBytes = (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32) |
+        static_cast<std::uint64_t>(attributes.nFileSizeLow);
+    return info;
+}
+
 } // namespace osp::win7

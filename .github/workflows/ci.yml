@@ -136,17 +136,30 @@ jobs:
       # M5 增量（宪章 §9.7）：部署运行时不只打印，等待策略也得真的生效。
       # 断言等待完成 / 不等待 / 超时+终止 / 超时+继续 四种结果，以及失败中止后
       # 后续任务不执行。全部用无害命令，不碰系统路径。
+      #
+      # 注意这里的流重定向：Python 的 Traceback 走 stderr，只 Tee stdout 的话
+      # 失败时日志里只剩一句「Process completed with exit code 1」，无从定位
+      # （这个坑已踩过一次）。所以：*>&1 并入全部流 + 关掉 pwsh 7.4+ 的
+      # native-stderr-as-error 行为 + 显式判断退出码 + 兜底打印日志尾部。
       - name: 部署运行时验收
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'deploy-exec.log'
+
           python tests\integration\verify_deploy_exec.py `
-            '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' |
-            Tee-Object -FilePath deploy-exec.log
+            '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log
           $code = $LASTEXITCODE
+
           if ($code -ne 0) {
-            Get-Content deploy-exec.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
-              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
+            }
             exit $code
           }
           exit 0
@@ -158,7 +171,8 @@ jobs:
       - name: Win7 兼容闸门
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
 
           $artifacts = @(
             '.\build\bin\Release\osptd.exe',
@@ -166,23 +180,28 @@ jobs:
             '.\build\bin\Release\osp_unit_tests.exe'
           )
 
-          python tests\integration\verify_win7_compat.py @artifacts |
-            Tee-Object -FilePath win7-compat.log
-          $code = $LASTEXITCODE
-          if ($code -ne 0) {
-            Get-Content win7-compat.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
-              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
-            exit $code
+          function Invoke-Gate {
+            param([string]$Log, [string[]]$Argv)
+            python tests\integration\verify_win7_compat.py @Argv *>&1 |
+              Tee-Object -FilePath $Log
+            $rc = $LASTEXITCODE
+            if ($rc -ne 0) {
+              $hits = Get-Content $Log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+              if ($hits) {
+                $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+              } else {
+                Get-Content $Log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
+              }
+            }
+            return $rc
           }
 
-          python tests\integration\verify_win7_compat_negative.py '.\build\bin\Release\osptd.exe' |
-            Tee-Object -FilePath win7-compat-negative.log
-          $code2 = $LASTEXITCODE
-          if ($code2 -ne 0) {
-            Get-Content win7-compat-negative.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
-              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
-            exit $code2
-          }
+          $code = Invoke-Gate -Log 'win7-compat.log' -Argv $artifacts
+          if ($code -ne 0) { exit $code }
+
+          $code2 = Invoke-Gate -Log 'win7-compat-negative.log' `
+            -Argv @('.\build\bin\Release\osptd.exe')
+          if ($code2 -ne 0) { exit $code2 }
 
           Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0

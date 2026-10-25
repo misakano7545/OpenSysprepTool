@@ -428,6 +428,10 @@ def verify_file(path: str) -> None:
 
 
 def main(argv: list[str]) -> int:
+    # runner 上 stdout 可能是 cp1252，打印中文会抛 UnicodeEncodeError
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
     if len(argv) < 2:
         _say("usage: python tests/integration/verify_win7_compat.py <pe> [<pe> ...]")
         return 2

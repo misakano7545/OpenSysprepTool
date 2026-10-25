@@ -13,6 +13,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/win7.hpp"
+
 namespace osp::sysinfo {
 namespace {
 
@@ -322,8 +324,11 @@ void fillSysprepInfo(SysprepInfo& info, std::vector<std::string>& warnings)
     const std::wstring exe = winDir() + L"\\System32\\Sysprep\\sysprep.exe";
     info.exePath = toUtf8(exe);
 
-    WIN32_FILE_ATTRIBUTE_DATA fad = {};
-    if (GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &fad) != 0)
+    // 32 位进程在 64 位 Windows 上查 System32 会被静默重定向到 SysWOW64，
+    // 而 sysprep.exe 是 64 位专有工具，在 SysWOW64 里不存在。
+    // 不关掉重定向就探测，会把「其实有」报成「不存在」。
+    const win7::NativeFileInfo probe = win7::probeFileNative(exe);
+    if (probe.exists)
     {
         info.available = true;
     }
@@ -497,11 +502,12 @@ void fillRequiredFiles(std::vector<RequiredFile>& out, std::vector<std::string>&
         RequiredFile file;
         file.path = toUtf8(path);
 
-        WIN32_FILE_ATTRIBUTE_DATA fad = {};
-        if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fad) != 0)
+        // 同上：这些工具都在 64 位 System32 里，探测前先关掉 WOW64 重定向
+        const win7::NativeFileInfo probe = win7::probeFileNative(path);
+        if (probe.exists)
         {
             file.exists = true;
-            file.sizeBytes = (static_cast<std::uint64_t>(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;
+            file.sizeBytes = probe.sizeBytes;
         }
         else
         {
@@ -538,7 +544,7 @@ void fillCloneIndicators(
     const std::wstring setupErr = winDir() + L"\\System32\\Sysprep\\Panther\\setuperr.log";
     CloneIndicator setuperr;
     setuperr.name = "Sysprep 日志残留";
-    setuperr.detected = GetFileAttributesW(setupErr.c_str()) != INVALID_FILE_ATTRIBUTES;
+    setuperr.detected = win7::probeFileNative(setupErr).exists;
     setuperr.detail = toUtf8(setupErr);
     out.push_back(setuperr);
 
