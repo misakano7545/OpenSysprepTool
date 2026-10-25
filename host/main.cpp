@@ -14,6 +14,8 @@
 #include "core/unattend.hpp"
 #include "core/version.hpp"
 
+#include "ui/ui.hpp"
+
 namespace {
 
 constexpr const char* kRepoUrl = "https://github.com/misakano7545/OpenSysprepTool";
@@ -38,6 +40,7 @@ void printUsage()
     std::printf("  ospt --inject-drivers --image <挂载点> --srs <目录> --dry-run     模式 B SRS 注册表绑定\n"
     );
     std::printf("  ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]     封装编排\n");
+    std::printf("  ospt --ui-smoke-test [--visible] [--report <json>]        界面冒烟测试\n");
     std::printf("  ospt --version     版本与源码地址\n");
 }
 
@@ -807,6 +810,63 @@ int runSysprep(int argc, char** argv)
     return code == 0 ? 0 : 1;
 }
 
+// ---------------------------------------------------------------- M7a：UI 冒烟测试
+
+int runUiSmokeTest(int argc, char** argv)
+{
+    bool visible = false;
+    const char* reportPath = nullptr;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--ui-smoke-test")
+        {
+            continue;
+        }
+        if (arg == "--visible")
+        {
+            visible = true;
+        }
+        else if (arg == "--report")
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--report 需要一个值\n");
+                return 2;
+            }
+            reportPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    const osp::ui::SmokeResult result = osp::ui::runSmokeTest(visible);
+    std::fputs(osp::ui::smokeReport(result).c_str(), stdout);
+
+    if (reportPath != nullptr)
+    {
+        std::string error;
+        if (!writeTextFile(reportPath, osp::ui::smokeJson(result), error))
+        {
+            std::printf("%s\n", error.c_str());
+            return 1;
+        }
+    }
+
+    // 无头环境显式跳过：不算失败，但必须把原因印出来（宪章 §9.7 M7）
+    if (result.skipped)
+    {
+        std::printf("跳过的原因：%s\n", result.skipReason.c_str());
+        return 0;
+    }
+    return result.ok ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -847,6 +907,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--sysprep") == 0)
     {
         return runSysprep(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--ui-smoke-test") == 0)
+    {
+        return runUiSmokeTest(argc, argv);
     }
 
     if (std::strcmp(arg, "--version") == 0)

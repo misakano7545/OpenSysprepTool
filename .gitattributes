@@ -15,3 +15,9 @@
 
 # 第三方单头文件不做 diff 统计噪声
 third_party/** -diff
+
+# vendored WTL 必须逐字节保留（官方头文件是 CRLF）。
+# 上面的 `* text=auto eol=lf` 里 eol 是独立属性，子目录的 -text 覆盖不掉它，
+# 所以这里要同时把 text 与 eol 都显式取消，否则签入后的内容与官方归档不符，
+# third_party/WTL/MANIFEST.json 里的 sha256 也就对不上。
+third_party/WTL/** -text -eol

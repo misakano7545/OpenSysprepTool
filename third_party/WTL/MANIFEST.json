@@ -1,0 +1,96 @@
+{
+  "archive": "WTL10_10320_Final.zip",
+  "archiveBytes": 718708,
+  "archiveSha256": "13de5cd7ed41454b8f287e9bcc4525234c6ac8c85905e4d4fe1a0776709fd78f",
+  "files": {
+    "Include/atlapp.h": {
+      "sha256": "163c510dfeb4155a0f7b29020452c3723573015aa42ff41fd88d064cea28d1a1",
+      "size": 32281
+    },
+    "Include/atlcrack.h": {
+      "sha256": "4227af103a5685894bb67482b3cd21741901a974c26f03998f8afbb6d8ec0b21",
+      "size": 66995
+    },
+    "Include/atlctrls.h": {
+      "sha256": "a31d45c8fbbff98097acec2b624bfe2e9fabc951c5f2a59b0edc6e22a0010ade",
+      "size": 274787
+    },
+    "Include/atlctrlw.h": {
+      "sha256": "8d7c2ea0027526f4c86b3ccf7bd1955383607d35c61c78ea8394f485501620cc",
+      "size": 117319
+    },
+    "Include/atlctrlx.h": {
+      "sha256": "82f3671c72598266af675e0fd7d0852156cb94dedb500d3ea939b31b4ef5c3bb",
+      "size": 137360
+    },
+    "Include/atlddx.h": {
+      "sha256": "d8842fbe59fa1295c6eef528592ae90598e37c7e8da2c56c5033f434afdf1c0f",
+      "size": 16594
+    },
+    "Include/atldlgs.h": {
+      "sha256": "b2d590ca30b6ae52132515d7cb5da515c340a8080eb6f8cc7de7507fa232b3be",
+      "size": 174159
+    },
+    "Include/atldwm.h": {
+      "sha256": "96bc42535ec93b6b02272aca282e1c9d7032532783e8415e87a0ce96c144479b",
+      "size": 11961
+    },
+    "Include/atlfind.h": {
+      "sha256": "0911c26ac75adf6f1ae43d5e6c55e6f5d49c834b4c6ac68b8f0b6748fa2b1ef8",
+      "size": 23720
+    },
+    "Include/atlframe.h": {
+      "sha256": "ca5520d3cac165cb7d9dca4a6ebc2718b37cbf9fc12fc11549632870381566ad",
+      "size": 106632
+    },
+    "Include/atlgdi.h": {
+      "sha256": "20da92ac9c0c01dcb15fcc424bdd2e7964965888b14f55b4f813c219f3761539",
+      "size": 88586
+    },
+    "Include/atlmisc.h": {
+      "sha256": "f37d29acca2296a2ddc4b46269638ec9ecdba97153ef94f1c679cc0ae8c1b67b",
+      "size": 32253
+    },
+    "Include/atlprint.h": {
+      "sha256": "3401364ce2987b165211755a43e250f251232b5bef651d8bda5fccc591a4404d",
+      "size": 30311
+    },
+    "Include/atlres.h": {
+      "sha256": "133e0b578c09df050edd97fcb4e55cee9c417e2764a9c421e2e8317be8a682fc",
+      "size": 9736
+    },
+    "Include/atlribbon.h": {
+      "sha256": "12795b37d00e46d13f6bd24770ad8ade10dd81bd7040801c6f0a4e2e5610b7a2",
+      "size": 93819
+    },
+    "Include/atlscrl.h": {
+      "sha256": "68939766cfcf723476ef8881a6a77f305ca0583b09978915417edac01af50156",
+      "size": 59407
+    },
+    "Include/atlsplit.h": {
+      "sha256": "d9abcfe285ea7551fea0cff06badef5a0287e7f3fd200c0c73de8c4b1588230f",
+      "size": 31033
+    },
+    "Include/atltheme.h": {
+      "sha256": "8a27109a70994e1b53c173791d9696f6a3980216eefef4eedd1af2b4e408470b",
+      "size": 33661
+    },
+    "Include/atluser.h": {
+      "sha256": "1bebc0ad5450b3018fd5b0d4ca869ee210172a877623c9fbee57c70ca951ea81",
+      "size": 33795
+    },
+    "Include/atlwinx.h": {
+      "sha256": "2eb307027054de1cb847b699310073733874e248723f6704fd51338bad0524af",
+      "size": 16576
+    },
+    "MS-PL.txt": {
+      "sha256": "9e2f669454f9bc20c8b33540cac66cfada1ed5130929807a9b63f08279749f9b",
+      "size": 2641
+    }
+  },
+  "license": "MS-PL",
+  "officialSite": "https://sourceforge.net/projects/wtl/",
+  "source": "https://github.com/Win32-WTL/WTL (official mirror; release archive uploaded by the WTL team) -> Releases/WTL10_10320_Final.zip",
+  "vendored": "Include/ 与 MS-PL.txt（未入库：AppWizard/、Samples/、ReadMe.html）",
+  "version": "WTL 10.0 (build 10320)"
+}

@@ -212,6 +212,26 @@ jobs:
           Write-Host "Win7 兼容闸门（${{ matrix.arch }}）通过，且负例被正确拦下"
           exit 0
 
+      # M7a 增量（宪章 §9.7 M7）：主界面框架与第一个配置页。
+      # 冒烟测试创建真实窗口、逐页打开、用真实消息驱动控件、销毁窗口。
+      # 无头环境下脚本会显式打印 skip 原因，本步骤不把它当作失败
+      #（宪章要求「必须显式打印 skip 原因，不许静默略过」）。
+      - name: UI 冒烟测试
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' |
+            Tee-Object -FilePath m7a-ui.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content m7a-ui.log | Select-String -Pattern 'FAIL|RESULT|Traceback|SMOKE-SKIP' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          Get-Content m7a-ui.log | Select-String -Pattern 'SMOKE-SKIP' |
+            ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
+          exit 0
+
       # M6 增量（宪章 §9.7）：驱动注入两种模式 + sysprep 编排。
       # 三条 gate 全部走 --dry-run；夹具在 build\m6 下运行时生成，仓库里不落任何
       # 真实驱动二进制。同时断言：没链接 DismApi.dll、dry-run 没有任何副作用。
