@@ -30,7 +30,8 @@
 | 语言 | **C++20** | WinPE 里 .NET 是可选组件、WPF 明确不支持 |
 | UI | **Win32 + WTL 10 + 原生标准控件**（Direct2D 自绘后置） | 用户 2026-10-24 决策：先用原生控件把 demo 跑起来，初期见效快。SC 是全自绘换肤，那个观感不是现阶段目标 |
 | 构建 | **CMake 3.25+ / MSVC 2022** | |
-| 运行库 | **静态 /MT** | PE 里不能依赖 VC 运行库 |
+| 运行库 | **静态 /MT** | PE 里不能依赖 VC 运行库。**且这是硬要求**：v14 Redistributable 已明确只支持 Win10/11，Win7 上装不了 |
+| 最低目标系统 | **Windows 7 SP1**（x64 + x86），M5 起即要求 | 用户 2026-10-25 决策：不推到 M8。MSVC 官方支持 targeting Win7 SP1；但须 `_WIN32_WINNT=0x0601` 且不得静态导入 Win8+ API |
 | 产物 | 主程序 `ospt.exe`（x64+x86）、部署运行时 `osptd.exe`（x64+x86） | 目标系统可能是 x86 Win7；名字避开 SC 缩写 |
 | 配置格式 | **JSON**（`nlohmann/json` 单头文件） | 运行计划是嵌套结构，INI 撑不住 |
 | 兼容 | 支持**导入** SC 的 `.ini` 配置，不做导出 | 只服务老用户迁移 |
@@ -341,13 +342,80 @@ ctest --test-dir build -C Release
 
 ### M5 — 部署运行时（2 周）
 
-**交付**：`osptd.exe` — 单页进度 UI + 阶段执行 + 失败回滚
+**交付**：`osptd.exe` — 单页进度 UI + 阶段执行 + 失败回滚，**在 Windows 7 SP1 x64 与 x86 上可运行**
 
 **验收**
 ```
 build/bin/osptd.exe --dry-run --plan run/   → 每阶段打印将要做什么，退出码 0
+python tests/integration/verify_win7_compat.py build/bin/Release/osptd.exe
+                                             → RESULT: ALL PASSED
 ```
 真机验证：VM 里跑一遍，进度条走完、日志完整、失败时能回滚。
+
+#### M5.1 Windows 7 支持（用户 2026-10-25 决策，不推迟到 M8）
+
+**为什么放在 M5**：`osptd.exe` 是唯一在**目标系统上运行**的产物。目标系统可能是 32 位
+Win7 SP1，所以 Win7 兼容性对它是硬需求，不是锦上添花。主程序 `ospt.exe` 只在操作员机器上跑，
+可以后置，但同一份 `core/` 静态库要两个目标都能编，所以一起管。
+
+**三条硬要求**
+
+| # | 要求 | 做法 |
+|---|---|---|
+| 1 | 编译期拦住 Win8+ API | `WINVER=0x0601`、`_WIN32_WINNT=0x0601`、`NTDDI_VERSION=0x06010000`，在 `sdkddkver.h` 之前定义。头文件会直接编译报错，这是第一道闸 |
+| 2 | 不得静态导入 Win8+ API | 若确需某个 Win8+ API，只能 `GetProcAddress` 动态取 + 有 Win7 回退路径，并登记到白名单 |
+| 3 | 静态 `/MT` 不得破 | 产物不得出现 `VCRUNTIME140.dll` / `MSVCP140.dll` / `ucrtbase.dll` / `api-ms-win-*` 的动态导入 |
+
+要求 3 是硬性的原因：微软已明确 **v14 Redistributable 只支持 Win10/11**，
+Win7 上根本装不上。所以一旦 `/MT` 被破坏，Win7 直接失效。
+
+**自动化闸门 `verify_win7_compat.py`**（M5 必交付，进 CI）
+
+不需要 Win7 虚拟机，纯静态分析 PE 即可，因此能在 `windows-2022` runner 上跑：
+
+1. 解析 `OPTIONAL_HEADER`，断言 `MajorSubsystemVersion.Minor == 6.1`
+   （当前实测是 **6.0**，因为 `_WIN32_WINNT` 未设置，属待修项）
+2. 解析导入表，逐个函数对照 Win7 SP1 白名单；不在白名单且不在"动态解析白名单"里的**判失败**
+3. 断言导入表里没有 `VCRUNTIME140.dll` / `MSVCP140.dll` / `ucrtbase.dll` / `api-ms-win-*`
+4. x64 与 x86 **两个架构都要查**
+
+**2026-10-25 对现有产物的实测基线**（`ospt.exe` / `osptd.exe` / `osp_unit_tests.exe`）：
+
+| 检查项 | 实测 |
+|---|---|
+| 导入表里的 Win8+ API | **0 个** ✓ |
+| `WaitOnAddress` / `WakeByAddressSingle` / `WakeByAddressAll`（VS2022 STL 对 Win7 的最大风险点） | **0 处** ✓ |
+| `VCRUNTIME140` / `MSVCP140` / `ucrtbase` / `api-ms-win-*` | **0 处** ✓（`/MT` 已生效，`osptd.exe` 只导入 KERNEL32） |
+| `GetSystemTimePreciseAsFileTime`（Win8+） | 字符串出现 1 次但**不在导入表** → `GetProcAddress` 带回退，**安全** |
+| `GetFileInformationByHandleEx` | Vista+，**安全** |
+| `_WIN32_WINNT` | **未设置** ❌ 头文件不拦 Win8+ API |
+| Subsystem 版本 | **6.0（Vista）** ❌ 应为 6.1 |
+
+**所以现状是"碰巧能跑"，不是"保证能跑"** —— 第一道闸（要求 1）还没装。
+M5 的任务就是把它变成有保证、且能被 CI 持续验证。
+
+**Win7 端的前提补丁**（写进 README 与发布说明，M5 文档化、M8 实测）
+
+| 补丁 | 何时需要 |
+|---|---|
+| **SP1** | 无条件必需。MSVC 只支持 targeting Win7 **SP1**，RTM 不在支持范围 |
+| KB4474419（SHA-2 代码签名） | 若要**安装驱动**（M6）则必需；2019 年后 Win7 必须装它才认 SHA-2 签名的驱动 |
+| KB2533623 | 仅当代码使用 `SetDefaultDllDirectories` / `AddDllDirectory` / `LoadLibraryEx` 的 `LOAD_LIBRARY_SEARCH_*` 标志时。当前代码未用；若将来为防 DLL 劫持而采用，则必须检查此补丁并在缺失时降级 |
+| KB2999226（通用 C 运行库） | **不需要** —— 这是 `/MD` 才需要的；本项目静态 `/MT`，天然规避 |
+
+**Win7 上不要碰的 API 与写法**
+
+| 避免 | 改用 |
+|---|---|
+| `WaitOnAddress` / `WakeByAddressSingle` / `WakeByAddressAll` | Win8+。STL 在 `_WIN32_WINNT=0x0601` 下会走条件变量回退路径 |
+| `CreateFile2` | `CreateFileW` |
+| `GetSystemTimePreciseAsFileTime` | `GetSystemTimeAsFileTime`（或 `GetProcAddress` + 回退） |
+| `PathCch*` 系列 | shlwapi 的 `Path*` 系列（`PathCombine` 等），或自己拼 |
+| `SetThreadDescription` | 无替代，仅调试用，靠 `GetProcAddress` 可选调用 |
+| `CopyFile2` | `CopyFileW` |
+| `GetThreadInformation` | 避免 |
+| `SHGetKnownFolderPath` | Vista+，**可用** |
+| `RegDeleteTree` / `RegLoadKey` | **可用**（M6 要用 `RegLoadKey`） |
 
 ### M6 — 驱动注入与 sysprep 编排（1.5 周）
 
@@ -395,7 +463,14 @@ build/bin/ospt.exe --ui-smoke-test   → 所有配置页能打开、控件能响
 
 ### M8 — 集成测试矩阵（2 周）
 
-Win7 SP1 / Win10 22H2 / Win11 23H2 × x86 / x64，各跑一遍完整封装流程。
+**交付**：Win7 SP1 / Win10 22H2 / Win11 23H2 × x86 / x64，各跑一遍完整封装流程。
+
+M5 已经用静态闸门守住 Win7 的**代码层**兼容（Subsystem 6.1 + 导入表无 Win8+ API + 无动态 VC 运行库），
+M8 负责**真机层**验证：在真实 Win7 SP1（x86 与 x64）上确认能起来、能执行计划、能装驱动。
+
+Win7 真机验证前先确认前提补丁（见 §8 M5.1）：**SP1 必需**；装驱动另需 **KB4474419**。
+
+验收记录要包含每台 VM 的：系统版本与 SP、产物架构、计划执行日志、失败回滚是否生效。
 
 ---
 
@@ -520,7 +595,7 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 | M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅；`lint.yml`（clang-format 增量检查）✅ **已于 M2 期间完成，未推迟** |
 | M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 断言 ✅（现 121 项，见下）；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
 | M4 | 「Runplan 校验」步骤进 CI ✅ —— 覆盖**两条路径**：不带 `--drives`（表内嵌在计划文件）与带 `--drives` 显式覆盖；均断言不依赖 runner 实际盘符 |
-| M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言 |
+| M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言；**加「Win7 兼容闸门」步骤**：跑 `verify_win7_compat.py` 查 x64 与 x86 两个产物，断言 Subsystem 6.1 + 导入表无 Win8+ API + 无动态 VC 运行库依赖 |
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本；**模式 B 的 SRS 注入断言每个 `RegSetValueEx` 的键路径与值，不碰真实 hive** |
 | M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
 | M8 | `release.yml` 首次实跑，产出 v0.1.0 |
@@ -556,7 +631,12 @@ done
 | 坑 | 说明 |
 |---|---|
 | WinPE 无 .NET | 部署运行时必须原生 |
-| WinPE 无 x86 可选组件 | Win11 ADK 只给 Amd64/Arm64；x86 目标要用 x86 的 boot.wim |
+| **WinPE 无 x86 可选组件** | Win11 ADK 只给 Amd64/Arm64；x86 目标要用 x86 的 boot.wim |
+| **v14 Redist 不支持 Win7** | 微软已明确最新的 v14 Redistributable **只支持 Win10/11**。所以 `/MT` 静态链接不是优化而是硬要求 —— 一旦产物动态依赖 `VCRUNTIME140.dll`/`MSVCP140.dll`/`ucrtbase.dll`，Win7 上直接跑不起来。CI 有专门步骤禁止这种依赖 |
+| **`_WIN32_WINNT` 不设就等于不设防** | 不定义时头文件会把全部 Win8+/Win10+ API 都暴露出来，误用会**照常编译通过**并在导入表里出现。必须 `_WIN32_WINNT=0x0601`，让头文件在编译期报错。实测 2026-10-25：本项目当时未设置，Subsystem 版本停在 6.0（Vista） |
+| **STL 的 `WaitOnAddress`** | VS2022 STL 在同步原语上可能用到 `WaitOnAddress`/`WakeByAddress*`，那是 **Win8+**。好在 `_WIN32_WINNT=0x0601` 下会走条件变量回退路径。实测本项目三个产物的导入表与字符串里都是 **0 处**。加兼容闸门后这条会被持续守住 |
+| **Win7 必须先装 SP1** | MSVC 官方只支持 targeting Windows 7 **SP1**，RTM 不在支持范围 |
+| **Win7 装驱动需 KB4474419** | 2019 年后 Win7 必须装 SHA-2 代码签名支持补丁，否则不认 SHA-2 签名的驱动。M6 装驱动前要检查 |
 | sysprep 不可逆 | 必须先提示用户备份，且要能检测"已封装过"（`HKLM\SYSTEM\Setup\Status\SysprepStatus`） |
 | 驱动库版权 | SC 那 596 个 SRS 驱动属各厂商，不能分发。让用户自备或只做注入框架 |
 | DISM 需要匹配架构 | x86 镜像要用 x86 的 DISM |
@@ -691,6 +771,21 @@ GIT_TERMINAL_PROMPT=0 git -c http.proxy=socks5h://127.0.0.1:10808 push origin ma
 
 **已决策（2026-10-24）**：产物改名 —— 主程序 → **`ospt`**、部署运行时 → **`osptd`**，
 避开与 SC（SysCeo）缩写的商标混淆。代码与本文档已同步改完，无残留引用。
+
+**已决策（2026-10-25，用户拍板）—— Windows 7 支持从 M5 开始，不推迟到 M8**：
+
+> 「我觉得在 M5 的话应该要加上 Windows 7 的支持」
+
+- **范围**：M5 起 `osptd.exe` 必须能在 **Win7 SP1 x64 与 x86** 上运行；主程序 `ospt.exe`
+  因共用 `core/` 静态库，一并按同样标准管
+- **三道闸**（详见 §8 M5.1）：编译期 `_WIN32_WINNT=0x0601` 拦 Win8+ API；
+  运行时不静态导入 Win8+ API；产物不得动态依赖 VC 运行库
+- **自动化**：新增 `tests/integration/verify_win7_compat.py`，纯静态分析 PE，
+  在 `windows-2022` runner 上即可跑，x64 与 x86 都查
+- **已实测基线**：当前三个产物的导入表里 Win8+ API 与 `WaitOnAddress` 均为 0 处，
+  但 `_WIN32_WINNT` 未设置、Subsystem 停在 6.0，属"碰巧能跑"，M5 要变成有保证
+- **与 §12 x86 决策的关系**：x86 原本定在 M5 进矩阵，现在与 Win7 支持是同一件事的两面
+- **已知不需要的**：KB2999226（UCRT）—— 那是 `/MD` 才需要的，静态 `/MT` 天然规避
 
 **已决策（2026-10-24，随 M2/M3 落地）**：x86 分阶段 —— **M2–M4 只做 x64，M5 起加 x86，
 M7 主程序也出 x86**。`.github/workflows/ci.yml` 的矩阵注释已按此写死，M2/M3 已按 x64-only 交付。
