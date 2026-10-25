@@ -299,6 +299,46 @@ python tests/integration/verify_runplan.py plan.json run/
 > 验收脚本断言的是**这张表的两列**，不是单个标志。`verify_runplan.py` 校验生成的计划文件，
 > 运行时实际传的标志由 `tests/unit/test_runplan.cpp` 覆盖。
 
+**已实现并验收（2026-10-25，`9505fdc`）**
+
+验收命令逐条实测通过：
+
+```
+ospt --gen-runplan build/m4/plan.json --out build/m4/run/
+  → exit 0；产出 runplan.json + 5 个阶段脚本（preinstall/install/postinstall/logon/desktop），
+    共 17 个任务
+python tests/integration/verify_runplan.py build/m4/plan.json build/m4/run/
+  → RESULT: ALL PASSED (274 checks)
+ctest --test-dir build -C Release
+  → 1/1 passed（doctest 37 cases / 25,529 assertions，含
+    TEST_CASE("every one of the 960 combinations resolves to the documented mapping")）
+```
+
+两列表在实现与产物里都真实落地（不是只写在注释里）：
+
+- `runplan.hpp` 定 `WaitMapping{creationFlags, creationFlagsName, waitMode, timeoutMs}`，
+  `waitMapping()` 返回映射；`runplan.cpp` 见 `mapping.creationFlags = CREATE_NEW_PROCESS_GROUP`
+- 序列化进 `runplan.json`：`wait='noWait'` → `creationFlags=512`（`CREATE_NEW_PROCESS_GROUP`）、
+  `creationFlagsName='CREATE_NEW_PROCESS_GROUP'`；`wait` / `custom` → `creationFlags=0`
+- `custom` 附带 `timeoutMs=30000` 与 `timeoutAction='continue'`（超时后终止还是继续两种都在）
+- 运行方式 → `showWindow`：`hidden=0 (SW_HIDE)`、`normal=1 (SW_SHOWNORMAL)`、
+  `minimized=2 (SW_SHOWMINIMIZED)`、`maximized=3 (SW_SHOWMAXIMIZED)`
+
+**路径解析不依赖本机盘符 —— 已用反例证明**（本机只有 C: 与 D:）：
+
+| 驱动器表 | `taskCount` | 产物里出现的盘符 |
+|---|---|---|
+| fixture 的 5 盘（C…G） | 17 | C, D, E, F, G |
+| 自造假表 3 盘（Z/Y/X） | 12 | Z, Y, X |
+| 自造假表但卷标不匹配 | — | **报错退出**：`路径类型 usbDrive 在驱动器表里找不到候选（卷标要求: OSPT_USB）` |
+
+第三行是关键反证：卷标对不上时**大声失败**，而不是回退到本机真实盘符。
+`allDrives` 按表展开（5 盘 → 5 条、3 盘 → 3 条），任务总数因此随表变化。
+
+`searchScope: systemPath` 是**绝对路径直通**：目标按原样使用、不查驱动器表，
+产物里以 `resolvedFromDriveTable=false` 显式标记。名字容易误读成"解析到系统盘"，
+实际语义是"已是绝对路径"。
+
 ### M5 — 部署运行时（2 周）
 
 **交付**：`osptd.exe` — 单页进度 UI + 阶段执行 + 失败回滚
@@ -478,8 +518,8 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 |---|---|
 | M1 | `ci.yml` 跑通：x64 构建 + ctest + selftest + artifact ✅ |
 | M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅；`lint.yml`（clang-format 增量检查）✅ **已于 M2 期间完成，未推迟** |
-| M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 116 项断言 ✅；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
-| M4 | runplan 校验脚本进 CI |
+| M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 断言 ✅（现 121 项，见下）；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
+| M4 | 「Runplan 校验」步骤进 CI ✅ —— 覆盖**两条路径**：不带 `--drives`（表内嵌在计划文件）与带 `--drives` 显式覆盖；均断言不依赖 runner 实际盘符 |
 | M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言 |
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本；**模式 B 的 SRS 注入断言每个 `RegSetValueEx` 的键路径与值，不碰真实 hive** |
 | M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
@@ -524,6 +564,8 @@ done
 | 中文路径 | 内部统一 UTF-8 / `std::filesystem::path`，转 Win32 时显式 `MultiByteToWideChar` |
 | GPL-3.0 传染性 | 引入依赖前先查许可，见第 6 节 |
 | **本机构建环境** | 曾缺 Windows SDK 导致 `could not find any instance of Visual Studio`，2026-10-24 已补齐。换机器时先跑下方"环境检查" |
+| **unattend 的登录/桌面落点** | 原先 `logon` 与 `desktop` 都塞进 `FirstLogonCommands`，与 ADK 参考不符。正确落点是：**`FirstLogonCommands` → `SynchronousCommand`（桌面出现前同步执行）对应「登录时」；`LogonCommands` → `AsynchronousCommand`（不等待、不推迟桌面出现）对应「进桌面」**。两者合法 pass 都是 `oobeSystem`。`1453063` 已修。注意 `AsynchronousCommand` 的子元素只有 `CommandLine` / `Description` / `Order`，同页的 `RequiresUserInput` 标注为 "This setting is not used."，不要生成 |
+| **`searchScope: systemPath` 的语义** | 是**绝对路径直通**（目标按原样使用、不查驱动器表），不是"解析到系统盘"。产物里以 `resolvedFromDriveTable=false` 标记。名字容易误读 |
 | **PowerShell 吞退出码** | CI 里调原生命令（python / ospt）时，`2>&1 \| Tee-Object` 会把 stderr 变成 `ErrorRecord`，配合 `$ErrorActionPreference='Stop'` 可能直接终止或吞掉 `$LASTEXITCODE`，**校验脚本明明失败却显示 success**。改法：不加 `2>&1`，单独一行取 `$LASTEXITCODE` 显式判 `-ne 0` 再 `exit`。本机只有 PS 5.1、CI 用 pwsh 7，两个版本行为不同，改动必须在 5.1 上跑正反两例 |
 | **SRS 驱动不是标准驱动包** | SC 的 `FUNB` 里**没有 `.inf` / `.cat`**，只有裸 `.sys` + `Drv.reg` / `Drv.pesrs`（同内容，只差 hive 前缀 `HKLM\SYSTEM\ControlSet001` vs `HK_USERS\DCSRS\ControlSet001`）。`dism /add-driver` 对它完全无效，必须离线挂载 SYSTEM hive 写 `CriticalDeviceDatabase` + `Services`。详见 §8 M6 与 `out/15_spec/驱动集说明.md` |
 | **`git push` 需要走代理** | 直连 github.com **间歇性失败**（`Recv failure: Connection was reset` / `Failed to connect to github.com:443`），可靠路径是 `git -c http.proxy=socks5h://127.0.0.1:10808 push …`。`git ls-remote` 走同一路径，**验证时也要加代理**，否则会误判成"远端没更新"。2026-10-25 实测：同一分钟内直连两次失败、代理两次成功 |
@@ -571,10 +613,11 @@ CI 里 runner 自带 PATH，无此问题。
 | **M1 骨架与核心库** | ✅ **完成**（`c4090c1`） |
 | **M1 加固** | ✅ 完成（`7acdb35`：concurrency + artifact 内容断言 + README 验收节） |
 | **M2 系统体检** | ✅ **完成**（`1a33770` + `0cc9938`） |
-| **M3 unattend.xml 生成** | ✅ **完成**（`90ca731` + `a5f0a48`） |
-| M4–M8 | ⬜ 未开始 |
+| **M3 unattend.xml 生成** | ✅ **完成**（`90ca731` + `a5f0a48`；语义修正 `1453063`） |
+| **M4 运行计划调度器** | ✅ **完成**（`9505fdc`，CHANGELOG `df0819c`） |
+| M5–M8 | ⬜ 未开始 |
 
-**M1–M3 验收记录**（2026-10-24，末次实测 sha `a5f0a48`）
+**M1–M4 验收记录**（2026-10-25，末次实测 sha `1453063`）
 
 ```
 M1  本地 configure/build 0 error
@@ -589,12 +632,33 @@ M2  ospt --checkup --json out.json           → exit 0
 M3  ospt --gen-unattend cfg.json --out unattend.xml
                                              → exit 0
     python tests/integration/verify_unattend.py unattend.xml
-                                             → RESULT: ALL PASSED (116 checks, 0 skipped)
+                                             → RESULT: ALL PASSED (121 checks, 0 skipped)
+                                               （原 116；1453063 修正 LogonCommands 落点后 +5）
 
-CI  run 40138703756  #6  success  sha a5f0a48  branch main
-    步骤：Configure / Build / Test / Selftest / Version / Unattend 校验 / Artifact 内容断言 全 success
-    artifact ospt-x64 345,028 B
+M4  ospt --gen-runplan plan.json --out run/   → exit 0
+    产物 runplan.json + 5 个阶段脚本，共 17 个任务
+    python tests/integration/verify_runplan.py plan.json run/
+                                             → RESULT: ALL PASSED (274 checks)
+    ctest --test-dir build -C Release        → 1/1 passed
+                                               （doctest 37 cases / 25,529 assertions）
+
+本地总览（1453063）
+    ospt.exe 612,864 B / osptd.exe 141,312 B / osp_unit_tests.exe 970,240 B
+
+CI  run #16  success  sha 1453063   （#15 df0819c、#14 9505fdc 亦 success）
+    Lint #7 1453063 success
+    步骤：Configure / Build / Test / Selftest / Version / Unattend 校验 /
+          Runplan 校验 / Artifact 内容断言 全 success
 ```
+
+**M4 完成后的全链路回归**（M4 动了 `core/config` 与 `core/CMakeLists.txt`，
+所以 M2/M3 也重跑了一遍）：
+
+| 里程碑 | 回归结果 |
+|---|---|
+| M2 `verify_checkup.py` | ALL PASSED (85 checks) |
+| M3 `verify_unattend.py` | ALL PASSED (121 checks) |
+| M4 `verify_runplan.py` | ALL PASSED (274 checks) |
 
 **M3 的两条实测结论**（已回写第 10 节）：
 
@@ -603,10 +667,11 @@ CI  run 40138703756  #6  success  sha a5f0a48  branch main
 2. CI 里用 PowerShell 调原生命令时，`2>&1 | Tee-Object` 配合 `$ErrorActionPreference='Stop'`
    会吞掉 `$LASTEXITCODE`，**校验失败却显示 success**。已改成显式判退出码。
 
-**下一步**：M4 运行计划调度器。`lint.yml` 已完成（M2 期间），既有 17 个源文件全部符合
-`.clang-format`，**无需前置格式化提交**。§12 三项决策已全部定死。
+**下一步**：M5 部署运行时。**开工第一件事是把 x86 加进 CI 矩阵**（§9.7 M5 与 §12 已定死），
+否则 `osptd.exe` 无法在 32 位目标系统上启动。M5 的交付是 `osptd.exe` 真正执行 M4 生成的计划——
+那时 §8 M4 的两列表才第一次被运行时实际使用（M4 只负责把映射写进 `runplan.json`）。
 
-**推送状态（2026-10-25）**：主仓库远端 = 本地 = `67c0e3f`（此前 `89338a2` 时 CI #11 与 Lint #2 均 success）。
+**推送状态（2026-10-25）**：主仓库远端 = 本地 = `1453063`（CI #16 success）。
 驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
 
 **正确的推送姿势**（本阶段踩了坑，见 §10）：
