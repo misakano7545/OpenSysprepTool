@@ -11,7 +11,7 @@ const std::string& cachedVersionString()
 {
     static const std::string text = [] {
         return std::to_string(kVersionMajor) + "." + std::to_string(kVersionMinor) + "." +
-               std::to_string(kVersionPatch);
+            std::to_string(kVersionPatch);
     }();
     return text;
 }
