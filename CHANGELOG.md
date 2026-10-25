@@ -7,7 +7,7 @@
 
 ## [0.1.0] - 待发布
 
-M1–M3：工程骨架、系统体检、unattend.xml 生成。
+M1–M4：工程骨架、系统体检、unattend.xml 生成、运行计划调度器。
 
 ### Added
 
@@ -54,12 +54,35 @@ M1–M3：工程骨架、系统体检、unattend.xml 生成。
 - `tests/unit/test_unattend.cpp`：根元素与命名空间、component 属性、顺序表比对、
   计算机名校验（超长 / 禁用字符 / 纯数字）、工作组与域互斥
 
+**M4 —— 运行计划调度器**
+
+- `core/runplan`：把 `RunPlanTask` 解析成可执行计划，
+  5 阶段 × 4 任务类型 × 4 运行方式 × 3 等待策略 × 4 路径类型 = 960 种组合
+- 等待策略按宪章 §8 M4 的两列表映射：不等待 → `CREATE_NEW_PROCESS_GROUP` +
+  立即 `CloseHandle`；等待完成 → flags=0 + `WaitForSingleObject(INFINITE)`；
+  自定义秒数 → flags=0 + `WaitForSingleObject(timeoutMs)`
+- 运行方式 → `STARTUPINFO.wShowWindow`；任务类型 → 命令行形态
+  （run 直执 / `reg.exe import` / `cmd /c del /f /q` / `cmd /c rd /s /q`）
+- 路径解析不依赖本机盘符：驱动器表可由 `--drives` 传入，或内嵌在计划文件顶层的
+  `drives` 数组里，两者都没有才枚举本机。U 盘 / 光盘先按卷标匹配，卷标为空
+  退回按驱动器类型
+- `allDrives` 展开为每个候选盘符一条命令；善后处理 = 删除文件 时在执行后追加一条
+  隐藏 + 等待完成的删除命令
+- `ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]`；
+  产物为 `run/runplan.json` + 每阶段一个 `.cmd`
+- `core/config` 的 `RunPlanTask` 新增 `expectedVolumeLabel` 与 `timeoutAction`
+- `tests/unit/test_runplan.cpp`：遍历全部 960 种组合断言映射表，另覆盖路径解析、
+  善后处理、驱动器表解析与全部错误分支
+- `tests/integration/verify_runplan.py`：274 项断言，独立重算一遍解析结果再与产物比对
+
 ### Changed
 
 - CI 的 Test 步骤在失败时把 ctest 输出里的断言行打成 `::error::` annotation，
   匿名访问仓库即可定位失败项（Actions 日志本身需要登录）
 - CI 增加 `concurrency` 组，同分支新推送取消旧运行
 - CI 增加 Unattend 校验步骤（M3 增量，宪章 §9.7）
+- CI 增加 Runplan 校验步骤（M4 增量，宪章 §9.7），覆盖计划内嵌驱动器表与
+  `--drives` 两条路径
 
 ### Notes
 
