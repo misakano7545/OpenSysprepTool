@@ -417,6 +417,95 @@ M5 的任务就是把它变成有保证、且能被 CI 持续验证。
 | `SHGetKnownFolderPath` | Vista+，**可用** |
 | `RegDeleteTree` / `RegLoadKey` | **可用**（M6 要用 `RegLoadKey`） |
 
+#### M5.2 已实现并验收（2026-10-25，`1178515` + `3e6357c` + `30b630b`）
+
+**x86 矩阵立刻抓到一个只有 32 位进程才会出现的真 bug —— WOW64 文件系统重定向**
+
+32 位进程在 64 位 Windows 上访问 `%SystemRoot%\System32` 会被**静默重定向到 `SysWOW64`**，
+而 `sysprep.exe` / `dism.exe` / `bcdedit.exe` 都是 **64 位专有**工具，在 `SysWOW64` 里根本不存在。
+于是「其实有」被报成「不存在」：
+
+```
+x86 上失败的断言：CHECK( report.sysprep.available == !report.sysprep.exePath.empty() )
+实测：SysWOW64 下确实没有 sysprep.exe 与 bcdedit.exe
+```
+
+修法（`core/win7`）：
+
+- `ScopedWow64FsRedirection` —— RAII，进作用域关掉重定向、离开自动还原
+- `probeFileNative()` —— 探测这类路径前先关重定向，`sysinfo` 的三处探测全部改走它
+- **`Wow64DisableWow64FsRedirection` / `Wow64RevertWow64FsRedirection` 只能动态取** ——
+  它们只存在于 **64 位** Windows 的 kernel32 里，在 32 位系统上静态导入会让进程**直接加载失败**；
+  取不到恰好说明本系统没有重定向，什么都不用做
+
+这条 bug 在主程序上只会表现为「体检说 sysprep 不可用」，用户看不出是重定向问题 ——
+**没有 x86 矩阵就不可能发现**。这是 §12「x86 分阶段」决策的直接回报。
+
+**第一次 CI（run #19）两个架构各挂一处、且是两处不同的 bug**
+
+| 架构 | 挂在哪一步 | 真因 |
+|---|---|---|
+| x64 | 部署运行时验收 | 新增验收脚本漏了 `sys.stdout.reconfigure(encoding="utf-8")`，runner 上 Python stdout 是 cp1252，打印中文抛 `UnicodeEncodeError` |
+| x86 | Test（Build 后立刻） | WOW64 重定向（上一条） |
+
+x64 那处的**次生伤害**值得记：Traceback 走 stderr 而 CI 步骤只 Tee 了 stdout，
+日志里只剩一句 `Process completed with exit code 1`，全部 `::error::` 都没打出来 —— 排查时信息量为零。
+
+**逐条实测验收**（本地，两个架构各跑一遍）
+
+```
+x64  configure exit 0 / build 0 error 0 warning
+x86  configure exit 0 / build 0 error 0 warning
+
+PE 实测      build/bin/Release/osptd.exe      machine=0x8664  subsystem=6.1
+             build-x86/bin/Release/osptd.exe   machine=0x014c  subsystem=6.1
+             （Subsystem 原为 6.0，/SUBSYSTEM:CONSOLE,6.01 钉死后正确）
+
+Win7 闸门     x64  RESULT: ALL PASSED (23 checks，1 项跳过)
+             x86  RESULT: ALL PASSED (23 checks，1 项跳过)
+             跳过的 1 项 = ospt.exe 的自述交叉比对（ospt.exe 不提供 --win7-compat，
+             只有 osptd.exe 提供），带了明确原因，不是静默略过
+             动态解析白名单 2 条，均写明起始系统与 Win7 回退路径：
+               kernel32.dll!GetSystemTimePreciseAsFileTime
+               kernel32.dll!GetTempPath2W
+
+Win7 闸门负例  RESULT: ALL PASSED (4 组篡改全部被闸门拦下)
+             子系统 6.1→6.0 / KERNEL32→ucrtbase / ADVAPI32→api-ms-win-x /
+             WriteConsoleW→WaitOnAddress(Win8+)，每处都被拦下且报错信息可定位
+
+部署运行时    ospt --gen-runplan → exit 0
+             osptd --dry-run --plan → exit 0，逐任务打印
+               命令 / 等待策略（含自定义 30000ms 与「动作：继续」）/
+               标志（CREATE_NEW_PROCESS_GROUP (0x00000200)）/ 窗口（SW_* = 0/1/2/3）/
+               路径解析来源（经驱动器表解析，命中 E:\）
+             verify_deploy_exec.py → ALL PASSED (48 checks)
+               覆盖失败场景：中止后续、留反序清理清单、记录中止位置与退出码
+
+WOW64 修复验证  x64 --checkup 与 x86 --checkup 的 JSON 逐字段比对：
+               33 个字段，差异 0 个
+               （未修前 x86 会把 sysprep 报成不存在，两者必然不一致）
+
+ctest / 单测    x64  1/1 passed；53 cases / 25,996 assertions
+               x86  1/1 passed；53 cases / 25,996 assertions（与 x64 完全相同）
+
+全链路回归      M2 verify_checkup      85 checks  ALL PASSED
+               M3 verify_unattend    121 checks  ALL PASSED
+               M4 verify_runplan     274 checks  ALL PASSED
+               M5 verify_deploy_exec  48 checks  ALL PASSED
+
+CI  run #19（1178515）failure → #20（3e6357c）success → #21（30b630b）success
+    Lint #10 / #11 / #12 均 success
+    artifact：ospt-x64 546,432 B / ospt-x86 486,552 B
+```
+
+**两个已知的不对称（不阻塞，留作 M6/M7 参考）**
+
+1. **`ospt.exe` 没有 `--win7-compat` 自述** —— 只有 `osptd.exe` 有。`ospt.exe` 的 Win7 合规
+   仍由 PE 级三项检查覆盖（Subsystem / 导入表 / 无动态 VC 运行库），所以不是漏洞，
+   但少了一层「编译期意图 vs 实测值」的交叉比对。M6 顺手补上最省事。
+2. **`/SUBSYSTEM:CONSOLE,6.01` 在顶层写死** —— 对所有 exe 生效。M7 若把 `ospt.exe` 改成
+   GUI 子系统（`/SUBSYSTEM:WINDOWS`），会与这条冲突，届时需要按 target 区分。
+
 ### M6 — 驱动注入与 sysprep 编排（1.5 周）
 
 **交付**：`core/dism` + `core/srsinject` + `core/sysprep`
@@ -595,7 +684,7 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 | M2 | `--checkup` 体检校验脚本进 CI ✅；`concurrency` 并发控制 ✅；Test 失败打 `::error::` annotation ✅；`lint.yml`（clang-format 增量检查）✅ **已于 M2 期间完成，未推迟** |
 | M3 | 「Unattend 校验」步骤进 CI：fixture → cfg.json → unattend.xml → 断言 ✅（现 121 项，见下）；「Artifact 内容断言」步骤 ✅。矩阵仍 x64 |
 | M4 | 「Runplan 校验」步骤进 CI ✅ —— 覆盖**两条路径**：不带 `--drives`（表内嵌在计划文件）与带 `--drives` 显式覆盖；均断言不依赖 runner 实际盘符 |
-| M5 | **加 x86 到矩阵**；`osptd.exe` 纳入 artifact 断言；**加「Win7 兼容闸门」步骤**：跑 `verify_win7_compat.py` 查 x64 与 x86 两个产物，断言 Subsystem 6.1 + 导入表无 Win8+ API + 无动态 VC 运行库依赖 |
+| M5 | **加 x86 到矩阵** ✅ **已落地，且立刻抓到一个真 bug（见下）**；`osptd.exe` 纳入 artifact 断言 ✅（`ospt-x64` / `ospt-x86` 双 artifact）；**加「Win7 兼容闸门」步骤** ✅ —— 正例查三项（Subsystem 6.1 + 导入表白名单 + 无动态 VC 运行库）+ 自述交叉比对，**并跑 `verify_win7_compat_negative.py` 负例**（篡改产物后闸门必须失败，否则闸门就是橡皮章） |
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本；**模式 B 的 SRS 注入断言每个 `RegSetValueEx` 的键路径与值，不碰真实 hive** |
 | M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
 | M8 | `release.yml` 首次实跑，产出 v0.1.0 |
@@ -637,6 +726,9 @@ done
 | **STL 的 `WaitOnAddress`** | VS2022 STL 在同步原语上可能用到 `WaitOnAddress`/`WakeByAddress*`，那是 **Win8+**。好在 `_WIN32_WINNT=0x0601` 下会走条件变量回退路径。实测本项目三个产物的导入表与字符串里都是 **0 处**。加兼容闸门后这条会被持续守住 |
 | **Win7 必须先装 SP1** | MSVC 官方只支持 targeting Windows 7 **SP1**，RTM 不在支持范围 |
 | **Win7 装驱动需 KB4474419** | 2019 年后 Win7 必须装 SHA-2 代码签名支持补丁，否则不认 SHA-2 签名的驱动。M6 装驱动前要检查 |
+| **WOW64 文件系统重定向** | 32 位进程在 64 位 Windows 上访问 `%SystemRoot%\System32` 会被**静默重定向到 `SysWOW64`**。而 `sysprep.exe`/`dism.exe`/`bcdedit.exe` 都是 **64 位专有**工具，在 `SysWOW64` 里不存在 —— 不关重定向就探测，报出的"文件不存在"是**假的**。`ScopedWow64FsRedirection`（RAII）关掉再探。注意 `Wow64DisableWow64FsRedirection`/`Wow64RevertWow64FsRedirection` **只存在于 64 位** kernel32，在 32 位系统上静态导入会让进程**直接加载失败**，只能动态取；取不到恰好说明没有重定向，无需处理 |
+| **Python 脚本在 runner 上打印中文会崩** | Windows runner 的 Python stdout 是 **cp1252**，`print` 中文抛 `UnicodeEncodeError: 'charmap' codec`。每个验收脚本都要有 `sys.stdout.reconfigure(encoding="utf-8")`。**次生伤害更麻烦**：Traceback 走 stderr，而 CI 步骤只 Tee 了 stdout，日志里只剩 `Process completed with exit code 1`，所有 `::error::` 都打不出来，排查信息量为零 |
+| **PowerShell 函数里用 `Tee-Object` 会吞输出** | 把命令包在 `function` 里再 `\| Tee-Object`：**Tee 的输出会变成函数的返回值**，于是一方面闸门自己的输出从控制台消失，另一方面退出码比较被搅成数组比较。**不要为了复用而包函数**，直接在步骤体里顺序写。这是 §10 那条 PowerShell 坑的另一个变体 |
 | sysprep 不可逆 | 必须先提示用户备份，且要能检测"已封装过"（`HKLM\SYSTEM\Setup\Status\SysprepStatus`） |
 | 驱动库版权 | SC 那 596 个 SRS 驱动属各厂商，不能分发。让用户自备或只做注入框架 |
 | DISM 需要匹配架构 | x86 镜像要用 x86 的 DISM |
@@ -695,9 +787,10 @@ CI 里 runner 自带 PATH，无此问题。
 | **M2 系统体检** | ✅ **完成**（`1a33770` + `0cc9938`） |
 | **M3 unattend.xml 生成** | ✅ **完成**（`90ca731` + `a5f0a48`；语义修正 `1453063`） |
 | **M4 运行计划调度器** | ✅ **完成**（`9505fdc`，CHANGELOG `df0819c`） |
-| M5–M8 | ⬜ 未开始 |
+| **M5 部署运行时 + Win7 SP1** | ✅ **完成**（`1178515` + `3e6357c` + `30b630b`） |
+| M6–M8 | ⬜ 未开始 |
 
-**M1–M4 验收记录**（2026-10-25，末次实测 sha `1453063`）
+**M1–M5 验收记录**（2026-10-25，末次实测 sha `30b630b`）
 
 ```
 M1  本地 configure/build 0 error
@@ -722,23 +815,30 @@ M4  ospt --gen-runplan plan.json --out run/   → exit 0
     ctest --test-dir build -C Release        → 1/1 passed
                                                （doctest 37 cases / 25,529 assertions）
 
-本地总览（1453063）
+本地总览（M4 时点，1453063）
     ospt.exe 612,864 B / osptd.exe 141,312 B / osp_unit_tests.exe 970,240 B
 
-CI  run #16  success  sha 1453063   （#15 df0819c、#14 9505fdc 亦 success）
-    Lint #7 1453063 success
-    步骤：Configure / Build / Test / Selftest / Version / Unattend 校验 /
-          Runplan 校验 / Artifact 内容断言 全 success
+M5  x64 与 x86 各跑一遍（详见 §8 M5.2）
+    x64  build/bin/Release/osptd.exe      machine=0x8664  subsystem=6.1
+    x86  build-x86/bin/Release/osptd.exe  machine=0x014c  subsystem=6.1
+    Win7 兼容闸门  x64/x86 均 ALL PASSED (23 checks，1 项跳过，带原因)
+    Win7 闸门负例  ALL PASSED（4 组篡改全部被拦下）
+    osptd --dry-run --plan run/          → exit 0
+    verify_deploy_exec.py                → ALL PASSED (48 checks)
+    verify_win7_compat_negative.py       → ALL PASSED
+    ctest / 单测   两架构均 1/1 passed；53 cases / 25,996 assertions
+    WOW64 修复验证 x64 与 x86 的 --checkup JSON 33 个字段差异 0 个
+
+全链路回归（M5 动了 CMakeLists 与 core/sysinfo，所以 M2–M4 全部重跑）
+    M2 verify_checkup      85 checks  ALL PASSED
+    M3 verify_unattend    121 checks  ALL PASSED
+    M4 verify_runplan     274 checks  ALL PASSED
+    M5 verify_deploy_exec  48 checks  ALL PASSED
+
+CI  run #19（1178515）failure → #20（3e6357c）success → #21（30b630b）success
+    Lint #10 / #11 / #12 均 success
+    artifact：ospt-x64 546,432 B / ospt-x86 486,552 B
 ```
-
-**M4 完成后的全链路回归**（M4 动了 `core/config` 与 `core/CMakeLists.txt`，
-所以 M2/M3 也重跑了一遍）：
-
-| 里程碑 | 回归结果 |
-|---|---|
-| M2 `verify_checkup.py` | ALL PASSED (85 checks) |
-| M3 `verify_unattend.py` | ALL PASSED (121 checks) |
-| M4 `verify_runplan.py` | ALL PASSED (274 checks) |
 
 **M3 的两条实测结论**（已回写第 10 节）：
 
@@ -747,11 +847,12 @@ CI  run #16  success  sha 1453063   （#15 df0819c、#14 9505fdc 亦 success）
 2. CI 里用 PowerShell 调原生命令时，`2>&1 | Tee-Object` 配合 `$ErrorActionPreference='Stop'`
    会吞掉 `$LASTEXITCODE`，**校验失败却显示 success**。已改成显式判退出码。
 
-**下一步**：M5 部署运行时。**开工第一件事是把 x86 加进 CI 矩阵**（§9.7 M5 与 §12 已定死），
-否则 `osptd.exe` 无法在 32 位目标系统上启动。M5 的交付是 `osptd.exe` 真正执行 M4 生成的计划——
-那时 §8 M4 的两列表才第一次被运行时实际使用（M4 只负责把映射写进 `runplan.json`）。
+**下一步**：M6 驱动注入与 sysprep 编排。M6 会用上 M5 建立的 Win7 能力
+（`core/win7` 的重定向处理、`probeFileNative`），并按 §8 M6 实现两种注入模式。
+顺手可做的两件小事（见 §8 M5.2「两个已知的不对称」）：给 `ospt.exe` 补 `--win7-compat`
+自述；`/SUBSYSTEM:CONSOLE,6.01` 在 M7 改 GUI 子系统前要按 target 区分。
 
-**推送状态（2026-10-25）**：主仓库远端 = 本地 = `1453063`（CI #16 success）。
+**推送状态（2026-10-25）**：主仓库远端 = 本地 = `30b630b`（CI #21 success，Lint #12 success）。
 驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
 
 **正确的推送姿势**（本阶段踩了坑，见 §10）：
