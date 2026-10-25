@@ -526,6 +526,8 @@ done
 | **本机构建环境** | 曾缺 Windows SDK 导致 `could not find any instance of Visual Studio`，2026-10-24 已补齐。换机器时先跑下方"环境检查" |
 | **PowerShell 吞退出码** | CI 里调原生命令（python / ospt）时，`2>&1 \| Tee-Object` 会把 stderr 变成 `ErrorRecord`，配合 `$ErrorActionPreference='Stop'` 可能直接终止或吞掉 `$LASTEXITCODE`，**校验脚本明明失败却显示 success**。改法：不加 `2>&1`，单独一行取 `$LASTEXITCODE` 显式判 `-ne 0` 再 `exit`。本机只有 PS 5.1、CI 用 pwsh 7，两个版本行为不同，改动必须在 5.1 上跑正反两例 |
 | **SRS 驱动不是标准驱动包** | SC 的 `FUNB` 里**没有 `.inf` / `.cat`**，只有裸 `.sys` + `Drv.reg` / `Drv.pesrs`（同内容，只差 hive 前缀 `HKLM\SYSTEM\ControlSet001` vs `HK_USERS\DCSRS\ControlSet001`）。`dism /add-driver` 对它完全无效，必须离线挂载 SYSTEM hive 写 `CriticalDeviceDatabase` + `Services`。详见 §8 M6 与 `out/15_spec/驱动集说明.md` |
+| **`git push` 走代理会静默挂死** | 2026-10-25 实测：`git push` 到 github.com **必须直连**。加了 `-c http.proxy=socks5h://127.0.0.1:10808` 后 `git-receive-pack` 无任何输出地挂死 400 秒以上，而 `git ls-remote`（只取 info/refs）走同一代理却秒回 —— 所以"代理通"不代表 push 通。`curl -x socks5h://...` 也是通的，但那验证不了 push |
+| **GCM 两个账号会导致 push 卡住** | 本机 Git Credential Manager 为 github.com 存了**两个账号**（`misakano7545` 与陈旧的 `x-access-token`），每次 push 都要弹窗让选一个，无人应答就挂住。**不要**用 `GCM_INTERACTIVE=never` 规避 —— 它把选择提示变成硬失败（`Cannot prompt because user interactivity has been disabled`）。只用 `GIT_TERMINAL_PROMPT=0`，GCM 约 5 秒后会自动采用 `misakano7545`。诊断用 `GCM_TRACE=1`。根治办法是删掉那个陈旧账号 |
 
 ### 环境检查（每次新会话开工前跑一次）
 
@@ -604,6 +606,11 @@ CI  run 40138703756  #6  success  sha a5f0a48  branch main
 **下一步**：M4 运行计划调度器。`lint.yml` 已完成（M2 期间），既有 17 个源文件全部符合
 `.clang-format`，**无需前置格式化提交**。§12 三项决策已全部定死。
 
+**推送状态（2026-10-25）**：主仓库远端 = 本地 = `89338a2`，CI #11 与 Lint #2 均 **success**。
+驱动仓库远端 = 本地 = `75ad2a8`，远端递归树 98 文件 / 12.705 MB。
+
+**注意**：`git push` 必须**直连**，不要加 `-c http.proxy=socks5h://...`（见 §10）。
+
 ---
 
 ## 12. 决策记录
@@ -657,14 +664,18 @@ B SRS 注册表绑定走离线 hive 注入。**只做 DISM 用不了 SC 这批�
 | # | 决策项 | 结论 | 落地状态 |
 |---|---|---|---|
 | 1 | `FUNB/MS/` 那 18 个非微软署名的 in-box `.sys` 留不留 | **留**。`MS/` 整体保留（20 文件 / 18 sys），因为它含最大的 CDD 覆盖（679 条 CDD + 119 个 Services），剔除会显著缩小老机型覆盖。入库集合维持 **93 文件 / 12.7 MB** | ✅ 已入库 |
-| 2 | 独立仓库还是并入主仓库 | **独立仓库 `OpenSysprepDriver`**（`https://github.com/misakano7545/OpenSysprepDriver`）。主仓库保持纯 GPL-3.0 代码，驱动作为独立聚合仓库发布；主仓库 README 与本文档都指向它 | ✅ 仓库已建，待推送 |
+| 2 | 独立仓库还是并入主仓库 | **独立仓库 `OpenSysprepDriver`**（`https://github.com/misakano7545/OpenSysprepDriver`）。主仓库保持纯 GPL-3.0 代码，驱动作为独立聚合仓库发布；主仓库 README 与本文档都指向它 | ✅ 已推送 `75ad2a8`（远端 98 文件 / 12.71 MB） |
 | 3 | 二进制入库，还是只放 manifest + 导入脚本 | **二进制入库**。风险靠 README 版权声明、SHA-256 清单、独立仓库三项缓解；代价是新用户克隆即用，不必自备驱动 | ✅ 已入库 |
 
 三项已全部落地，**无需再议**。
 
-**目录**：本地 `D:\dev\OpenSysprepDriver`（与主仓库并列），内容 98 文件 / 12.7 MB：
+**目录**：远端 `https://github.com/misakano7545/OpenSysprepDriver`，本地 `D:\dev\OpenSysprepDriver`（与主仓库并列），内容 98 文件 / 12.7 MB：
 `srs/`（83 文件 / 5.5 MB，10 个厂商 + MS）、`vmd/`（10 文件 / 7.2 MB，Intel RST VMD 两个版本）、
 `README.md`、`manifest.json`（93 条记录，全量 SHA-256 校验通过）、`LICENSE`、`.gitattributes`、`驱动集说明.md`。
+
+**已推送并核实**（2026-10-25）：远端 HEAD `75ad2a8`，GitHub API 递归树报 **98 文件 / 12.705 MB**，
+与本地一致；抽样 `srs/ALI(ULI)/drivers/aliide.sys` 7,311 B、`vmd/intel/rstvmd/20240722/iaStorVD.sys`
+1,619,656 B 均相符。
 
 **M6 开工时驱动目录指向**：`--srs <dir>` 指向该仓库的 `srs/`，`--driver <dir>` 指向 `vmd/`
 （或用户自备的标准驱动包）。
