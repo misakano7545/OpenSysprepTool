@@ -367,6 +367,54 @@ def emit_matrix(out_json: str, markdown_path: str, tag: str) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- 源码包
+
+
+def check_source_package(zip_path: str, tag: str) -> int:
+    """核对 git archive 出来的源码包确实能当「对应源码」用。
+
+    用 zipfile 而不是 tar：GNU tar 读不了 zip，而 runner 上 PATH 里的 tar 不一定是
+    bsdtar（Git for Windows 的 usr/bin 会抢在前面），依赖它就等于埋一颗雷。
+    """
+    import zipfile
+
+    section(f"源码包：{zip_path}")
+    if not os.path.isfile(zip_path):
+        check("源码包存在", False, zip_path)
+        return 1
+    check("源码包存在", True)
+    check("源码包非空", os.path.getsize(zip_path) > 100 * 1024, f"{os.path.getsize(zip_path)} 字节")
+
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+
+    prefix = f"OpenSysprepTool-{tag}/"
+    check(f"包内统一带前缀 {prefix}", all(name.startswith(prefix) for name in names))
+    check("包内有源码文件", len(names) > 50, f"{len(names)} 个条目")
+
+    for must in [
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md",
+        "third_party/LICENSES.md",
+        "third_party/WTL/MS-PL.txt",
+        "core/include/core/version.hpp",
+        "host/ui/ui_frame.cpp",
+        ".github/workflows/release.yml",
+    ]:
+        check(f"包内有 {must}", f"{prefix}{must}" in names)
+
+    # 二进制与源码同时提供的前提是「源码包真的包含全部源码」；
+    # 另外本仓库不得含任何驱动二进制（驱动在另一个仓库）
+    drivers = [n for n in names if n.lower().endswith((".sys", ".inf", ".cat"))]
+    check("源码包里没有任何驱动二进制", not drivers, ", ".join(drivers[:5]))
+    check(
+        "源码包里带版本号头（tag 与版本号的判据）",
+        any(n.endswith("core/include/core/version.hpp") for n in names),
+    )
+    return 0 if not _failures else 1
+
+
 # ---------------------------------------------------------------- 发布说明
 
 
@@ -552,6 +600,8 @@ def main(argv: list[str]) -> int:
         elif arg == "--check-arch-artifacts":
             # 单个架构的构建 job 只核对本架构那两份（发版 job 才核对四份齐全）
             exit_code = exit_code or check_artifacts(value or "", _value_of(args, "--arch") or "x64")
+        elif arg == "--check-source-package":
+            exit_code = exit_code or check_source_package(value or "", _tag_from_argv(args) or tag)
         elif arg == "--emit-matrix":
             tag = _tag_from_argv(args) or tag
             markdown = _value_of(args, "--markdown") or ""
