@@ -2,7 +2,7 @@
 """verify_release.py —— M8 发版契约校验与集成测试矩阵记录
 
 用法:
-    python tests/integration/verify_release.py --check-tag v0.1.0
+    python tests/integration/verify_release.py --check-tag v0.1.1
     python tests/integration/verify_release.py --check-workflow .github/workflows/release.yml
     python tests/integration/verify_release.py --check-artifacts <含四个产物的目录>
     python tests/integration/verify_release.py --emit-matrix <out.json> [--markdown <out.md>]
@@ -564,7 +564,9 @@ def check_docs(changelog: str | None, readme: str | None) -> int:
         text = open(changelog, encoding="utf-8").read()
         check("CHANGELOG 提到 Win7 需要 SP1", "SP1" in text)
         check("CHANGELOG 提到 KB4474419", "KB4474419" in text)
-        check("CHANGELOG 有 0.1.0 段", "## [0.1.0]" in text)
+        # 不写死版本号：跟着 version.hpp 走，否则每次发版都要改这行断言
+        version = ".".join(str(part) for part in version_triple())
+        check(f"CHANGELOG 有 {version} 段", f"## [{version}]" in text)
     if readme:
         text = open(readme, encoding="utf-8").read()
         check("README 提到 Win7 需要 SP1", "SP1" in text)

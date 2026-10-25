@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发版的 tag（例如 v0.1.0），必须与 version.hpp 一致'
+        description: '要发版的 tag（例如 v0.1.1），必须与 version.hpp 一致'
         required: true
         type: string
 
