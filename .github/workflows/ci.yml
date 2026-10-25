@@ -215,16 +215,27 @@ jobs:
       # M6 增量（宪章 §9.7）：驱动注入两种模式 + sysprep 编排。
       # 三条 gate 全部走 --dry-run；夹具在 build\m6 下运行时生成，仓库里不落任何
       # 真实驱动二进制。同时断言：没链接 DismApi.dll、dry-run 没有任何副作用。
+      #
+      # 流重定向与退出码判断必须与上面两步一致：Traceback 走 stderr，
+      # 只 Tee stdout 的话失败时日志里只剩一句「exit code 1」，无从定位。
       - name: M6 驱动注入验收
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' |
-            Tee-Object -FilePath m6-drivers.log
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm6-drivers.log'
+
+          python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
           $code = $LASTEXITCODE
+
           if ($code -ne 0) {
-            Get-Content m6-drivers.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
-              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) {
+              $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            } else {
+              Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" }
+            }
             exit $code
           }
           exit 0

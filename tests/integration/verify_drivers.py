@@ -198,6 +198,11 @@ def imported_dlls(path: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    # GitHub 的 windows runner 上 Python 的 stdout 是 cp1252，打印中文会直接抛
+    # UnicodeEncodeError（这个坑 M5 已经踩过一次）。脚本自己切到 UTF-8。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
     ospt = argv[1] if len(argv) > 1 else os.path.join(REPO, "build", "bin", "Release", "ospt.exe")
     root = os.path.join(REPO, "build", "m6")
 
@@ -375,4 +380,12 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv))
+    except Exception:  # noqa: BLE001
+        # 未预期的异常：把 traceback 打到 stdout 而不是 stderr。
+        # CI 步骤即使只 Tee stdout，也能看到真正的原因，而不是一个无从定位的退出码。
+        import traceback
+
+        traceback.print_exc(file=sys.stdout)
+        sys.exit(3)
