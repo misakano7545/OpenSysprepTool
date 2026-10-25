@@ -1,0 +1,126 @@
+{
+  "drives": [
+    { "root": "C:\\", "volumeLabel": "System", "driveType": "fixed", "systemDrive": true },
+    { "root": "D:\\", "volumeLabel": "Data", "driveType": "fixed", "systemDrive": false },
+    { "root": "E:\\", "volumeLabel": "OSPT_USB", "driveType": "removable", "systemDrive": false },
+    { "root": "F:\\", "volumeLabel": "SPARE", "driveType": "removable", "systemDrive": false },
+    { "root": "G:\\", "volumeLabel": "OSPT_CD", "driveType": "cdrom", "systemDrive": false }
+  ],
+  "schemaVersion": 1,
+  "systemInfo": {
+    "registeredName": "OpenSysprep",
+    "computerName": "PC-",
+    "computerNameMode": "prefixRandom"
+  },
+  "firstLogon": { "runDeviceManager": false, "resolutionX": 1024, "resolutionY": 768 },
+  "optimization": { "networkLocation": "work" },
+  "runPlan": [
+    {
+      "phase": "preinstall",
+      "type": "reg",
+      "target": "harness\\oem.reg",
+      "arguments": "",
+      "windowStyle": "hidden",
+      "waitMode": "wait",
+      "waitSeconds": 0,
+      "cleanup": "keep",
+      "searchScope": "usbDrive",
+      "expectedVolumeLabel": "OSPT_USB",
+      "timeoutAction": "continue"
+    },
+    {
+      "phase": "install",
+      "type": "run",
+      "target": "setup.exe",
+      "arguments": "/quiet /norestart",
+      "windowStyle": "normal",
+      "waitMode": "custom",
+      "waitSeconds": 30,
+      "cleanup": "keep",
+      "searchScope": "cdRom",
+      "expectedVolumeLabel": "OSPT_CD",
+      "timeoutAction": "continue"
+    },
+    {
+      "phase": "postinstall",
+      "type": "run",
+      "target": "drivers\\install.cmd",
+      "arguments": "",
+      "windowStyle": "minimized",
+      "waitMode": "wait",
+      "waitSeconds": 0,
+      "cleanup": "keep",
+      "searchScope": "usbDrive",
+      "expectedVolumeLabel": "",
+      "timeoutAction": "continue"
+    },
+    {
+      "phase": "postinstall",
+      "type": "deleteFile",
+      "target": "logs\\setup.log",
+      "arguments": "",
+      "windowStyle": "maximized",
+      "waitMode": "noWait",
+      "waitSeconds": 0,
+      "cleanup": "keep",
+      "searchScope": "allDrives",
+      "expectedVolumeLabel": "",
+      "timeoutAction": "continue"
+    },
+    {
+      "phase": "logon",
+      "type": "deleteDir",
+      "target": "temp\\cache",
+      "arguments": "",
+      "windowStyle": "hidden",
+      "waitMode": "custom",
+      "waitSeconds": 10,
+      "cleanup": "keep",
+      "searchScope": "allDrives",
+      "expectedVolumeLabel": "",
+      "timeoutAction": "kill"
+    },
+    {
+      "phase": "desktop",
+      "type": "run",
+      "target": "tools\\final.exe",
+      "arguments": "",
+      "windowStyle": "normal",
+      "waitMode": "noWait",
+      "waitSeconds": 0,
+      "cleanup": "deleteFile",
+      "searchScope": "usbDrive",
+      "expectedVolumeLabel": "OSPT_USB",
+      "timeoutAction": "continue"
+    },
+    {
+      "phase": "desktop",
+      "type": "run",
+      "target": "C:\\Windows\\System32\\notepad.exe",
+      "arguments": "",
+      "windowStyle": "normal",
+      "waitMode": "wait",
+      "waitSeconds": 0,
+      "cleanup": "keep",
+      "searchScope": "systemPath",
+      "expectedVolumeLabel": "",
+      "timeoutAction": "continue"
+    }
+  ],
+  "deploy": {
+    "module": "trueTrans",
+    "background": "systemDefault",
+    "skipOobe": true,
+    "autoCreateUser": true,
+    "userName": "User",
+    "userGroup": "Administrators"
+  },
+  "sysprep": {
+    "mode": "classic",
+    "generateNewSid": true,
+    "autoLogon": true,
+    "autoLogonCount": 3,
+    "workgroup": "WORKGROUP",
+    "afterAction": "reboot"
+  }
+}

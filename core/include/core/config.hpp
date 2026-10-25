@@ -54,7 +54,11 @@ struct RunPlanTask
     std::string waitMode;    // wait / noWait / custom
     int waitSeconds = 0;
     std::string cleanup;     // keep / deleteFile
-    std::string searchScope; // systemPath / usb / cdrom / allDrives
+    std::string searchScope; // systemPath / usbDrive / cdRom / allDrives
+    // U 盘 / 光盘按卷标匹配；留空则退回按驱动器类型匹配（见 core/runplan）
+    std::string expectedVolumeLabel;
+    // 等待超时后的动作：kill 终止该进程 / continue 继续执行后续命令；默认 continue
+    std::string timeoutAction;
 };
 
 struct DeploySettings

@@ -1,0 +1,9 @@
+{
+  "drives": [
+    { "root": "C:\\", "volumeLabel": "System", "driveType": "fixed", "systemDrive": true },
+    { "root": "D:\\", "volumeLabel": "Data", "driveType": "fixed", "systemDrive": false },
+    { "root": "E:\\", "volumeLabel": "OSPT_USB", "driveType": "removable", "systemDrive": false },
+    { "root": "F:\\", "volumeLabel": "SPARE", "driveType": "removable", "systemDrive": false },
+    { "root": "G:\\", "volumeLabel": "OSPT_CD", "driveType": "cdrom", "systemDrive": false }
+  ]
+}

@@ -6,6 +6,7 @@
 
 #include "core/config.hpp"
 #include "core/log.hpp"
+#include "core/runplan.hpp"
 #include "core/sysinfo.hpp"
 #include "core/unattend.hpp"
 #include "core/version.hpp"
@@ -29,6 +30,7 @@ void printUsage()
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
+    std::printf("  ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]  生成运行计划\n");
     std::printf("  ospt --version     版本与源码地址\n");
 }
 
@@ -115,6 +117,24 @@ std::string toUtf8(const std::filesystem::path& path)
 {
     const std::u8string u8 = path.u8string();
     return std::string(reinterpret_cast<const char*>(u8.c_str()), u8.size());
+}
+
+bool writeTextFile(const std::string& utf8Path, const std::string& text, std::string& error)
+{
+    std::ofstream out(std::filesystem::path(utf8Path), std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+        error = "cannot open for writing: " + utf8Path;
+        return false;
+    }
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.close();
+    if (!out)
+    {
+        error = "write failed: " + utf8Path;
+        return false;
+    }
+    return true;
 }
 
 int runSelftest()
@@ -298,6 +318,162 @@ int runGenUnattend(int argc, char** argv)
     return 0;
 }
 
+// M4：生成运行计划目录
+// 用法: ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]
+// 产物: <out>/runplan.json + 每阶段一个 .cmd
+int runGenRunplan(int argc, char** argv)
+{
+    if (argc < 3)
+    {
+        std::printf("--gen-runplan requires a plan path\n\n");
+        printUsage();
+        return 2;
+    }
+
+    const char* planPath = argv[2];
+    const char* outDir = nullptr;
+    const char* drivesPath = nullptr;
+
+    for (int i = 3; i < argc; ++i)
+    {
+        if (std::strcmp(argv[i], "--out") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--out requires a path\n");
+                return 2;
+            }
+            outDir = argv[++i];
+        }
+        else if (std::strcmp(argv[i], "--drives") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--drives requires a path\n");
+                return 2;
+            }
+            drivesPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", argv[i]);
+            printUsage();
+            return 2;
+        }
+    }
+
+    if (outDir == nullptr)
+    {
+        std::printf("--gen-runplan requires --out <run/>\n\n");
+        printUsage();
+        return 2;
+    }
+
+    std::ifstream in(std::filesystem::path(planPath), std::ios::binary);
+    if (!in)
+    {
+        std::printf("cannot open plan: %s\n", planPath);
+        return 1;
+    }
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    const osp::config::ParseResult parsed = osp::config::fromJson(text);
+    if (!parsed.ok)
+    {
+        std::printf("plan parse failed: %s\n", parsed.error.c_str());
+        return 1;
+    }
+
+    osp::runplan::DriveTable drives;
+    if (drivesPath != nullptr)
+    {
+        std::ifstream drivesIn(std::filesystem::path(drivesPath), std::ios::binary);
+        if (!drivesIn)
+        {
+            std::printf("cannot open drives table: %s\n", drivesPath);
+            return 1;
+        }
+        std::string drivesText((std::istreambuf_iterator<char>(drivesIn)), std::istreambuf_iterator<char>());
+        drivesIn.close();
+
+        std::string error;
+        if (!osp::runplan::parseDriveTable(drivesText, drives, error))
+        {
+            std::printf("%s\n", error.c_str());
+            return 1;
+        }
+    }
+    else
+    {
+        std::string error;
+        if (osp::runplan::driveTableFromPlan(text, drives, error))
+        {
+            std::printf("drives: 取自计划文件内嵌的驱动器表（%zu 个盘符）\n", drives.drives.size());
+        }
+        else if (!error.empty())
+        {
+            std::printf("%s\n", error.c_str());
+            return 1;
+        }
+        else
+        {
+            // 既没给 --drives 也没内嵌：枚举本机驱动器。
+            // 来源会写进 runplan.json，验收脚本据此判断路径解析是否依赖本机。
+            drives = osp::runplan::enumerateLocalDrives();
+            std::printf("drives: 未提供模拟表，使用本机枚举（%zu 个盘符）\n", drives.drives.size());
+        }
+    }
+
+    const osp::runplan::PlanResult plan = osp::runplan::build(parsed.config, drives);
+    if (!plan.ok)
+    {
+        std::printf("runplan generation failed: %s\n", plan.error.c_str());
+        return 1;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path directory = std::filesystem::path(outDir);
+    std::filesystem::create_directories(directory, ec);
+    if (ec)
+    {
+        std::printf("cannot create output directory %s: %s\n", outDir, ec.message().c_str());
+        return 1;
+    }
+
+    std::string error;
+    const std::string planJson = osp::runplan::toJson(plan);
+    if (!writeTextFile(toUtf8(directory / "runplan.json"), planJson, error))
+    {
+        std::printf("%s\n", error.c_str());
+        return 1;
+    }
+
+    std::size_t totalTasks = 0;
+    int written = 0;
+    for (const osp::runplan::PhasePlan& phase : plan.phases)
+    {
+        const std::string script = osp::runplan::phaseScript(plan, phase);
+        if (!writeTextFile(toUtf8(directory / phase.scriptName), script, error))
+        {
+            std::printf("%s\n", error.c_str());
+            return 1;
+        }
+        ++written;
+        totalTasks += phase.tasks.size();
+        std::printf("  %-16s %zu 个任务\n", phase.scriptName.c_str(), phase.tasks.size());
+    }
+
+    for (const std::string& warning : plan.warnings)
+    {
+        std::printf("warning: %s\n", warning.c_str());
+    }
+
+    std::printf("runplan: %s\n", outDir);
+    std::printf("  runplan.json + %d 个阶段脚本，共 %zu 个任务\n", written, totalTasks);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -323,6 +499,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--gen-unattend") == 0)
     {
         return runGenUnattend(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--gen-runplan") == 0)
+    {
+        return runGenRunplan(argc, argv);
     }
 
     if (std::strcmp(arg, "--version") == 0)

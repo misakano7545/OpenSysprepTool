@@ -4,6 +4,7 @@ add_library(osp_core STATIC
   config/config.cpp
   log/log.cpp
   sysinfo/sysinfo.cpp
+  runplan/runplan.cpp
   unattend/unattend.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp

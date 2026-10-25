@@ -61,6 +61,8 @@ json encode(const Config& cfg)
             {"waitSeconds", t.waitSeconds},
             {"cleanup", t.cleanup},
             {"searchScope", t.searchScope},
+            {"expectedVolumeLabel", t.expectedVolumeLabel},
+            {"timeoutAction", t.timeoutAction},
         });
     }
     j["runPlan"] = std::move(tasks);
@@ -188,6 +190,8 @@ ParseResult fromJson(const std::string& text)
                 task.waitSeconds = t.value("waitSeconds", 0);
                 task.cleanup = t.value("cleanup", std::string{});
                 task.searchScope = t.value("searchScope", std::string{});
+                task.expectedVolumeLabel = t.value("expectedVolumeLabel", std::string{});
+                task.timeoutAction = t.value("timeoutAction", std::string{});
                 cfg.runPlan.push_back(std::move(task));
             }
         }
