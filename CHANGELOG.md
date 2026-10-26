@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+（下一个版本的变化写在这里）
+
+## [0.1.2] - 2026-10-26
+
 ### Added
 
 - **M10 OEM 壁纸与部署图片**（`oem.wallpaper` / `oem.deployImage`）：补齐 `SA_Lab_oembgpic`

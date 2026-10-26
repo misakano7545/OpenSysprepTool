@@ -2,7 +2,7 @@
 """verify_release.py —— M8 发版契约校验与集成测试矩阵记录
 
 用法:
-    python tests/integration/verify_release.py --check-tag v0.1.1
+    python tests/integration/verify_release.py --check-tag v0.1.2
     python tests/integration/verify_release.py --check-workflow .github/workflows/release.yml
     python tests/integration/verify_release.py --check-artifacts <含四个产物的目录>
     python tests/integration/verify_release.py --emit-matrix <out.json> [--markdown <out.md>]

@@ -12,9 +12,9 @@ namespace osp {
 // versionString() 由这三段常量拼出，不会与它们不一致。
 inline constexpr int kVersionMajor = 0;
 inline constexpr int kVersionMinor = 1;
-inline constexpr int kVersionPatch = 1;
+inline constexpr int kVersionPatch = 2;
 
-// 形如 "0.1.1"
+// 形如 "0.1.2"
 const char* versionString() noexcept;
 
 } // namespace osp

@@ -12,7 +12,7 @@
 
 ## 状态
 
-M1–M8 全部完成，当前版本 **0.1.1**；M9 封装前设置已实现（未发版）。八个里程碑：工程骨架与核心库、系统体检、
+M1–M10 全部完成，当前版本 **0.1.2**。八个里程碑：工程骨架与核心库、系统体检、
 unattend.xml 生成、运行计划调度器、部署运行时与 Windows 7 SP1 兼容、驱动注入与
 sysprep 编排、主程序配置界面、集成测试矩阵与发版。详见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -215,7 +215,7 @@ python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 python tests/integration/verify_ui.py build/bin/Release/ospt.exe
 python tests/integration/verify_elevation.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe build/bin/Release/osp_unit_tests.exe
 
-python tests/integration/verify_release.py --check-tag v0.1.1
+python tests/integration/verify_release.py --check-tag v0.1.2
 python tests/integration/verify_release.py --check-workflow .github/workflows/release.yml
 ```
 

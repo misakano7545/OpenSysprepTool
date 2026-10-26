@@ -611,7 +611,7 @@ python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 
 ---
 
-### M10 — 剩余功能收口（对标 SC 的完整度）
+### M10 — 剩余功能收口（对标 SC 的完整度）· ✅ 完成，已随 0.1.2 发版
 
 **交付**：把 M1–M9 之外、SC 有而我们没有的功能补齐，并且逐项带验收。
 
@@ -628,6 +628,14 @@ python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 | **SC 的 `.ini` 读取（GBK）** | `core/config/ini.cpp`：BOM → 合法 UTF-8 → ANSI 三级编码判定 | ✅ |
 | **系统优化项 27 条（SC 原始数据）** | `core/tweaks` + `optimization.sysTweaks` | ✅ |
 | **一键修复** | `ospt --repair`，等同 SC 的 `Btn_OsRepair` | ✅ |
+| **体检三组：插件 / 休眠与 Dllcache / 启动项的服务与计划任务** | `core/sysinfo/envcheck.cpp` | ✅ |
+| **离线 hive 三项：我的文档 / IE 收藏夹 / IE 主页** | `regio::LoadedHive` + `ActionKind::HiveSet` | ✅ |
+| **自动设置 IP 三种模式**（固定 / 随机 / IP 段 + 掩码 / 网关 / DNS） | `core/netcfg`，翻成 `netsh interface ipv4` | ✅ |
+| **文件防篡改 MD5 + 禁止虚拟机部署 + 主控被劫持** | `core/deploy/preflight.cpp` + `core/crypto/md5.cpp` | ✅ |
+| **任务栏固定 / 取消固定**（只做机制，不预置条目） | `ActionKind::FileCopy` / `FileDelete` | ✅ |
+| **卸载本机设备驱动**（存储类强制跳过） | 解析 `INF\oem*.inf` → `pnputil /delete-driver` | ✅ |
+| **宽带连接两模式**（静默写电话簿 / 首登弹向导） | `core/netcfg/pppoe.cpp` | ✅ |
+| **OEM 壁纸与部署图片**（不含任何品牌素材） | `oem.wallpaper` / `oem.deployImage` | ✅ |
 
 > **功能边界以 `docs/SC功能对照.md` 为唯一依据。** 该表只从 SC 自己的语言文件
 > （`LANGS_SCCHS_2052.bin`）与字符串转储里提取，SC 没有的功能一律不收 —— 前期曾把
@@ -891,6 +899,7 @@ CI 里 runner 自带 PATH，无此问题。
 | **M7 主程序 UI** | ✅ **完成**（`34b149e` M7a + `705ca2e` M7b + `287deda` 可用化） |
 | **M8 集成测试矩阵 + 发版** | ✅ **完成**（`a604e24`；v0.1.0 已发） |
 | 发版 0.1.1 | ✅ 完成（`5e06d46`；GUI 子系统 + 自动提权在 0.1.1 之后） |
+| 发版 0.1.2 | ✅ M10 收口（自动 IP / 防篡改 / 禁虚拟机 / 主控劫持 / 任务栏 / 驱动卸载 / 宽带连接 / OEM 壁纸） |
 | **M9 封装前设置应用** | ✅ **完成**（未发版，见下「M9 验收记录」） |
 
 **M1–M5 验收记录**（2026-10-25，末次实测 sha `30b630b`）
@@ -983,9 +992,9 @@ CI  run #40258415493（95720f1）success，x64 与 x86 两个 job 均 success
     Lint #40258415499 success
 ```
 
-**下一步**：M10 —— 离线加载 `Users\Default\NTUSER.DAT` 把「我的文档转移 / IE 主页同步」
-补上，以及文件防篡改清单（用户态 MD5 校验）与驱动卸载。这三项是 M9 deferred 段里
-最常被配置到的，其余推迟项各有归属模块。
+**下一步**：M10 已随 0.1.2 收口，`docs/SC功能对照.md` 里剩下的 ⬜ 项均为 SC 侧
+归入「未实现」或「红线不做」的条目，逐条附了原因。后续按该表的 ⛔ 段落处理即可，
+不再另开里程碑。
 
 **推送状态（2026-10-26）**：主仓库远端 = 本地 = `95720f1`（CI #40258415493 success、
 Lint #40258415499 success）。驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
