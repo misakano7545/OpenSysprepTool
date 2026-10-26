@@ -154,7 +154,10 @@ def full_config() -> dict:
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8")
+    # GitHub windows-* runner 的 Python stdout 是 cp1252，打印中文会在任何断言之前
+    # 抛 UnicodeEncodeError；这里强制 UTF-8，与其它验收脚本保持一致。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     if len(sys.argv) < 2:
         _say("用法: python tests/integration/verify_prepare.py <ospt.exe>")
         return 2
@@ -329,4 +332,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except Exception:  # noqa: BLE001
+        # 未预期的异常：把 traceback 打到 stdout 而不是 stderr。
+        # CI 步骤即使只 Tee stdout，也能看到真正的原因，而不是一个无从定位的退出码。
+        import traceback
+
+        traceback.print_exc(file=sys.stdout)
+        sys.exit(3)
