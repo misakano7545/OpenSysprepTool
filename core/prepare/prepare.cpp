@@ -1391,20 +1391,20 @@ Plan build(const config::Config& cfg, const Options& options)
         }
         else
         {
-            const auto addServiceCommand =
-                [&plan, &opt](const char* id, const char* title, const char* arguments) {
-                    Action action;
-                    action.kind = ActionKind::RunCommand;
-                    action.id = id;
-                    action.group = "隐私痕迹清理";
-                    action.title = title;
-                    action.sourceField = "optimization.clearUpdateCache";
-                    action.program = joinPath(opt.windowsDir, "System32\\net.exe");
-                    action.arguments = arguments;
-                    // 停一个本来没跑的服务会返回 3521；起一个已在跑的服务返回 2114
-                    action.tolerateNonZeroExit = true;
-                    return action;
-                };
+            const auto addServiceCommand = [&plan,
+                                            &opt](const char* id, const char* title, const char* arguments) {
+                Action action;
+                action.kind = ActionKind::RunCommand;
+                action.id = id;
+                action.group = "隐私痕迹清理";
+                action.title = title;
+                action.sourceField = "optimization.clearUpdateCache";
+                action.program = joinPath(opt.windowsDir, "System32\\net.exe");
+                action.arguments = arguments;
+                // 停一个本来没跑的服务会返回 3521；起一个已在跑的服务返回 2114
+                action.tolerateNonZeroExit = true;
+                return action;
+            };
 
             // 顺序与 SysprepPreparator 的 WindowsUpdateTempFileCleanupPT 一致：
             // 先停服务（否则文件被占用删不掉），清缓存，再起服务。
@@ -1443,13 +1443,16 @@ Plan build(const config::Config& cfg, const Options& options)
             plan.actions.push_back(std::move(resetQueue));
 
             Action startWu = addServiceCommand(
-                "optimization.clearUpdateCache.startWuauserv", "重新启动 Windows Update 服务", "start wuauserv"
+                "optimization.clearUpdateCache.startWuauserv",
+                "重新启动 Windows Update 服务",
+                "start wuauserv"
             );
             startWu.note = "两个服务默认都是按需启动，这里只是把它们恢复成可用状态";
             plan.actions.push_back(std::move(startWu));
 
-            Action startBits =
-                addServiceCommand("optimization.clearUpdateCache.startBits", "重新启动 BITS 服务", "start bits");
+            Action startBits = addServiceCommand(
+                "optimization.clearUpdateCache.startBits", "重新启动 BITS 服务", "start bits"
+            );
             plan.actions.push_back(std::move(startBits));
         }
     }
