@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/config.hpp"
+#include "core/sysinfo.hpp"
 
 namespace osp::ui {
 
@@ -92,11 +93,17 @@ struct Page
     std::vector<Group> groups;
 };
 
-// 「母盘系统」页：字段来自 M2 的系统体检结果（M7a 已交付，此处并入统一模型）
+// 「母盘系统」页：字段来自 M2 的系统体检结果（M7a 已交付，此处并入统一模型）。
+// 该页有若干**随时间变动的显示值**（系统分区已用容量、已用比例），
+// 所以渲染结果天生不确定。要逐字比较渲染结果（测试、快照）就必须注入一份固定的报告。
 Page systemPage();
+Page systemPage(const sysinfo::CheckupReport& report);
 
-// 按 DFM 的 11 个页签，交付其中 7 个；cfg 提供编辑初值
+// 按 DFM 的 11 个页签，交付其中 7 个；cfg 提供编辑初值。
+// 唯一会读实时系统状态的是「母盘系统」页，默认现场采集；重载可注入固定报告，
+// 让渲染结果可复现（也省掉每次渲染都跑一遍体检的开销）。
 std::vector<Page> pagesFromConfig(const config::Config& cfg);
+std::vector<Page> pagesFromConfig(const config::Config& cfg, const sysinfo::CheckupReport& report);
 
 // 把页面上的编辑结果写回配置模型；Info / Progress / List 字段忽略
 void applyTo(const Page& page, config::Config& cfg);

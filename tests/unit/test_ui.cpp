@@ -22,6 +22,35 @@
 
 namespace {
 
+// 一份写死的体检报告：母盘系统页里有若干显示值直接来自实时系统状态
+// （系统分区已用容量、已用比例），现场采集时两次渲染都可能不同，
+// 所以要逐字比较渲染结果就得先把这份报告钉住。
+osp::sysinfo::CheckupReport fixedReport()
+{
+    osp::sysinfo::CheckupReport report;
+    report.generatedAtUtc = "2026-01-01T00:00:00Z";
+    report.hostName = "OSPT-TEST";
+    report.os.productName = "Windows 10 Pro";
+    report.os.editionId = "Professional";
+    report.os.version = "10.0.19045.4046";
+    report.os.architecture = "x64";
+    report.os.is64BitOs = true;
+    report.sysprep.available = true;
+
+    osp::sysinfo::PartitionInfo system;
+    system.drive = "C:";
+    system.volumeLabel = "SYSTEM";
+    system.fileSystem = "NTFS";
+    system.driveType = "fixed";
+    system.totalBytes = 200ull * 1024 * 1024 * 1024;
+    system.usedBytes = 100ull * 1024 * 1024 * 1024;
+    system.freeBytes = system.totalBytes - system.usedBytes;
+    system.usedPercent = 50.0;
+    system.systemDrive = true;
+    report.partitions.push_back(system);
+    return report;
+}
+
 // 某页面的全部字段（扁平）
 std::vector<osp::ui::Field> fieldsOf(const osp::ui::Page& page)
 {
@@ -51,7 +80,7 @@ bool contains(const std::vector<std::string>& values, const std::string& needle)
 TEST_CASE("交付的页签清单与 DFM 的页对象一一对应")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
 
     REQUIRE(pages.size() == static_cast<std::size_t>(osp::ui::kConfigPageCount));
 
@@ -89,7 +118,7 @@ TEST_CASE("交付的页签清单与 DFM 的页对象一一对应")
 TEST_CASE("每个页面的字段与走查名单一致，且字段名互不重复")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
 
     std::set<std::string> seen;
     for (const osp::ui::Page& page : pages)
@@ -114,7 +143,7 @@ TEST_CASE("每个页面的字段与走查名单一致，且字段名互不重复
 TEST_CASE("宪章 §7 红线字段不出现在任何页面上")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
 
     const std::vector<std::string> excluded = osp::ui::excludedControlIds();
     const std::vector<std::string> forbidden = osp::ui::forbiddenBindings();
@@ -147,7 +176,7 @@ TEST_CASE("宪章 §7 红线字段不出现在任何页面上")
 TEST_CASE("交互控件的取值来源都在 note 里写明，且可编辑字段都绑到配置模型")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
 
     std::size_t bound = 0;
     for (const osp::ui::Page& page : pages)
@@ -173,7 +202,7 @@ TEST_CASE("交互控件的取值来源都在 note 里写明，且可编辑字段
 TEST_CASE("运行期页面（运行/完成）不绑定配置模型")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
 
     for (const osp::ui::Page& page : pages)
     {
@@ -192,7 +221,7 @@ TEST_CASE("运行期页面（运行/完成）不绑定配置模型")
 TEST_CASE("运行方式/运行等待/执行路径/任务类型的取值就是 core/runplan 的四个维度")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     const osp::ui::Page* tasks = osp::ui::findPage(pages, "tasks");
     REQUIRE(tasks != nullptr);
 
@@ -232,7 +261,7 @@ TEST_CASE("运行方式/运行等待/执行路径/任务类型的取值就是 co
 TEST_CASE("五个阶段按钮的标签与 core/runplan 的阶段名一致")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     const osp::ui::Page* tasks = osp::ui::findPage(pages, "tasks");
     REQUIRE(tasks != nullptr);
 
@@ -251,7 +280,7 @@ TEST_CASE("五个阶段按钮的标签与 core/runplan 的阶段名一致")
 TEST_CASE("善后处理的四个取值按 2026-10-25 裁决落定")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     const osp::ui::Page* tasks = osp::ui::findPage(pages, "tasks");
     REQUIRE(tasks != nullptr);
 
@@ -271,7 +300,7 @@ TEST_CASE("善后处理的四个取值按 2026-10-25 裁决落定")
 TEST_CASE("分辨率下拉的条目就是 DFM 里 Cb_Resolution 的 11 条")
 {
     const osp::config::Config cfg;
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     const osp::ui::Page* target = osp::ui::findPage(pages, "target");
     REQUIRE(target != nullptr);
 
@@ -331,10 +360,10 @@ TEST_CASE("配置 -> 页面 -> 配置 往返一致")
     source.sysprep.maxConnections = 25;
     source.sysprep.afterAction = "reboot";
 
-    const std::string before = osp::ui::toJson(osp::ui::pagesFromConfig(source));
+    const std::string before = osp::ui::toJson(osp::ui::pagesFromConfig(source, fixedReport()));
 
     osp::config::Config restored;
-    for (const osp::ui::Page& page : osp::ui::pagesFromConfig(source))
+    for (const osp::ui::Page& page : osp::ui::pagesFromConfig(source, fixedReport()))
     {
         osp::ui::applyTo(page, restored);
     }
@@ -368,8 +397,24 @@ TEST_CASE("配置 -> 页面 -> 配置 往返一致")
     CHECK(restored.sysprep.maxConnections == 25);
     CHECK(restored.sysprep.afterAction == "reboot");
 
-    // 再渲染一遍应当与第一次逐字一致
-    CHECK(osp::ui::toJson(osp::ui::pagesFromConfig(restored)) == before);
+    // 再渲染一遍应当与第一次逐字一致。
+    // 必须注入固定报告：母盘系统页里有「已用容量 / 已用比例」这种随时间变动的显示值，
+    // 现场采集时两次渲染可能差 0.1 GB（本机实测过 122.1 → 122.0），断言就会偶发失败。
+    CHECK(osp::ui::toJson(osp::ui::pagesFromConfig(restored, fixedReport())) == before);
+}
+
+TEST_CASE("注入固定报告后，渲染结果逐字可复现（母盘系统页的易变值不再影响断言）")
+{
+    const osp::config::Config cfg;
+    const osp::ui::Page a = osp::ui::systemPage(fixedReport());
+    const osp::ui::Page b = osp::ui::systemPage(fixedReport());
+    CHECK(osp::ui::toJson(std::vector<osp::ui::Page>{a}) == osp::ui::toJson(std::vector<osp::ui::Page>{b}));
+    CHECK(osp::ui::toJson(std::vector<osp::ui::Page>{a}) == osp::ui::toJson(std::vector<osp::ui::Page>{b}));
+
+    // 固定报告里的值确实被渲染出来了，不是「都空着所以相等」
+    const std::string json = osp::ui::toJson(osp::ui::pagesFromConfig(cfg, fixedReport()));
+    CHECK(json.find("100.0 GB / 200.0 GB") != std::string::npos);
+    CHECK(json.find("50.0%") != std::string::npos);
 }
 
 TEST_CASE("工作组与加入域互斥：选工作组会清掉域信息")
@@ -379,7 +424,7 @@ TEST_CASE("工作组与加入域互斥：选工作组会清掉域信息")
     cfg.sysprep.domainUser = "admin";
     cfg.sysprep.domainPassword = "pw";
 
-    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     osp::ui::Page* sysprep = osp::ui::findPage(pages, "sysprep");
     REQUIRE(sysprep != nullptr);
 
@@ -403,7 +448,7 @@ TEST_CASE("工作组与加入域互斥：选工作组会清掉域信息")
 TEST_CASE("计划任务页的草稿行能读成一条运行计划任务")
 {
     const osp::config::Config cfg;
-    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     osp::ui::Page* tasks = osp::ui::findPage(pages, "tasks");
     REQUIRE(tasks != nullptr);
 
@@ -460,7 +505,7 @@ TEST_CASE("任务列表的行数与运行计划条数一致")
     second.target = "b.reg";
     cfg.runPlan.push_back(second);
 
-    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg);
+    const std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(cfg, fixedReport());
     const osp::ui::Page* tasks = osp::ui::findPage(pages, "tasks");
     REQUIRE(tasks != nullptr);
 
@@ -476,7 +521,7 @@ TEST_CASE("任务列表的行数与运行计划条数一致")
 
 TEST_CASE("toJson 报告带页面、绑定与不做清单")
 {
-    const std::string json = osp::ui::toJson(osp::ui::pagesFromConfig(osp::config::Config()));
+    const std::string json = osp::ui::toJson(osp::ui::pagesFromConfig(osp::config::Config(), fixedReport()));
 
     CHECK(json.find("\"schemaVersion\": 2") != std::string::npos);
     CHECK(json.find("\"configPageCount\": 7") != std::string::npos);
@@ -499,7 +544,7 @@ TEST_CASE("无头跳过的标记常量稳定（CI 按它判断是否显式声明
 
 TEST_CASE("全部配置页能合并成一份配置，运行期页面不参与")
 {
-    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(osp::config::Config());
+    std::vector<osp::ui::Page> pages = osp::ui::pagesFromConfig(osp::config::Config(), fixedReport());
 
     osp::ui::findField(*osp::ui::findPage(pages, "target"), "Ed_Owner")->value = "小御坂";
     osp::ui::findField(*osp::ui::findPage(pages, "target"), "Cb_ShowDevmgmt")->checked = true;

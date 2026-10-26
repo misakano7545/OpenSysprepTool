@@ -369,8 +369,11 @@ const char* fieldKindId(FieldKind kind)
 
 Page systemPage()
 {
-    const sysinfo::CheckupReport report = sysinfo::collect();
+    return systemPage(sysinfo::collect());
+}
 
+Page systemPage(const sysinfo::CheckupReport& report)
+{
     Page page;
     page.id = "system";
     page.title = "母盘系统"; // DFM: MlSkinTabSheet1.Caption
@@ -1210,8 +1213,13 @@ Page donePage()
 
 std::vector<Page> pagesFromConfig(const config::Config& cfg)
 {
+    return pagesFromConfig(cfg, sysinfo::collect());
+}
+
+std::vector<Page> pagesFromConfig(const config::Config& cfg, const sysinfo::CheckupReport& report)
+{
     std::vector<Page> pages;
-    pages.push_back(systemPage());
+    pages.push_back(systemPage(report));
     pages.push_back(targetPage(cfg));
     pages.push_back(tasksPage(cfg));
     pages.push_back(deployPage(cfg));
