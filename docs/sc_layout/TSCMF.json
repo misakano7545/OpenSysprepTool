@@ -827,7 +827,33 @@
       "top": 206,
       "width": 62,
       "height": 26,
-      "depth": 4
+      "depth": 4,
+      "items": [
+        "C:",
+        "D:",
+        "E:",
+        "F:",
+        "G:",
+        "H:",
+        "I:",
+        "J:",
+        "K:",
+        "L:",
+        "M:",
+        "N:",
+        "O:",
+        "P:",
+        "Q:",
+        "R:",
+        "S:",
+        "T:",
+        "U:",
+        "V:",
+        "W:",
+        "X:",
+        "Y:",
+        "Z:"
+      ]
     },
     {
       "path": "Scmf/Page_mf/MlSkinTabSheet1/Gb_SRS/Ed_Loaddiy",
@@ -1234,7 +1260,20 @@
       "top": 11,
       "width": 103,
       "height": 26,
-      "depth": 4
+      "depth": 4,
+      "items": [
+        "800*600",
+        "1024*768",
+        "1280*800",
+        "1280*1024",
+        "1360*768",
+        "1366*768",
+        "1440*900",
+        "1600*900",
+        "1680*1050",
+        "1920*1080",
+        "1920*1200"
+      ]
     },
     {
       "path": "Scmf/Page_mf/MlSkinTabSheet2/Gb_Targetsys_ResolutionSet/Ed_ResolutionX",

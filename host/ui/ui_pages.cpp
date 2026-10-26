@@ -248,8 +248,10 @@ void splitResolution(const std::string& text, int& x, int& y)
 
 std::string joinResolution(int x, int y)
 {
+    // 与 DFM 的 Items.Strings 保持一致用 '*'：界面下拉的选中项要靠它反查，
+    // 用 'x' 拼出来的串永远匹配不上图里的条目。
     char buffer[48] = {};
-    std::snprintf(buffer, sizeof(buffer), "%dx%d", x, y);
+    std::snprintf(buffer, sizeof(buffer), "%d*%d", x, y);
     return std::string(buffer);
 }
 
@@ -525,171 +527,15 @@ Page targetPage(const config::Config& cfg)
     page.id = "target";
     page.title = "目标系统";
     page.dfmSheet = "MlSkinTabSheet2";
+    // 整页按 DFM 绝对坐标摆放：分组框是绝对矩形，组内控件坐标相对分组框。
+    page.dfmLayout = true;
+    page.clientWidth = 800;  // Page_mf.Width
+    page.clientHeight = 398; // Page_mf.Height
 
-    // DFM: Gb_Targetsys_info『系统信息』
-    Group info;
-    info.id = "Gb_Targetsys_info";
-    info.caption = "系统信息";
-    info.fields.push_back(makeEdit(
-        "Ed_Owner",
-        "注册名称",
-        cfg.systemInfo.registeredName,
-        "systemInfo.registeredName",
-        "图纸 Caption『注册名称:』"
-    ));
-    info.fields.push_back(makeEdit(
-        "Ed_Organization",
-        "注册单位",
-        cfg.systemInfo.registeredOrg,
-        "systemInfo.registeredOrg",
-        "图纸默认值 Microsoft"
-    ));
-    info.fields.push_back(makeEdit(
-        "Ed_ProductKey",
-        "序列号",
-        cfg.systemInfo.serialNumber,
-        "systemInfo.serialNumber",
-        "图纸 Caption『序列号:』"
-    ));
-    {
-        const std::vector<std::string> labels = {"固定名称", "随机名称", "前缀+随机"};
-        const std::vector<std::string> ids = {"fixed", "random", "prefixRandom"};
-        info.fields.push_back(makeCombo(
-            "Cb_Pcname",
-            "计算机名",
-            labels,
-            ids,
-            indexOf(
-                ids,
-                cfg.systemInfo.computerNameMode.empty() ? std::string("fixed")
-                                                        : cfg.systemInfo.computerNameMode,
-                0
-            ),
-            "systemInfo.computerNameMode",
-            "图纸下拉为空（Items.Strings 缺）；取值按 config 的 computerNameMode 定义"
-        ));
-    }
-    info.fields.push_back(makeEdit(
-        "Ed_Pcname", "前缀名称", cfg.systemInfo.computerName, "systemInfo.computerName", "图纸默认值 SC-"
-    ));
-    info.fields.push_back(makeNumber(
-        "Se_Boottime",
-        "菜单时间(秒)",
-        cfg.systemInfo.bootMenuTimeoutSec,
-        "systemInfo.bootMenuTimeoutSec",
-        "图纸默认值 3"
-    ));
-    page.groups.push_back(std::move(info));
-
-    // DFM: Gb_Targetsys_Desktop『首次进桌面』——16 项里按 2026-10-25 裁决只留这 7 项
-    Group desktop;
-    desktop.id = "Gb_Targetsys_Desktop";
-    desktop.caption = "首次进桌面";
-    const std::string desktopNote = "行为落到 M4 运行计划的『进桌面』阶段（DFM: Btn_RunPlan5）";
-    desktop.fields.push_back(makeCheck(
-        "Cb_ShowDevmgmt",
-        "运行设备管理器",
-        cfg.firstLogon.runDeviceManager,
-        "firstLogon.runDeviceManager",
-        desktopNote
-    ));
-    desktop.fields.push_back(makeCheck(
-        "Cb_Reboot",
-        "运行完成后重启计算机",
-        cfg.firstLogon.rebootAfterRun,
-        "firstLogon.rebootAfterRun",
-        desktopNote
-    ));
-    desktop.fields.push_back(makeCheck(
-        "Cb_AutoSetip", "自动设置 ip 地址", cfg.optimization.autoSetIp, "optimization.autoSetIp", desktopNote
-    ));
-    desktop.fields.push_back(makeCheck(
-        "Cb_CloseKeypad",
-        "关闭笔记本小键盘",
-        cfg.optimization.closeNumLock,
-        "optimization.closeNumLock",
-        desktopNote
-    ));
-    desktop.fields.push_back(makeCheck(
-        "Cb_ClearSrs",
-        "清理多余的 SRS 驱动",
-        cfg.optimization.clearSrsDrivers,
-        "optimization.clearSrsDrivers",
-        desktopNote
-    ));
-    desktop.fields.push_back(makeCheck(
-        "Cb_Dormancy",
-        "开启笔记本休眠",
-        cfg.optimization.enableHibernate,
-        "optimization.enableHibernate",
-        desktopNote
-    ));
-    // SC: Cb_MovePageFile 智能转移虚拟内存（目标系统 -> 系统优化）
-    desktop.fields.push_back(makeCheck(
-        "Cb_MovePageFile",
-        "智能转移虚拟内存（自动选剩余空间最大的分区）",
-        cfg.optimization.autoPagefileDrive,
-        "optimization.autoPagefileDrive",
-        "SC 的 Rb_SmartMovePageFile；指定盘符对应 optimization.pageFileTarget；由 --prepare 写 PagingFiles"
-    ));
-    {
-        const std::vector<std::string> labels = {"不设置", "家庭网络", "工作网络", "公用网络"};
-        const std::vector<std::string> ids = {"", "home", "work", "public"};
-        desktop.fields.push_back(makeCombo(
-            "Cb_SetNetWork",
-            "自动设置网络位置",
-            labels,
-            ids,
-            indexOf(ids, cfg.optimization.networkLocation, 0),
-            "optimization.networkLocation",
-            "图纸是复选框；config 用 networkLocation 字符串表达三种网络位置，故此处用下拉"
-        ));
-    }
-    page.groups.push_back(std::move(desktop));
-
-    // DFM: Gb_Targetsys_ResolutionSet『分辨率设置』
-    Group resolution;
-    resolution.id = "Gb_Targetsys_ResolutionSet";
-    resolution.caption = "分辨率设置";
-    resolution.fields.push_back(makeCheck(
-        "Cb_SetResolution",
-        "智能设置分辨率",
-        cfg.optimization.setResolution,
-        "optimization.setResolution",
-        "授权新增字段"
-    ));
-    {
-        std::vector<std::string> labels;
-        std::vector<std::string> ids;
-        for (const std::string& value : dfmResolutions())
-        {
-            labels.push_back(value);
-            ids.push_back(value);
-        }
-        const std::string current = joinResolution(cfg.firstLogon.resolutionX, cfg.firstLogon.resolutionY);
-        resolution.fields.push_back(makeCombo(
-            "Cb_Resolution",
-            "分辨率",
-            labels,
-            ids,
-            indexOf(ids, current, -1),
-            "firstLogon.resolutionX / resolutionY",
-            "条目来自 DFM 里 Cb_Resolution 的 Items.Strings（11 条）"
-        ));
-    }
-    resolution.fields.push_back(
-        makeNumber("Ed_ResolutionX", "宽", cfg.firstLogon.resolutionX, "firstLogon.resolutionX", "图纸可手填")
-    );
-    resolution.fields.push_back(
-        makeNumber("Ed_ResolutionY", "高", cfg.firstLogon.resolutionY, "firstLogon.resolutionY", "图纸可手填")
-    );
-    resolution.fields.push_back(makeNumber(
-        "Ed_Refresh", "刷新率", cfg.firstLogon.refreshRate, "firstLogon.refreshRate", "图纸默认值 60"
-    ));
-    resolution.fields.push_back(makeNumber(
-        "Ed_ColorQuality", "颜色质量", cfg.firstLogon.colorDepth, "firstLogon.colorDepth", "图纸默认值 32"
-    ));
-    page.groups.push_back(std::move(resolution));
+    // 下面这段由 tools/gen_ui_page.py 从 docs/sc_layout/TSCMF.json 生成：
+    // 坐标与控件名逐字来自 DFM，人工只维护 tools/ui_bindings/target.json 里的
+    // 「控件名 -> 配置项」映射。改布局请改映射表再重新生成，不要手改生成物。
+#include "ui_pages_dfm.inc"
 
     return page;
 }
@@ -1494,7 +1340,8 @@ void applyTo(const Page& page, config::Config& cfg)
             }
             else if (id == "Cb_SetNetWork")
             {
-                cfg.optimization.networkLocation = comboValue(field, cfg.optimization.networkLocation);
+                // DFM 里这是勾选框（不是下拉）：勾了 = 自动设为工作网络
+                cfg.optimization.autoNetworkLocation = field.checked;
             }
             else if (id == "Cb_SetResolution")
             {
@@ -1886,10 +1733,15 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "target")
     {
         return {
-            "Ed_Owner",      "Ed_Organization", "Ed_ProductKey",   "Cb_Pcname",     "Ed_Pcname",
-            "Se_Boottime",   "Cb_ShowDevmgmt",  "Cb_Reboot",       "Cb_AutoSetip",  "Cb_CloseKeypad",
-            "Cb_ClearSrs",   "Cb_Dormancy",     "Cb_MovePageFile", "Cb_SetNetWork", "Cb_SetResolution",
-            "Cb_Resolution", "Ed_ResolutionX",  "Ed_ResolutionY",  "Ed_Refresh",    "Ed_ColorQuality",
+            "Cb_ShowDevmgmt",     "Cb_AutoSetip",     "Cb_CloseKeypad",   "Cb_MoveFavorites",
+            "Cb_MoveDocuments",   "Cb_MovePageFile",  "Cb_Reboot",        "Cb_ClearSrs",
+            "Cb_CloseRestartbox", "Cb_Dormancy",      "Cb_SetNetWork",    "Lab_Owner",
+            "Ed_Owner",           "Ed_Organization",  "Lab_Organization", "Lab_ProductKey",
+            "Ed_ProductKey",      "Lab_Pcname",       "Cb_Pcname",        "Lab_Pcnameprefix",
+            "Ed_Pcname",          "Lab_Boottime",     "Se_Boottime",      "Lab_TimeCompany",
+            "Btn_OemSet",         "Cb_SetResolution", "Cb_Resolution",    "Ed_ResolutionX",
+            "Ed_ResolutionY",     "Lab_Refresh",      "Ed_Refresh",       "Lab_ColorQuality",
+            "Ed_ColorQuality",    "Lab_tempX",
         };
     }
     if (pageId == "tasks")
@@ -2037,7 +1889,7 @@ std::vector<std::string> forbiddenBindings()
         "optimization.pinTaskbarItems",
         "optimization.myDocumentsTarget",
         "optimization.pageFileTarget",
-        "optimization.closeRebootDialog",
+        // closeRebootDialog 已实现（--prepare 写 NoRebootDialog），不再属于「禁止出现」
     };
 }
 

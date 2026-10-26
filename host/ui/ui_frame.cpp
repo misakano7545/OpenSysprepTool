@@ -883,14 +883,39 @@ public:
         }
         const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
 
-        // 图纸绝对布局页（运行 / 完成）：坐标是 800x540 设计空间里的绝对值，
-        // 按客户区宽度等比缩放。这类页不滚动、也不做纵向堆叠。
+        // 图纸绝对布局页：坐标在 800x398 设计空间里，按客户区宽度等比缩放。
+        // 这类页不滚动、也不做纵向堆叠（SC 的页签本身就是固定版面）。
+        //
+        // 两层坐标：分组框用 Group 的绝对矩形；组内控件用 Field 的**相对**坐标
+        // （DFM 里 GroupBox 子控件的 Left/Top 就是相对分组框的）。
         if (page.dfmLayout && page.clientWidth > 0 && page.clientHeight > 0)
         {
             const double scale = static_cast<double>(width) / static_cast<double>(page.clientWidth);
             int index = 0;
-            for (const Group& group : page.groups)
+            for (std::size_t g = 0; g < page.groups.size(); ++g)
             {
+                const Group& group = page.groups[g];
+                const int groupX = static_cast<int>(group.x * scale);
+                const int groupY = static_cast<int>(group.y * scale);
+
+                if (group.placed() && !group.caption.empty())
+                {
+                    if (HWND box = GetDlgItem(static_cast<int>(kIdcGroupBase + g)))
+                    {
+                        ::SetWindowPos(
+                            box,
+                            nullptr,
+                            groupX,
+                            groupY,
+                            (std::max)(1, static_cast<int>(group.width * scale)),
+                            (std::max)(1, static_cast<int>(group.height * scale)),
+                            SWP_NOZORDER | SWP_NOACTIVATE
+                        );
+                    }
+                }
+
+                const int originX = group.placed() ? groupX : 0;
+                const int originY = group.placed() ? groupY : 0;
                 for (const Field& field : group.fields)
                 {
                     HWND control = controlAt(index);
@@ -899,8 +924,8 @@ public:
                         ::SetWindowPos(
                             control,
                             nullptr,
-                            static_cast<int>(field.x * scale),
-                            static_cast<int>(field.y * scale),
+                            originX + static_cast<int>(field.x * scale),
+                            originY + static_cast<int>(field.y * scale),
                             (std::max)(1, static_cast<int>(field.width * scale)),
                             (std::max)(1, static_cast<int>(field.height * scale)),
                             SWP_NOZORDER | SWP_NOACTIVATE
@@ -2077,6 +2102,12 @@ SmokeResult runSmokeTest(bool visible)
                 int controlIndex = 0;
                 for (const auto& group : page.groups)
                 {
+                    // 与 layout() 同一套算法：分组框用绝对坐标，组内控件叠加分组框原点。
+                    // 核对时少加这一层，就会把「正确摆放」误报成错位（实测踩过）。
+                    const int groupX = static_cast<int>(group.x * scale);
+                    const int groupY = static_cast<int>(group.y * scale);
+                    const int originX = group.placed() ? groupX : 0;
+                    const int originY = group.placed() ? groupY : 0;
                     for (const auto& field : group.fields)
                     {
                         HWND control = context.frame.panel->controlAt(controlIndex);
@@ -2090,8 +2121,8 @@ SmokeResult runSmokeTest(bool visible)
                         ::MapWindowPoints(
                             nullptr, context.frame.panel->m_hWnd, reinterpret_cast<LPPOINT>(&rect), 2
                         );
-                        const int expectedX = static_cast<int>(field.x * scale);
-                        const int expectedY = static_cast<int>(field.y * scale);
+                        const int expectedX = originX + static_cast<int>(field.x * scale);
+                        const int expectedY = originY + static_cast<int>(field.y * scale);
                         const int expectedW = (std::max)(1, static_cast<int>(field.width * scale));
                         const int expectedH = (std::max)(1, static_cast<int>(field.height * scale));
                         const bool closeEnough = std::abs(rect.left - expectedX) <= 2 &&

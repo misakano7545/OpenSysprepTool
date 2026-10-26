@@ -597,7 +597,13 @@ GenResult generate(const osp::config::Config& cfg)
             }
         }
 
-        const char* location = networkLocationValue(cfg.optimization.networkLocation);
+        // SC 的 Cb_SetNetWork 只有「自动设置网络位置」一个勾选框：勾了就按工作网络写。
+        // networkLocation 显式给了值时以它为准（命令行 / 高级用法）。
+        const std::string requested =
+            cfg.optimization.networkLocation.empty() && cfg.optimization.autoNetworkLocation
+            ? std::string("work")
+            : cfg.optimization.networkLocation;
+        const char* location = networkLocationValue(requested);
         if (cfg.deploy.skipOobe || location != nullptr)
         {
             pugi::xml_node oobe = addChild(component, "OOBE");

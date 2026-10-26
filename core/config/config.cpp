@@ -239,6 +239,7 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.gateway = op.value("gateway", std::string{});
             cfg.optimization.dnsPreferred = op.value("dnsPreferred", std::string{});
             cfg.optimization.dnsAlternate = op.value("dnsAlternate", std::string{});
+            cfg.optimization.autoNetworkLocation = op.value("autoNetworkLocation", false);
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
             cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
             cfg.optimization.setResolution = op.value("setResolution", false);

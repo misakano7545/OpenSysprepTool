@@ -330,9 +330,10 @@ TEST_CASE("分辨率下拉的条目就是 DFM 里 Cb_Resolution 的 11 条")
     const osp::ui::Field* resolution = fieldOf(*target, "Cb_Resolution");
     REQUIRE(resolution != nullptr);
     REQUIRE(resolution->options.size() == 11);
-    CHECK(resolution->options[0] == "800x600");
-    CHECK(resolution->options[1] == "1024x768");
-    CHECK(resolution->options[10] == "1920x1200");
+    // 条目逐字取自 DFM 的 Items.Strings：分隔符是 *，不是 x
+    CHECK(resolution->options[0] == "800*600");
+    CHECK(resolution->options[1] == "1024*768");
+    CHECK(resolution->options[10] == "1920*1200");
 }
 
 TEST_CASE("配置 -> 页面 -> 配置 往返一致")
@@ -356,7 +357,7 @@ TEST_CASE("配置 -> 页面 -> 配置 往返一致")
     source.optimization.enableHibernate = true;
     source.optimization.clearSrsDrivers = true;
     source.optimization.setResolution = true;
-    source.optimization.networkLocation = "work";
+    source.optimization.autoNetworkLocation = true;
     source.deploy.backgroundImage = "O:\\bg\\a.jpg";
     source.deploy.imageSwitchSeconds = 25;
     source.deploy.deployResolutionX = 1024;
@@ -400,7 +401,7 @@ TEST_CASE("配置 -> 页面 -> 配置 往返一致")
     CHECK(restored.firstLogon.resolutionY == 1024);
     CHECK(restored.firstLogon.refreshRate == 75);
     CHECK(restored.firstLogon.colorDepth == 16);
-    CHECK(restored.optimization.networkLocation == "work");
+    CHECK(restored.optimization.autoNetworkLocation);
     CHECK(restored.optimization.clearSrsDrivers);
     CHECK(restored.optimization.setResolution);
     CHECK(restored.deploy.backgroundImage == source.deploy.backgroundImage);

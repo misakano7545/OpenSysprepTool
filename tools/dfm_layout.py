@@ -38,6 +38,7 @@ class Node:
         self.props: dict[str, str] = {}
         self.children: list[Node] = []
         self.picture_bytes = 0
+        self.items: list[str] = []  # Items.Strings 的多行条目
 
     def to_dict(self) -> dict:
         def number(key: str) -> int | None:
@@ -60,6 +61,8 @@ class Node:
         }
         if self.picture_bytes:
             item["pictureBytes"] = self.picture_bytes
+        if self.items:
+            item["items"] = self.items
         if self.children:
             item["children"] = [child.to_dict() for child in self.children]
         return item
@@ -76,9 +79,20 @@ def parse(text: str) -> list[Node]:
     roots: list[Node] = []
     stack: list[Node] = []
     in_binary = False
+    in_items = False
 
     for line in text.splitlines():
         stripped = line.strip()
+
+        # Items.Strings = ( 'xxx' ... ) 多行块：逐行收条目
+        if in_items:
+            if stripped == ")":
+                in_items = False
+                continue
+            value = unquote(stripped)
+            if value:
+                stack[-1].items.append(value) if stack else None
+            continue
 
         # 二进制块（Picture.Data = { ... }）整体跳过
         if in_binary:
@@ -106,6 +120,14 @@ def parse(text: str) -> list[Node]:
         prop = PROP_RE.match(line)
         if prop and stack:
             key, value = prop.group(1), prop.group(2)
+            if key == "Items.Strings":
+                if value.strip() == "(":
+                    in_items = True
+                elif value.strip().startswith("("):
+                    # 单行写法 ( 'a' 'b' )
+                    for token in re.findall(r"'([^']*)'", value):
+                        stack[-1].items.append(token)
+                continue
             if key == "Picture.Data":
                 stack[-1].picture_bytes = len(value.replace(" ", ""))
             else:
@@ -129,6 +151,8 @@ def flatten(node: Node, out: list[dict], parent: str = "") -> None:
         "height": _int(node.props.get("Height")),
         "depth": node.depth // 2,
     })
+    if node.items:
+        out[-1]["items"] = list(node.items)
     for child in node.children:
         flatten(child, out, path)
 

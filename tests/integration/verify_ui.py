@@ -331,11 +331,15 @@ def main(argv: list[str]) -> int:
 
         check("退出无崩溃的记录在报告里", "窗口销毁无崩溃" in lines)
 
-    section("运行 / 完成页按 SC 的 DFM 坐标摆放")
+    section("按 SC 的 DFM 坐标摆放（运行 / 完成 / 目标系统）")
     lines = report.get("lines", [])
     placed = [line for line in lines if "控件按图纸坐标摆放" in line]
-    # DFM 里两页共 5 + 8 个控件（完成页的 Btn_Bugs 是有意缺项）
-    check("坐标核对覆盖运行页 5 个控件与完成页 8 个控件", len(placed) == 13, f"{len(placed)} 条")
+    # 运行页 5 + 完成页 8 + 目标系统页 34（四组里的全部控件，Btn_Bugs 等红线项不在内）
+    check("坐标核对覆盖 47 个控件（运行 5 + 完成 8 + 目标系统 34）", len(placed) == 47, f"{len(placed)} 条")
+    # 目标系统页的分组框是绝对矩形、组内控件相对它定位；少加分组原点会整体偏移
+    target_placed = [line for line in placed if any(
+        name in line for name in ("Cb_ShowDevmgmt", "Ed_Owner", "Se_Boottime", "Lab_tempX", "Btn_OemSet"))]
+    check("目标系统页控件参与了坐标核对", len(target_placed) == 5, f"{len(target_placed)} 条")
     for name in ("Pic_RunGif", "Pro_Total", "Pro_Task", "Lab_Run", "Lab_Total",
                  "PIC_Success", "Lab_Complete", "PIC_Error", "Pro_End", "Lab_Countdown",
                  "Lab_CompleteErr", "Btn_Shutdown", "Btn_Restart"):

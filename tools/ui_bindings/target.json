@@ -1,0 +1,264 @@
+{
+  "page": "target",
+  "sheet": "MlSkinTabSheet2",
+  "exclude": {
+    "Gb_ScTools": {
+      "kind": "group",
+      "why": "宪章 §7 红线：系统总裁产品整组（联网装驱动/装联盟软件/绑定联盟账户）不做"
+    },
+    "Cb_Locktaskbar": {
+      "kind": "control",
+      "why": "任务栏固定的机制已实现，但 SC 的这组复选框是拿来推推广快捷方式的（§7），界面不给这个勾选框"
+    },
+    "Cb_Unlocktaskbar": {
+      "kind": "control",
+      "why": "同上：取消固定的机制在 optimization.unlockTaskbarFiles，界面不给推广用的勾选框"
+    },
+    "Cb_Saveiehp": {
+      "kind": "control",
+      "why": "§7 红线：改写浏览器主页"
+    },
+    "Cb_SaveieFavorites": {
+      "kind": "control",
+      "why": "§7 红线：预置收藏夹"
+    },
+    "Cb_CreateConnection": {
+      "kind": "control",
+      "why": "宽带连接已实现（firstLogon.createConnection），但界面字段未接，先留空位不画"
+    },
+    "Cb_ResolutionSos": {
+      "kind": "control",
+      "why": "黑屏急救归 M10 急救页，不在本页"
+    }
+  },
+  "controls": {
+    "Lab_Owner": {
+      "kind": "info",
+      "value": "注册名称:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_Owner": {
+      "kind": "edit",
+      "label": "注册名称",
+      "binding": "systemInfo.registeredName",
+      "source": "cfg.systemInfo.registeredName",
+      "note": "图纸 Caption 在 Lab_Owner 上"
+    },
+    "Lab_Organization": {
+      "kind": "info",
+      "value": "注册单位:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_Organization": {
+      "kind": "edit",
+      "label": "注册单位",
+      "binding": "systemInfo.registeredOrg",
+      "source": "cfg.systemInfo.registeredOrg",
+      "note": "图纸 Caption 在 Lab_Organization 上"
+    },
+    "Lab_ProductKey": {
+      "kind": "info",
+      "value": "序列号:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_ProductKey": {
+      "kind": "edit",
+      "label": "序列号",
+      "binding": "systemInfo.serialNumber",
+      "source": "cfg.systemInfo.serialNumber",
+      "note": "图纸 Caption 在 Lab_ProductKey 上"
+    },
+    "Lab_Pcname": {
+      "kind": "info",
+      "value": "计算机名:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Cb_Pcname": {
+      "kind": "combo",
+      "label": "计算机名",
+      "binding": "systemInfo.computerNameMode",
+      "options": [
+        "固定名称",
+        "随机名称",
+        "前缀+随机"
+      ],
+      "optionIds": [
+        "fixed",
+        "random",
+        "prefixRandom"
+      ],
+      "select": "indexOf(field.optionIds, cfg.systemInfo.computerNameMode.empty() ? std::string(\"fixed\") : cfg.systemInfo.computerNameMode, 0)",
+      "note": "图纸 Items.Strings 缺；取值按 config 的 computerNameMode 定义"
+    },
+    "Lab_Pcnameprefix": {
+      "kind": "info",
+      "value": "前缀名称:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_Pcname": {
+      "kind": "edit",
+      "label": "前缀名称",
+      "binding": "systemInfo.computerName",
+      "source": "cfg.systemInfo.computerName",
+      "note": "图纸 Caption 在 Lab_Pcnameprefix 上"
+    },
+    "Lab_Boottime": {
+      "kind": "info",
+      "value": "菜单时间:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Se_Boottime": {
+      "kind": "number",
+      "label": "菜单时间",
+      "binding": "systemInfo.bootMenuTimeoutSec",
+      "source": "cfg.systemInfo.bootMenuTimeoutSec",
+      "note": "图纸 Caption 在 Lab_Boottime 上；默认 3"
+    },
+    "Lab_TimeCompany": {
+      "kind": "info",
+      "value": "秒",
+      "note": "图纸 Caption 逐字"
+    },
+    "Btn_OemSet": {
+      "kind": "button",
+      "label": "OEM设置",
+      "action": "oemSet",
+      "note": "图纸 Caption 逐字"
+    },
+    "Cb_ShowDevmgmt": {
+      "kind": "check",
+      "label": "运行设备管理器",
+      "binding": "firstLogon.runDeviceManager",
+      "source": "cfg.firstLogon.runDeviceManager",
+      "note": "行为落到运行计划的『进桌面』阶段"
+    },
+    "Cb_MoveDocuments": {
+      "kind": "check",
+      "label": "智能转移我的文档",
+      "binding": "optimization.moveDocuments",
+      "source": "cfg.optimization.moveDocuments",
+      "note": "对应 --prepare 的 HiveSet"
+    },
+    "Cb_MoveFavorites": {
+      "kind": "check",
+      "label": "智能转移IE收藏夹",
+      "binding": "optimization.moveFavorites",
+      "source": "cfg.optimization.moveFavorites",
+      "note": "对应 --prepare 的 HiveSet"
+    },
+    "Cb_MovePageFile": {
+      "kind": "check",
+      "label": "智能转移虚拟内存",
+      "binding": "optimization.autoPagefileDrive",
+      "source": "cfg.optimization.autoPagefileDrive",
+      "note": "SC 的 Rb_SmartMovePageFile"
+    },
+    "Cb_Dormancy": {
+      "kind": "check",
+      "label": "开启笔记本休眠",
+      "binding": "optimization.enableHibernate",
+      "source": "cfg.optimization.enableHibernate",
+      "note": "powercfg /h on"
+    },
+    "Cb_AutoSetip": {
+      "kind": "check",
+      "label": "自动设置ip地址",
+      "binding": "optimization.autoSetIp",
+      "source": "cfg.optimization.autoSetIp",
+      "note": "三种模式见 core/netcfg"
+    },
+    "Cb_CloseKeypad": {
+      "kind": "check",
+      "label": "关闭笔记本小键盘",
+      "binding": "optimization.closeNumLock",
+      "source": "cfg.optimization.closeNumLock",
+      "note": "写 InitialKeyboardIndicators"
+    },
+    "Cb_SetNetWork": {
+      "kind": "check",
+      "label": "自动设置网络位置",
+      "binding": "optimization.autoNetworkLocation",
+      "source": "cfg.optimization.autoNetworkLocation",
+      "note": "图纸只有一个勾选框；勾选即设为工作网络（networkLocation 留给命令行）"
+    },
+    "Cb_CloseRestartbox": {
+      "kind": "check",
+      "label": "关闭系统弹出的重启对话框",
+      "binding": "optimization.closeRebootDialog",
+      "source": "cfg.optimization.closeRebootDialog",
+      "note": "NoRebootDialog"
+    },
+    "Cb_ClearSrs": {
+      "kind": "check",
+      "label": "清理多余的SRS驱动",
+      "binding": "optimization.clearSrsDrivers",
+      "source": "cfg.optimization.clearSrsDrivers",
+      "note": "配合 SRS 注入使用"
+    },
+    "Cb_Reboot": {
+      "kind": "check",
+      "label": "运行完成后重启计算机",
+      "binding": "firstLogon.rebootAfterRun",
+      "source": "cfg.firstLogon.rebootAfterRun",
+      "note": "首登命令末尾追加 shutdown"
+    },
+    "Cb_Resolution": {
+      "kind": "combo",
+      "label": "分辨率",
+      "binding": "firstLogon.resolutionX",
+      "fromDfm": true,
+      "select": "indexOf(field.optionIds, joinResolution(cfg.firstLogon.resolutionX, cfg.firstLogon.resolutionY), -1)",
+      "note": "条目直接取自 DFM 的 Items.Strings（800*600 … 1920*1200，共 11 条）"
+    },
+    "Ed_ResolutionX": {
+      "kind": "number",
+      "label": "宽",
+      "binding": "firstLogon.resolutionX",
+      "source": "cfg.firstLogon.resolutionX",
+      "note": "图纸可手填"
+    },
+    "Lab_tempX": {
+      "kind": "info",
+      "value": "*",
+      "note": "图纸 Caption 逐字（宽高之间的乘号）"
+    },
+    "Ed_ResolutionY": {
+      "kind": "number",
+      "label": "高",
+      "binding": "firstLogon.resolutionY",
+      "source": "cfg.firstLogon.resolutionY",
+      "note": "图纸可手填"
+    },
+    "Lab_Refresh": {
+      "kind": "info",
+      "value": "刷新率:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_Refresh": {
+      "kind": "number",
+      "label": "刷新率",
+      "binding": "firstLogon.refreshRate",
+      "source": "cfg.firstLogon.refreshRate",
+      "note": "默认 60"
+    },
+    "Lab_ColorQuality": {
+      "kind": "info",
+      "value": "颜色质量:",
+      "note": "图纸 Caption 逐字"
+    },
+    "Ed_ColorQuality": {
+      "kind": "number",
+      "label": "颜色质量",
+      "binding": "firstLogon.colorDepth",
+      "source": "cfg.firstLogon.colorDepth",
+      "note": "默认 32"
+    },
+    "Cb_SetResolution": {
+      "kind": "check",
+      "label": "智能设置分辨率",
+      "binding": "optimization.setResolution",
+      "source": "cfg.optimization.setResolution",
+      "note": "--prepare 写 Display 分辨率；与下方下拉配合"
+    }
+  }
+}

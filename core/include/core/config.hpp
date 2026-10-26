@@ -76,14 +76,17 @@ struct Optimization
     std::vector<std::string> sysTweaks;
     // 自动设置 IP（SC 的 Cb_AutoSetip + Rb_Setip / Rb_SetRandomip / Lab_ips）
     bool autoSetIp = false;
-    std::string ipMode;          // fixed / random / range
-    std::string ipAddress;       // fixed：指定 IP
-    std::string ipRangeStart;    // range：起始 IP（Lab_Startip）
-    std::string ipRangeEnd;      // range：结束 IP（Lab_Endip）
-    std::string subnetMask;      // 子网掩码（Lab_SubntMask）
-    std::string gateway;         // 默认网关（Lab_DefaultGateway）
-    std::string dnsPreferred;    // 首选 DNS（Lab_PreferredDNS）
-    std::string dnsAlternate;    // 备用 DNS（Lab_AltenateDNS）
+    std::string ipMode;       // fixed / random / range
+    std::string ipAddress;    // fixed：指定 IP
+    std::string ipRangeStart; // range：起始 IP（Lab_Startip）
+    std::string ipRangeEnd;   // range：结束 IP（Lab_Endip）
+    std::string subnetMask;   // 子网掩码（Lab_SubntMask）
+    std::string gateway;      // 默认网关（Lab_DefaultGateway）
+    std::string dnsPreferred; // 首选 DNS（Lab_PreferredDNS）
+    std::string dnsAlternate; // 备用 DNS（Lab_AltenateDNS）
+    // SC 的 Cb_SetNetWork 只有一个勾选框「自动设置网络位置」，勾了就设为工作网络。
+    // networkLocation 保留给命令行/高级用法（home / work / public）。
+    bool autoNetworkLocation = false;
     std::string networkLocation; // home / work / public
     // M7b 新增（可选，默认值不变）：对位 DFM 里没有宿主的两个字段
     bool clearSrsDrivers = false; // 清理多余的 SRS 驱动（Cb_ClearSrs）

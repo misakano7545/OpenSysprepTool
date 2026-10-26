@@ -106,6 +106,19 @@ struct Group
     std::string id;      // DFM 分组框名，如 "Gb_Targetsys_Desktop"
     std::string caption; // 分组标题，与图纸 Caption 一致；空 = 图纸这里是 Pan_* 面板（无边框）
     std::vector<Field> fields;
+
+    // 分组框在图纸上的绝对矩形（800x398 设计空间）。x < 0 = 不按图纸摆，走自动排列。
+    // DFM 里 GroupBox 的子控件坐标是**相对分组框**的，所以 Field::x/y 在有矩形时
+    // 也是相对值 —— 这一点必须写清楚，否则按绝对坐标理解会整体偏移。
+    int x = -1;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+
+    bool placed() const noexcept
+    {
+        return x >= 0;
+    }
 };
 
 struct Page

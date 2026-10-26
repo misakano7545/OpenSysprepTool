@@ -30,11 +30,11 @@
 
 | # | 页签对象 | Caption | 我方 | 说明 |
 |---|---|---|---|---|
-| 1 | `MlSkinTabSheet1` | 母盘系统 | ✅ | 字段齐全，布局为自动排列（见 §4） |
-| 2 | `MlSkinTabSheet2` | 目标系统 | ✅ | 同上 |
-| 3 | `MlSkinTabSheet3` | 计划任务 | ✅ | 同上 |
-| 4 | `MlSkinTabSheet4` | 部署过程 | ✅ | 同上 |
-| 5 | `MlSkinTabSheet5` | 封装过程 | ✅ | 同上 |
+| 1 | `MlSkinTabSheet1` | 母盘系统 | ✅ 字段 / ⬜ 版面 | 见 §4 |
+| 2 | `MlSkinTabSheet2` | 目标系统 | ✅ 字段 + ✅ 版面 | 已按 DFM 绝对坐标摆放 |
+| 3 | `MlSkinTabSheet3` | 计划任务 | ✅ 字段 / ⬜ 版面 | 见 §4 |
+| 4 | `MlSkinTabSheet4` | 部署过程 | ✅ 字段 / ⬜ 版面 | 见 §4 |
+| 5 | `MlSkinTabSheet5` | 封装过程 | ✅ 字段 / ⬜ 版面 | 见 §4 |
 | 6 | `MlSkinTabSheet6` | 运行 | ✅ **本次改为 DFM 绝对坐标** | 见 §3.1 |
 | 7 | `MlSkinTabSheet7` | 完成 | ✅ **本次改为 DFM 绝对坐标** | 见 §3.2，唯一缺项 `Btn_Bugs` |
 | 8 | `MlSkinTabSheet8` | Temp | ⛔ 不对用户暴露 | SC 内部临时页 |
@@ -82,16 +82,30 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 
 ---
 
-## 4. 其余五个配置页签：字段齐、版面未对齐
+## 4. 配置页签的版面：目标系统已对齐，其余四页待做
 
-母盘系统 / 目标系统 / 计划任务 / 部署过程 / 封装过程这五页，**控件集合与 Caption
-已经逐项来自 DFM 与语言文件**（`docs/SC功能对照.md` 逐条记录），但**摆放方式仍是
-引擎的自动纵向排列**，不是 DFM 的绝对坐标。也就是说：内容对，版面不对。
+| 页签 | 控件集合 | 版面（DFM 绝对坐标） |
+|---|---|---|
+| `MlSkinTabSheet2` 目标系统 | ✅ 34 个（含 4 个分组框） | ✅ 已完成 |
+| `MlSkinTabSheet1` 母盘系统 | ✅ | ⬜ 仍为自动排列 |
+| `MlSkinTabSheet3` 计划任务 | ✅ | ⬜ 仍为自动排列 |
+| `MlSkinTabSheet4` 部署过程 | ✅ | ⬜ 仍为自动排列 |
+| `MlSkinTabSheet5` 封装过程 | ✅ | ⬜ 仍为自动排列 |
 
-这是与本轮运行/完成页同一类问题的剩余部分，尚未修完。要做的是把每一页的
-`Group/Field` 补上 `x/y/width/height`（数据来自已生成的 `docs/sc_layout/TSCMF.json`），
-并把 `page.dfmLayout` 打开。工作量集中在 302 个控件的坐标转写与容器（GroupBox /
-Panel）嵌套，不需要新逻辑。
+做法已经固化成工具链，剩余四页是重复劳动：
+
+1. `python tools/dfm_layout.py --src <SC 的 dfm 目录> --out docs/sc_layout`
+   —— 从 DFM 提取控件树与坐标（含 `Items.Strings` 下拉条目）
+2. 写 `tools/ui_bindings/<page>.json`：控件名 → `kind` / `binding` / 取值表达式；
+   红线控件在 `exclude` 里写名字 + 原因
+3. `python tools/gen_ui_page.py --layout docs/sc_layout/TSCMF.json --binding ... --out host/ui/ui_pages_dfm.inc`
+   —— 生成 C++ 代码（坐标由 DFM 给，人不碰数字）
+4. 页面构造里 `#include "ui_pages_dfm.inc"`，`page.dfmLayout = true`，
+   同步 `expectedControlIds()` 与 `verify_ui.py` 的核对条数
+
+**坐标不能手抄**：本轮就抓到两处手抄错误 —— 分辨率下拉我按记忆写了 `800x600` /
+11 条到 `1920x1080`，而 DFM 里实际是 `800*600` … `1920*1200`（分隔符和条目都不同）。
+生成器的存在就是为了让这类错误不可能发生。
 
 ---
 

@@ -739,7 +739,21 @@
       "top": 3,
       "width": 52,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet2/Gb_DM3_Basic/Gb_Hotkeyinfo/Lab_Hotkey2key",
@@ -761,7 +775,21 @@
       "top": 37,
       "width": 52,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet2/Gb_DM3_Basic/Gb_Hotkeyinfo/Lab_Hotkey3key",
@@ -783,7 +811,21 @@
       "top": 71,
       "width": 51,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet2/Gb_DM3_Basic/Gb_Hotkeyinfo/Lab_Hotkey1Tooltip",
@@ -1652,7 +1694,33 @@
       "top": 7,
       "width": 140,
       "height": 26,
-      "depth": 4
+      "depth": 4,
+      "items": [
+        "C:",
+        "D:",
+        "E:",
+        "F:",
+        "G:",
+        "H:",
+        "I:",
+        "J:",
+        "K:",
+        "L:",
+        "M:",
+        "N:",
+        "O:",
+        "P:",
+        "Q:",
+        "R:",
+        "S:",
+        "T:",
+        "U:",
+        "V:",
+        "W:",
+        "X:",
+        "Y:",
+        "Z:"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet7/Gb_DiyMovePageFile/Lab_MovePageFileDriveTip",
@@ -3511,7 +3579,21 @@
       "top": 3,
       "width": 52,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet14/Gb_DM4_Basic/Gb_DM4Hotkeyinfo/Lab_DM4Hotkey2key",
@@ -3533,7 +3615,21 @@
       "top": 37,
       "width": 52,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet14/Gb_DM4_Basic/Gb_DM4Hotkeyinfo/Lab_DM4Hotkey3key",
@@ -3555,7 +3651,21 @@
       "top": 71,
       "width": 51,
       "height": 26,
-      "depth": 5
+      "depth": 5,
+      "items": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet14/Gb_DM4_Basic/Gb_DM4Hotkeyinfo/Lab_DM4Hotkey1Tooltip",
@@ -4083,7 +4193,33 @@
       "top": 314,
       "width": 100,
       "height": 26,
-      "depth": 3
+      "depth": 3,
+      "items": [
+        "C:",
+        "D:",
+        "E:",
+        "F:",
+        "G:",
+        "H:",
+        "I:",
+        "J:",
+        "K:",
+        "L:",
+        "M:",
+        "N:",
+        "O:",
+        "P:",
+        "Q:",
+        "R:",
+        "S:",
+        "T:",
+        "U:",
+        "V:",
+        "W:",
+        "X:",
+        "Y:",
+        "Z:"
+      ]
     },
     {
       "path": "MFfun/Mfpage/MlSkinTabSheet16/Btn_Hotfixpath",
