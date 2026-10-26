@@ -173,7 +173,14 @@ struct OemSettings
     std::string supportPhone;    // -> <SupportPhone>（Win7）
     std::string supportProvider; // -> <SupportProvider>（Win10+ 显示名）
     std::string supportUrl;      // -> <SupportURL>
-    std::string source;          // 来源说明，仅用于报告，不参与生成
+    // SC 的 SA_Lab_oembgpic「遇品牌电脑则设置相应品牌桌面壁纸」：
+    // 用户自己的图片，复制进映像后写进默认用户的桌面壁纸设置。
+    // 本仓库不含任何品牌素材（宪章 §5 / §7），路径必须由用户提供。
+    std::string wallpaper;
+    // SC 的 SA_Lab_oemDeploy「遇品牌电脑则改变相应品牌部署图片」：
+    // 部署界面的图片。deploy.backgroundImage 为空时用它。
+    std::string deployImage;
+    std::string source; // 来源说明，仅用于报告，不参与生成
 };
 
 struct Config

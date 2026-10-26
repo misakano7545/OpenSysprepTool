@@ -626,7 +626,11 @@ PlanResult build(const osp::config::Config& cfg, const DriveTable& drives)
         return plan;
     }
     plan.presentation.titleText = deploy.titleText;
-    plan.presentation.backgroundImage = deploy.backgroundImage;
+    // 部署图片：SC 的 SA_Lab_oemDeploy「遇品牌电脑则改变相应品牌部署图片」。
+    // 显式给的 deploy.backgroundImage 优先；没给才回落到 OEM 那张，
+    // 这样「品牌识别出来的图」不会悄悄覆盖用户自己指定的背景。
+    plan.presentation.backgroundImage =
+        deploy.backgroundImage.empty() ? cfg.oem.deployImage : deploy.backgroundImage;
     plan.presentation.imageSwitchSeconds = deploy.imageSwitchSeconds > 0 ? deploy.imageSwitchSeconds : 10;
     plan.presentation.resolutionX = deploy.deployResolutionX;
     plan.presentation.resolutionY = deploy.deployResolutionY;

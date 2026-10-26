@@ -7,6 +7,14 @@
 
 ### Added
 
+- **M10 OEM 壁纸与部署图片**（`oem.wallpaper` / `oem.deployImage`）：补齐 `SA_Lab_oembgpic`
+  「遇品牌电脑则设置相应品牌桌面壁纸」与 `SA_Lab_oemDeploy`「改变部署图片」
+  - 壁纸：复制进 `%SystemRoot%\Web\Wallpaper`，再离线写默认用户的
+    `Control Panel\Desktop`（`Wallpaper` / `WallpaperStyle=10` / `TileWallpaper=0`），
+    新用户登录即生效；沿用 B3 的 `HiveSet` + 写后回读
+  - 部署图片：`deploy.backgroundImage` 为空时回落到 `oem.deployImage`；显式指定优先，
+    免得品牌图悄悄覆盖用户自己的背景
+  - **本仓库不含任何品牌素材**（宪章 §5 / §7）：两个字段都必须由用户给出自己有权使用的图
 - **M10 宽带连接**（`Cb_CreateConnection`）：两个模式都按 SC 的语义做
   - 静默创建（`Rb_Silence_nc`）：新建 `ActionKind::PppoeCreate`，把 PPPoE 条目写进
     **默认用户**的电话簿，新用户登录即有该连接、全程无界面

@@ -138,6 +138,8 @@ json encode(const Config& cfg)
         {"supportPhone", om.supportPhone},
         {"supportProvider", om.supportProvider},
         {"supportUrl", om.supportUrl},
+        {"wallpaper", om.wallpaper},
+        {"deployImage", om.deployImage},
         {"source", om.source},
     };
 
@@ -335,6 +337,8 @@ ParseResult fromJson(const std::string& text)
             cfg.oem.supportPhone = om.value("supportPhone", std::string{});
             cfg.oem.supportProvider = om.value("supportProvider", std::string{});
             cfg.oem.supportUrl = om.value("supportUrl", std::string{});
+            cfg.oem.wallpaper = om.value("wallpaper", std::string{});
+            cfg.oem.deployImage = om.value("deployImage", std::string{});
             cfg.oem.source = om.value("source", std::string{});
         }
     }

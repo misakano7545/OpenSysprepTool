@@ -60,7 +60,8 @@ TEST_CASE("prepare: 任务栏固定只写用户列出的文件，不预置任何
 
     osp::config::Config cfg;
     cfg.systemInfo.bootMenuTimeoutSec = 0; // 不让 BCD 动作混进来
-    cfg.optimization.lockTaskbarFiles = {reinterpret_cast<const char*>(source.u8string().c_str())};
+    cfg.optimization.lockTaskbarFiles = {std::string(reinterpret_cast<const char*>(source.u8string().c_str()))
+    };
 
     const osp::prepare::Plan plan = osp::prepare::build(cfg, pinnedOptions(root));
     REQUIRE(plan.ok);
@@ -109,7 +110,7 @@ TEST_CASE("prepare: 任务栏固定真执行后文件到位，取消固定后文
         std::ofstream out(source, std::ios::binary | std::ios::trunc);
         out << "shortcut bytes";
     }
-    const std::string sourcePath = reinterpret_cast<const char*>(source.u8string().c_str());
+    const std::string sourcePath(reinterpret_cast<const char*>(source.u8string().c_str()));
 
     osp::config::Config cfg;
     cfg.systemInfo.bootMenuTimeoutSec = 0;
@@ -163,7 +164,7 @@ TEST_CASE("prepare: 源文件不存在时只告警，不生成动作")
     osp::config::Config cfg;
     cfg.systemInfo.bootMenuTimeoutSec = 0;
     cfg.optimization.lockTaskbarFiles = {
-        reinterpret_cast<const char*>(root.u8string().c_str()) + std::string("\\no-such.lnk"),
+        std::string(reinterpret_cast<const char*>(root.u8string().c_str())) + std::string("\\no-such.lnk"),
     };
 
     const osp::prepare::Plan plan = osp::prepare::build(cfg, pinnedOptions(root));

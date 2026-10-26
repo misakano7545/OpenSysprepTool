@@ -2340,6 +2340,72 @@ Plan build(const config::Config& cfg, const Options& options)
     {
         defer("deploy.blockVirtualMachine", "由部署运行时 osptd 在目标机上判定，封装前不适用");
     }
+    // ---------------------------------------------------------- OEM 壁纸（SC 的 SA_Lab_oembgpic）
+    // 「遇品牌电脑则设置相应品牌桌面壁纸」：图片由用户提供，复制进映像后写进
+    // **默认用户**的桌面壁纸设置，新用户登录即是这张壁纸。本仓库不带任何品牌素材。
+    if (!cfg.oem.wallpaper.empty())
+    {
+        if (!fileExists(cfg.oem.wallpaper))
+        {
+            plan.warnings.push_back("OEM 壁纸：文件不存在，已跳过：" + cfg.oem.wallpaper);
+        }
+        else if (options.windowsDir.empty())
+        {
+            plan.warnings.push_back("OEM 壁纸：无法确定 %SystemRoot%，已跳过");
+        }
+        else
+        {
+            const std::string name = baseName(cfg.oem.wallpaper);
+            const std::string target = joinPath(options.windowsDir, "Web\\Wallpaper\\" + name);
+
+            Action copy;
+            copy.kind = ActionKind::FileCopy;
+            copy.id = "oem.wallpaper.copy";
+            copy.group = "OEM";
+            copy.title = "复制 OEM 壁纸进映像";
+            copy.sourceField = "oem.wallpaper";
+            copy.path = cfg.oem.wallpaper;
+            copy.destination = target;
+            copy.note = "放到 %SystemRoot%\\Web\\Wallpaper 下，卸载映像前就在位";
+            plan.actions.push_back(std::move(copy));
+
+            // 壁纸设置写在默认用户的 NTUSER.DAT 里，与我的文档/收藏夹同一套离线 hive 机制
+            const std::string defaultHive = cfg.optimization.defaultUserHive.empty()
+                ? joinPath(options.defaultUserProfile, "NTUSER.DAT")
+                : cfg.optimization.defaultUserHive;
+            struct WallpaperValue
+            {
+                const char* valueName;
+                const char* type;
+                std::string text;
+            };
+            const std::vector<WallpaperValue> values{
+                // WallpaperStyle=10 + TileWallpaper=0 等于「填充」，Win7 起通用
+                {"Wallpaper", "expandSz", target},
+                {"WallpaperStyle", "sz", "10"},
+                {"TileWallpaper", "sz", "0"},
+            };
+            for (const WallpaperValue& value : values)
+            {
+                Action action;
+                action.kind = ActionKind::HiveSet;
+                action.id = std::string("oem.wallpaper.") + value.valueName;
+                action.group = "OEM";
+                action.title = std::string("默认用户桌面壁纸：") + value.valueName;
+                action.sourceField = "oem.wallpaper";
+                action.hiveFile = defaultHive;
+                action.hive = "HKU";
+                action.key = "Control Panel\\Desktop";
+                action.valueName = value.valueName;
+                action.valueType = value.type;
+                action.text = value.text;
+                action.tolerateFailure = true;
+                action.note = "写进默认用户配置单元，新用户登录即生效";
+                plan.actions.push_back(std::move(action));
+            }
+        }
+    }
+
     // ---------------------------------------------------------- 宽带连接（SC 的 Cb_CreateConnection）
     // 静默模式（Rb_Silence_nc）：把连接建在**默认用户**的电话簿里，新用户登录即有，
     // 全程无界面。展示模式（Rb_Show_nc）：改成在首次进桌面时弹创建向导，见 unattend。

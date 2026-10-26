@@ -176,7 +176,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 封装后清理系统垃圾文件 / 清理 DLLcache | `Cb_Cleanjunkfiles` / `Cb_Dllcache` | ✅ |
 | 自动登录 Administrator（密码 / 次数） | `SA_Lab_AdminAutoLogon` / `SA_Lab_Adminpw` / `SA_Lab_Lnum` | ✅ |
 | **部署主控被劫持**（继续 / 终止 + 弹提示） | `SA_Gb_hijack` / `SA_Rb_hijack_type1..2` / `SA_Lab_ShowTip` | ✅（比对 osptd 自身 MD5；terminate 弹窗并中止） |
-| OEM 智能识别（属性 / 壁纸 / 部署图片） | `SA_Gb_oem` / `SA_Lab_oemlogo` / `SA_Lab_oembgpic` / `SA_Lab_oemDeploy` | ✅ 属性、⬜ 壁纸与部署图片 |
+| OEM 智能识别（属性 / 壁纸 / 部署图片） | `SA_Gb_oem` / `SA_Lab_oemlogo` / `SA_Lab_oembgpic` / `SA_Lab_oemDeploy` | ✅ 三项（壁纸/部署图片只做机制，素材必须用户自备，本仓库不含品牌图） |
 | 工作组 / 加入域（域用户 + 密码） | `Rb_WorkGroup` / `Rb_Domain` / `Lab_Domain_user` / `Lab_Domain_pw` | ✅ |
 | 每设备或每用户 / 每服务器（同时连接数） | `Rb_EveryOne` / `Rb_EverySer` | ⬜ |
 | 封装后：停留 / 重启 / 关机 | `Items_AfterSysprep1..3` | ✅ |

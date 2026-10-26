@@ -247,6 +247,68 @@ def main() -> int:
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
 
+    # ------------------------------------------------------------ OEM 壁纸与部署图片（B11）
+    section("OEM 壁纸与部署图片")
+    wallpaper = os.path.join(work, "品牌壁纸.bmp")
+    with open(wallpaper, "wb") as handle:
+        handle.write(b"BM" + b"\0" * 64)
+
+    oem_cfg = full_config()
+    oem_cfg["oem"] = dict(oem_cfg.get("oem") or {})
+    oem_cfg["oem"].update({"wallpaper": wallpaper, "deployImage": os.path.join(work, "bg.jpg")})
+    oem_path = os.path.join(work, "cfg-oem-wallpaper.json")
+    oem_report = os.path.join(work, "plan-oem-wallpaper.json")
+    write_json(oem_path, oem_cfg)
+    code, output = run([ospt, "--prepare", oem_path, "--dry-run", "--report", oem_report])
+    check("OEM 壁纸计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    oem_plan = {}
+    if os.path.isfile(oem_report):
+        with open(oem_report, "r", encoding="utf-8") as handle:
+            oem_plan = json.load(handle)
+    w_actions = oem_plan.get("actions", [])
+    w_copy = [a for a in w_actions if a.get("id") == "oem.wallpaper.copy"]
+    w_hive = [a for a in w_actions if a.get("kind") == "hiveSet" and a.get("sourceField") == "oem.wallpaper"]
+    check("OEM 壁纸生成复制动作", len(w_copy) == 1, f"{len(w_copy)} 个")
+    if w_copy:
+        dest = str(w_copy[0].get("destination", ""))
+        check("壁纸复制到 Web\\Wallpaper", "Web" in dest and "Wallpaper" in dest, dest)
+        check("壁纸保留原文件名", dest.endswith("品牌壁纸.bmp"), dest)
+    check("壁纸写三项桌面设置", len(w_hive) == 3, f"{len(w_hive)} 个")
+    names = {str(a.get("valueName")) for a in w_hive}
+    check("壁纸设置含 Wallpaper", "Wallpaper" in names or not w_hive, str(sorted(names)))
+    check("壁纸设置含 WallpaperStyle", "WallpaperStyle" in names or not w_hive, str(sorted(names)))
+    for action in w_hive:
+        if action.get("valueName") == "Wallpaper":
+            check("Wallpaper 指向复制后的路径",
+                  "Web" in str(action.get("value", "")), str(action.get("value")))
+
+    # 部署图片：没给 deploy.backgroundImage 时回落 OEM 那张
+    # gen-runplan 要求计划里有可解析的任务，并自己枚举本机盘符
+    # full_config 里开着 verifyIntegrity，但没有清单 —— 生成运行计划时会按设计拒绝。
+    # 这里改成关掉它，只验 OEM 部署图片的回落。
+    oem_cfg["deploy"] = dict((oem_cfg.get("deploy") or {}), verifyIntegrity=False)
+    oem_cfg["runPlan"] = [{
+        "phase": "desktop",
+        "type": "run",
+        "target": "C:\\Windows\\System32\\notepad.exe",
+        "arguments": "",
+        "windowStyle": "normal",
+        "waitMode": "noWait",
+        "waitSeconds": 0,
+        "cleanup": "keep",
+        "searchScope": "systemPath",
+    }]
+    write_json(oem_path, oem_cfg)
+    run_dir = os.path.join(work, "run-oem")
+    code, output = run([ospt, "--gen-runplan", oem_path, "--out", run_dir])
+    check("带 OEM 部署图片的计划生成成功", code == 0, f"exit={code}\n{output[-300:]}")
+    rp_path = os.path.join(run_dir, "runplan.json")
+    if os.path.isfile(rp_path):
+        with open(rp_path, "r", encoding="utf-8") as handle:
+            rp = json.load(handle)
+        image = str((rp.get("presentation") or {}).get("backgroundImage", ""))
+        check("部署图片回落到 OEM 那张", image.endswith("bg.jpg"), image)
+
     # ------------------------------------------------------------ 宽带连接（B9b）
     section("宽带连接")
     bb_cfg = full_config()
