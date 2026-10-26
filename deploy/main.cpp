@@ -4,6 +4,7 @@
 // 它是唯一在**目标系统**上运行的产物，所以必须能在 Windows 7 SP1 x64 / x86 上跑起来。
 
 #include <cstdio>
+#include <memory>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -20,6 +21,7 @@
 #include <shellapi.h>
 
 #include "progress.hpp"
+#include "progress_ui.hpp"
 
 namespace {
 
@@ -40,6 +42,9 @@ void printUsage()
     std::printf("  osptd --plan <run/> [--log <log.txt>] [--report <report.json>]\n");
     std::printf("                                             真正执行运行计划\n");
     std::printf("  osptd --plan <run/> --continue-on-error    失败不中止，继续后续任务\n");
+    std::printf("  osptd --preview-presentation --plan <run/> [--seconds <n>]\n");
+    std::printf("                                             只画部署进度页，不执行任何任务（验收/演示用）\n"
+    );
     std::printf("  osptd --win7-compat [--json]               Windows 7 兼容自述（供闸门脚本比对）\n");
     std::printf("  osptd --version                            版本与源码地址\n");
 }
@@ -193,6 +198,149 @@ int runWin7Compat(int argc, char** argv)
     return 0;
 }
 
+// 只画部署进度页，不执行任何任务。
+// 存在的意义：图形页是本项目的验收难点 —— 没有它就只能靠「人肉看一眼」，
+// 有了它，verify_presentation.py 能断言「窗口真的建起来了、真的在画、能正常退出」。
+int runPreviewPresentation(int argc, char** argv)
+{
+    const char* planDir = nullptr;
+    int seconds = 4;
+    std::string screenshotPath;
+
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--preview-presentation")
+        {
+            continue;
+        }
+        if (arg == "--plan")
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--plan 需要一个目录\n");
+                return 2;
+            }
+            planDir = argv[++i];
+        }
+        else if (arg == "--seconds")
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--seconds 需要一个值\n");
+                return 2;
+            }
+            seconds = std::atoi(argv[++i]);
+            if (seconds <= 0 || seconds > 120)
+            {
+                std::printf("--seconds 取值 1..120\n");
+                return 2;
+            }
+        }
+        else if (arg == "--screenshot")
+        {
+            if (i + 1 >= argc)
+            {
+                std::printf("--screenshot 需要一个路径\n");
+                return 2;
+            }
+            screenshotPath = argv[++i];
+        }
+        else
+        {
+            std::printf("unknown option: %s\n\n", arg.c_str());
+            printUsage();
+            return 2;
+        }
+    }
+
+    if (!osp::deploy::graphicalPageAvailable())
+    {
+        std::printf("当前会话没有可见窗口站，图形进度页不可用（这不算失败）\n");
+        std::printf("RESULT: SKIP\n");
+        return 0;
+    }
+
+    osp::deploy::Presentation presentation;
+    int totalTasks = 8;
+    if (planDir != nullptr)
+    {
+        const osp::deploy::Plan plan = osp::deploy::load(planDir);
+        if (!plan.ok)
+        {
+            std::printf("%s\n", plan.error.c_str());
+            return 1;
+        }
+        presentation = osp::deploy::Presentation::fromPlan(plan);
+        // 预览固定画 5 阶段 × 2 任务 = 10 条，总条数要跟着它走，
+        // 否则会显示成「完成 2 / 1」这种自相矛盾的计数
+        totalTasks = 10;
+    }
+
+    osp::deploy::GraphProgressPage page(presentation, totalTasks);
+    if (!page.ok())
+    {
+        std::printf("图形进度页创建失败\n");
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+
+    // 造一个进度：5 个阶段、每个阶段两个任务，按秒推进
+    const char* phases[] = {"preinstall", "install", "postinstall", "logon", "desktop"};
+    const char* labels[] = {"部署前", "部署中", "部署后", "登录时", "进桌面"};
+
+    for (int p = 0; p < 5; ++p)
+    {
+        osp::deploy::Phase phase;
+        phase.id = phases[p];
+        phase.label = labels[p];
+        page.phaseStart(phase, p + 1, 5);
+
+        for (int t = 0; t < 2; ++t)
+        {
+            osp::deploy::Task task;
+            task.index = p * 2 + t + 1;
+            task.commandLine = std::string("C:\\Windows\\System32\\cmd.exe /c echo ") + labels[p];
+            page.taskStart(phase, task, t + 1, 2);
+
+            const DWORD until = GetTickCount() + static_cast<DWORD>(seconds * 1000 / 10);
+            while (GetTickCount() < until)
+            {
+                page.pump();
+                Sleep(16);
+            }
+
+            osp::deploy::TaskOutcome outcome;
+            outcome.index = task.index;
+            outcome.ok = true;
+            outcome.message = "exited 0";
+            page.taskFinish(phase, task, outcome);
+        }
+        page.phaseFinish(phase, 2, 0);
+
+        // 第一阶段结束就存一张：既能验收「真的画出了东西」，也方便人工看样式
+        if (p == 0 && !screenshotPath.empty())
+        {
+            std::string error;
+            if (!page.saveToBmp(screenshotPath, error))
+            {
+                std::printf("%s\n", error.c_str());
+                std::printf("RESULT: FAILED\n");
+                return 1;
+            }
+            std::printf("画面已保存: %s\n", screenshotPath.c_str());
+        }
+    }
+
+    std::printf(
+        "图形进度页已绘制完毕（模块 %s，背景 %s）\n",
+        presentation.module.c_str(),
+        presentation.background.c_str()
+    );
+    std::printf("RESULT: OK\n");
+    return 0;
+}
+
 int runDeploy(int argc, char** argv, bool dryRun)
 {
     const char* planDir = nullptr;
@@ -330,15 +478,38 @@ int runDeploy(int argc, char** argv, bool dryRun)
         return 0;
     }
 
-    // 真实执行：单页进度页（stdout 非控制台时自动降级为逐行）
-    osp::deploy::ConsoleProgressPage progress(
-        std::string("OpenSysprepTool 部署运行时  osptd ") + osp::versionString(), plan.taskCount
-    );
+    // 真实执行：图形页优先（若 presentation 要求且当前会话能开窗口），否则控制台单页
+    const osp::deploy::Presentation presentation = osp::deploy::Presentation::fromPlan(plan);
+    std::unique_ptr<osp::deploy::GraphProgressPage> graphPage;
+    std::unique_ptr<osp::deploy::ConsoleProgressPage> consolePage;
+    osp::deploy::Sink* sink = nullptr;
+
+    const bool wantsGraph = plan.presentationModule != "console";
+    if (wantsGraph && osp::deploy::graphicalPageAvailable())
+    {
+        graphPage = std::make_unique<osp::deploy::GraphProgressPage>(presentation, plan.taskCount);
+        if (graphPage->ok())
+        {
+            sink = graphPage.get();
+        }
+        else
+        {
+            graphPage.reset();
+            std::printf("图形进度页创建失败，退回控制台进度页\n");
+        }
+    }
+    if (sink == nullptr)
+    {
+        consolePage = std::make_unique<osp::deploy::ConsoleProgressPage>(
+            std::string("OpenSysprepTool 部署运行时  osptd ") + osp::versionString(), plan.taskCount
+        );
+        sink = consolePage.get();
+    }
 
     osp::deploy::Options options;
     options.stopOnError = !continueOnError;
     options.logPath = logPath != nullptr ? std::string(logPath) : std::string();
-    options.sink = &progress;
+    options.sink = sink;
 
     const osp::deploy::RunResult result = osp::deploy::execute(plan, options);
 
@@ -519,6 +690,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--win7-compat") == 0)
     {
         return runWin7Compat(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--preview-presentation") == 0)
+    {
+        return runPreviewPresentation(argc, argv);
     }
 
     if (std::strcmp(arg, "--dry-run") == 0)

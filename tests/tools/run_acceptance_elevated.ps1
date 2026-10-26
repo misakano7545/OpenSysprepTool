@@ -80,6 +80,7 @@ Step 'Win7 兼容' { & $Python tests/integration/verify_win7_compat.py $ospt $os
 Step 'Win7 闸门负例' { & $Python tests/integration/verify_win7_compat_negative.py $osptd }
 Step '驱动注入' { & $Python tests/integration/verify_drivers.py $ospt }
 Step '封装前设置' { & $Python tests/integration/verify_prepare.py $ospt }
+Step '图形部署页' { & $Python tests/integration/verify_presentation.py $osptd }
 Step '界面验收' { & $Python tests/integration/verify_ui.py $ospt }
 Step '管理员权限' { & $Python tests/integration/verify_elevation.py $ospt $osptd $tests }
 Step '发布契约' { & $Python tests/integration/verify_release.py --check-tag v0.1.1 --check-workflow .github/workflows/release.yml --check-changelog CHANGELOG.md --check-readme README.md }

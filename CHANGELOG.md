@@ -7,6 +7,21 @@
 
 ### Added
 
+- **M10 图形部署页**（`deploy/progress_ui.cpp`）：`osptd` 执行计划时画全屏图形进度页，
+  四种模块对齐 SC —— `grid`（四格 + 百分比）、`trueTrans`（Aero 条）、`colorBar`
+  （按进度换色的渐变条）、`image`（背景图 + 细进度线）
+- 呈现设置由 `--gen-runplan` 写进 `runplan.json` 的 `presentation` 段（模块、背景、标题、
+  背景图、切换秒数、分辨率、文字颜色），`osptd` 只读这一份事实来源；非法值（未知模块/
+  背景、非 `#RRGGBB`、只给一半分辨率）在生成阶段就拒绝，不静默退回默认
+- 全屏分辨率切换（`ChangeDisplaySettings`，退出还原）+ **Ctrl+F11 黑屏急救**
+- 图片解码走运行时 `LoadLibrary("gdiplus.dll")`，**不链接 gdiplus**（导入表实测无 gdiplus），
+  取不到就退回纯色背景；BMP 还能走 `LoadImage` 兜底
+- `osptd --preview-presentation [--plan <run/>] [--seconds <n>] [--screenshot <bmp>]`：
+  只画页不执行任务，并把画面存成 24 位 BMP
+- `tests/integration/verify_presentation.py`（24 项）：四种模块各画一遍并**读像素**
+  断言画面不是单色、异常配置（缺图/坏颜色）不崩、参数校验；无桌面会话显式 SKIP
+- `--prepare` 的 deferred 段逐条列出暂不执行的 12 项配置及原因（我的文档转移、IE 主页、
+  自动 IP、清理 SRS、卸载驱动、文件防篡改、禁止虚拟机部署等），不静默略过
 - **M9 封装前设置**：`core/regio`（注册表 RAII，HKLM / HKCU / HKU\\.DEFAULT，六种值类型，
   HKLM 固定 64 位视图）+ `core/prepare`（配置 → 动作计划 → 执行 → journal → 回滚）
 - `ospt --prepare <cfg.json> --dry-run|--execute [--report <json>] [--journal <json>]`：

@@ -87,6 +87,7 @@ ospt --help                                             用法
 osptd --dry-run --plan <run/>                           逐阶段打印将要执行的动作，不启动进程
 osptd --plan <run/> [--log <log.txt>] [--report <report.json>]        真正执行运行计划
 osptd --plan <run/> --continue-on-error                 失败不中止，继续后续任务
+osptd --preview-presentation [--plan <run/>] [--seconds <n>] [--screenshot <bmp>]   只画部署页，不执行任务
 osptd --win7-compat [--json]                            Windows 7 兼容自述（供闸门脚本比对）
 osptd --version                                         版本与源码地址
 ```
@@ -153,6 +154,24 @@ osptd --version                                         版本与源码地址
 CI 用它证明执行器与回滚链路真的能跑。真实执行会改系统设置，必须显式 `--execute`；
 `--prepare` 不带开关只打印计划并返回 2。
 
+### 图形部署页（M10）
+
+`osptd` 在目标机上执行运行计划时，除了控制台单页进度，还能画全屏图形页。
+四种模块对齐 SC：`grid`（四格进度 + 百分比）、`trueTrans`（Aero 风格进度条）、
+`colorBar`（按进度换色的渐变条）、`image`（背景图 + 细进度线）。
+
+呈现设置由 `--gen-runplan` 从配置写进 `runplan.json` 的 `presentation` 段
+（模块、背景、标题、背景图、切换秒数、分辨率、文字颜色），`osptd` 只读这一份。
+配了分辨率就会 `ChangeDisplaySettings` 全屏切换，退出时还原；显示异常按
+**Ctrl+F11** 立即回到驱动默认模式（黑屏急救）。
+
+实现只用 GDI 双缓冲，**不链接 gdiplus**：图片解码走运行时 `LoadLibrary("gdiplus.dll")`，
+取不到就退回纯色背景 —— 导入表里没有 gdiplus，Win7 与 WinPE 都能跑。
+
+`--preview-presentation` 只画页不执行任务，`--screenshot <bmp>` 把画面存盘。
+这不是演示用的花架子：`verify_presentation.py` 靠它读像素，断言「真的画了内容」
+而不是「窗口建起来了但一片黑」—— 锁屏与无桌面会话会显式打印 SKIP，不静默通过。
+
 ## 测试与验收
 
 ### 本地验收
@@ -212,6 +231,7 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 | `verify_win7_compat.py` | 子系统版本 6.1 且类型与 target 相符（ospt=WINDOWS）、导入表无 Win8+ API、无动态 VC 运行库；外附 4 组篡改负例 |
 | `verify_drivers.py` | 全绿；断言仓库里没有任何驱动二进制、没有链接 DismApi.dll、dry-run 零副作用 |
 | `verify_prepare.py` | 全绿；dry-run 零副作用、动作与配置逐条对应、推迟项都有原因、`--prepare-selftest` 写入并回滚；提权会话里真实执行 `closeNumLock` 再用 `--rollback` 还原 |
+| `verify_presentation.py` | 全绿；四种部署模块各画一遍并**读像素**确认有内容、异常配置（缺图/坏颜色）不崩、参数校验；无桌面会话显式 SKIP |
 | `verify_ui.py` | 全绿；逐页核对打开情况、统计六类控件响应证据、断言红线控件名不出现 |
 | `verify_release.py --check-tag` | tag 去掉 `v` 后与 `core/include/core/version.hpp` 的三段版本号完全一致，否则失败 |
 
@@ -222,7 +242,7 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 [ci.yml](https://github.com/misakano7545/OpenSysprepTool/actions/workflows/ci.yml)（`x64` 与 `x86` 双架构矩阵）：
 Configure → Build → Test → Selftest → Version → Unattend 校验 → Runplan 校验 →
 部署运行时验收 → Win7 兼容闸门 → UI 冒烟测试 → M6 驱动注入验收 →
-M9 封装前设置验收 → Artifact 内容断言（打印实际字节数与 SHA256，缺失或 0 字节直接失败）→
+M9 封装前设置验收 → M10 图形部署页验收 → Artifact 内容断言（打印实际字节数与 SHA256，缺失或 0 字节直接失败）→
 上传 `ospt-x64` / `ospt-x86`。
 
 [lint.yml](https://github.com/misakano7545/OpenSysprepTool/actions/workflows/lint.yml)：
@@ -280,7 +300,7 @@ core/            静态库 osp_core，两个 exe 共用
   regio/         注册表 RAII（M9）
   prepare/       封装前设置：动作计划、执行与回滚（M9）
 host/            主程序 ospt.exe（含 ui/ 配置界面，M7）
-deploy/          部署运行时 osptd.exe（M5）
+deploy/          部署运行时 osptd.exe（M5）；progress_ui.cpp 是图形部署页（M10）
 tests/unit/      单元测试（doctest）
 tests/integration/  各里程碑的验收校验脚本
 tests/tools/     开发工具脚本

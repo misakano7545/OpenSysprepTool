@@ -6,6 +6,8 @@ add_executable(osptd
   main.cpp
   # 单页进度页：Win32 控制台原地重绘（Win7 的 conhost 不认 ANSI/VT）
   progress.cpp
+  # M10：图形化部署进度页（GDI 双缓冲，gdiplus 只在加载图片时动态取）
+  progress_ui.cpp
 )
 
 target_link_options(osptd PRIVATE
@@ -14,7 +16,8 @@ target_link_options(osptd PRIVATE
   "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 
-target_link_libraries(osptd PRIVATE osp::core)
+# user32 / gdi32：图形进度页；gdiplus 不链接，运行时 LoadLibrary
+target_link_libraries(osptd PRIVATE osp::core user32 gdi32)
 
 # --dry-run 的机器可读报告与 --win7-compat 用 nlohmann/json（MIT，见 third_party/LICENSES.md）
 target_include_directories(osptd PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

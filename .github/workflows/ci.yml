@@ -298,6 +298,27 @@ jobs:
           }
           exit 0
 
+      # M10 增量：图形部署页。osptd 自己把画面存成 BMP，脚本读像素判断
+      # 「真的画了内容」而不是「窗口建起来但一片黑」；锁屏/无桌面会话显式 SKIP。
+      - name: 图形部署页验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm10-presentation.log'
+          python tests\integration\verify_presentation.py '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
+            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            exit $code
+          }
+          Get-Content $log | Select-String -Pattern 'SKIP' |
+            ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
+          exit 0
+
       - name: Artifact 内容断言
         shell: pwsh
         run: |
