@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
+#include <cwchar>
 #include <string>
 #include <vector>
 
@@ -974,6 +976,51 @@ void checkPendingFileRename(std::vector<Check>& checks)
     ));
 }
 
+// 判断 parent 命名空间下是否登记了名为 name 的子命名空间。
+//
+// 为什么先探存在性再连：连接一个不存在的 WMI 命名空间**不会立刻失败**，
+// 在本机实测要卡满 5 秒（连 ROOT\CIMV2\Security\MicrosoftVolumeEncryption 用时 5024 ms，
+// 同一台机器上连 ROOT\CIMV2 只要 3 ms）。体检与界面渲染都不该为一个外部服务的
+// 坏状态白等，所以先用 __Namespace 判存在性，不存在就直接按「未加密」收工。
+// 注意 Windows 把命名空间存在 WMI 仓库（OBJECTS.DATA）里，不是注册表，
+// 所以只能这么问，没有更便宜的权威途径。
+bool wmiSubNamespaceExists(IWbemServices* parent, const wchar_t* name)
+{
+    if (parent == nullptr || name == nullptr)
+    {
+        return false;
+    }
+
+    ComPtr<IEnumWbemClassObject> enumerator;
+    if (FAILED(parent->ExecQuery(
+            _bstr_t(L"WQL"),
+            _bstr_t(L"SELECT Name FROM __Namespace"),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            nullptr,
+            enumerator.put()
+        )))
+    {
+        return false;
+    }
+
+    for (;;)
+    {
+        ULONG returned = 0;
+        ComPtr<IWbemClassObject> object;
+        if (FAILED(enumerator->Next(0, 1, object.put(), &returned)) || returned == 0)
+        {
+            return false;
+        }
+
+        _variant_t nameVar;
+        if (SUCCEEDED(object->Get(L"Name", 0, &nameVar, nullptr, nullptr)) && nameVar.vt == VT_BSTR &&
+            nameVar.bstrVal != nullptr && std::wcscmp(nameVar.bstrVal, name) == 0)
+        {
+            return true;
+        }
+    }
+}
+
 // BitLocker：必须是「完全解密」，挂起不够 —— 加密卷上 sysprep 可能让数据不可恢复。
 void checkBitLocker(std::vector<Check>& checks)
 {
@@ -1022,6 +1069,40 @@ void checkBitLocker(std::vector<Check>& checks)
         return;
     }
 
+    ComPtr<IWbemServices> cimv2;
+    if (FAILED(locator->ConnectServer(
+            _bstr_t(L"ROOT\\CIMV2"), nullptr, nullptr, nullptr, 0, nullptr, nullptr, cimv2.put()
+        )))
+    {
+        check.evaluated = false;
+        check.evidence = "连不上 ROOT\\CIMV2，未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    const bool hasSecurity = wmiSubNamespaceExists(cimv2.get(), L"Security");
+    // 先用 __Namespace 探存在性再连：直接连缺失的命名空间会白等 5 秒（见探针注释）
+    if (!hasSecurity)
+    {
+        check.evaluated = true;
+        check.evidence = "ROOT\\CIMV2\\Security 不存在，按未加密处理";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    ComPtr<IWbemServices> security;
+    if (FAILED(locator->ConnectServer(
+            _bstr_t(L"ROOT\\CIMV2\\Security"), nullptr, nullptr, nullptr, 0, nullptr, nullptr, security.put()
+        )) ||
+        !wmiSubNamespaceExists(security.get(), L"MicrosoftVolumeEncryption"))
+    {
+        // 没有这个命名空间的系统（精简版 / Win7 家庭版 / 未启用 BitLocker 组件）视为未加密
+        check.evaluated = true;
+        check.evidence = "ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption 不可用，按未加密处理";
+        checks.push_back(std::move(check));
+        return;
+    }
+
     ComPtr<IWbemServices> service;
     if (FAILED(locator->ConnectServer(
             _bstr_t(L"ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption"),
@@ -1034,9 +1115,9 @@ void checkBitLocker(std::vector<Check>& checks)
             service.put()
         )))
     {
-        // 没有这个命名空间的系统（部分精简版/Win7 家庭版）视为未加密
-        check.evaluated = true;
-        check.evidence = "ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption 不可用，按未加密处理";
+        // 探针说有、连却失败：如实报「未检查」，不要当成未加密
+        check.evaluated = false;
+        check.evidence = "ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption 连接失败，未检查";
         checks.push_back(std::move(check));
         return;
     }
