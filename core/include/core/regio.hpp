@@ -71,6 +71,15 @@ public:
 
 private:
     friend Key open(Hive hive, const std::string& subKey, bool writable, std::string& error);
+    friend Key openUserHiveKey(
+        const std::string& hiveName, const std::string& subKey, bool writable, std::string& error
+    );
+    friend bool
+    createUserHiveKey(const std::string& hiveName, const std::string& subKey, Key& key, std::string& error);
+
+    // 打开或创建「某个已加载 hive」下的子键（父键必须存在）
+    bool
+    createUserHiveKey(const std::string& hiveName, const std::string& subKey, Key& key, std::string& error);
     friend Key create(Hive hive, const std::string& subKey, std::string& error);
 
     void* handle_ = nullptr;
@@ -78,6 +87,53 @@ private:
 
 // 打开已存在的键。writable=false 时只要 KEY_READ。
 Key open(Hive hive, const std::string& subKey, bool writable, std::string& error);
+
+// 打开「某个已加载 hive」下的子键。hiveName 是 HKEY_USERS 下的名字，
+// 例如 ".DEFAULT"，或离线加载时用的临时名 "OSPT_DEFAULT"。
+Key openUserHiveKey(
+    const std::string& hiveName, const std::string& subKey, bool writable, std::string& error
+);
+
+// 打开或创建「某个已加载 hive」下的子键（父键必须存在）
+bool createUserHiveKey(const std::string& hiveName, const std::string& subKey, Key& key, std::string& error);
+
+// 离线加载一个用户配置单元（NTUSER.DAT / UsrClass.dat 之类）。
+//
+// 为什么必须离线加载：SC 的「我的文档/收藏夹转移」「同步 IE 主页」要写进
+// **所有新用户**的默认配置，落点就是 <系统盘>\Users\Default\NTUSER.DAT。
+// 那个文件平时没有挂载，直接写不了，只能 RegLoadKey 挂到 HKEY_USERS 下再写。
+//
+// 析构时自动卸载 —— 失败路径也必须卸干净，否则下次加载会报「文件正在使用」。
+class LoadedHive
+{
+public:
+    LoadedHive() = default;
+    ~LoadedHive();
+
+    LoadedHive(const LoadedHive&) = delete;
+    LoadedHive& operator=(const LoadedHive&) = delete;
+    LoadedHive(LoadedHive&& other) noexcept;
+    LoadedHive& operator=(LoadedHive&& other) noexcept;
+
+    // utf8File 是 NTUSER.DAT 的完整路径；hiveName 是挂到 HKEY_USERS 下的临时名。
+    // 同名已挂载时先尝试沿用（返回 true），避免重复加载报错。
+    bool load(const std::string& utf8File, const std::string& hiveName, std::string& error);
+    // 显式卸载；析构也会做，返回值只用于报告
+    bool unload(std::string& error);
+
+    bool loaded() const
+    {
+        return loaded_;
+    }
+    const std::string& name() const
+    {
+        return name_;
+    }
+
+private:
+    bool loaded_ = false;
+    std::string name_;
+};
 
 // 打开或创建键（父键必须存在）。
 Key create(Hive hive, const std::string& subKey, std::string& error);

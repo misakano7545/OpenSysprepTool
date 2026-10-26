@@ -83,6 +83,7 @@ Step '封装前设置' { & $Python tests/integration/verify_prepare.py $ospt }
 Step '图形部署页' { & $Python tests/integration/verify_presentation.py $osptd }
 Step 'OEM 识别' { & $Python tests/integration/verify_oem.py $ospt }
 Step '系统优化与修复' { & $Python tests/integration/verify_tweaks.py $ospt }
+Step '离线 hive 三项' { & powershell -NoProfile -ExecutionPolicy Bypass -File tests/tools/verify_hive.ps1 $ospt }
 Step '界面验收' { & $Python tests/integration/verify_ui.py $ospt }
 Step '管理员权限' { & $Python tests/integration/verify_elevation.py $ospt $osptd $tests }
 Step '发布契约' { & $Python tests/integration/verify_release.py --check-tag v0.1.1 --check-workflow .github/workflows/release.yml --check-changelog CHANGELOG.md --check-readme README.md }

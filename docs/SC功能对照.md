@@ -112,8 +112,8 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 运行完成后重启 | `Cb_Reboot` | ✅ |
 | 设置指定分辨率 / 刷新率 / 颜色质量 | `Cb_SetResolution` / `Ed_Refresh` / `Ed_ColorQuality` | ✅ |
 | 黑屏急救 Ctrl+F11 | `Cb_ResolutionSos` | ✅ |
-| **同步封装前 IE 主页网址** | `Cb_Saveiehp` | ⬜ |
-| **同步封装前 IE 收藏夹数据** | `Cb_SaveieFavorites` | ⬜ |
+| **同步封装前 IE 主页网址** | `Cb_Saveiehp` | ✅（Win10+ 的 IE Main 键带拒绝写入 ACL，写不进时降级为告警） |
+| **同步封装前 IE 收藏夹数据** | `Cb_SaveieFavorites` | ✅（写默认用户 hive 的 Favorites 路径） |
 
 ### 系统优化（`Gb_ScTools` 与相邻控件）
 
@@ -124,8 +124,8 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 自动设置网络位置 | `Cb_SetNetWork` | ✅ |
 | 关闭系统重启对话框 | `Cb_CloseRestartbox` | ✅ |
 | **将文件固定到任务栏 / 取消固定**（含文件清单） | `Cb_Locktaskbar` / `Cb_Unlocktaskbar` / `Items_Lockfile` / `Items_UnLockfile` | ⬜ |
-| **智能转移我的文档**（智能 / 指定目录） | `Cb_MoveDocuments` + `Rb_SmartMoveDocuments` / `Rb_DiyMoveDocuments` | ⬜ |
-| **智能转移 IE 收藏夹**（智能 / 指定目录） | `Cb_MoveFavorites` + `Rb_SmartMoveFavorites` / `Rb_DiyMoveFavorites` | ⬜ |
+| **智能转移我的文档**（智能 / 指定目录） | `Cb_MoveDocuments` + `Rb_SmartMoveDocuments` / `Rb_DiyMoveDocuments` | ✅ |
+| **智能转移 IE 收藏夹**（智能 / 指定目录） | `Cb_MoveFavorites` + `Rb_SmartMoveFavorites` / `Rb_DiyMoveFavorites` | ✅ |
 | 智能转移虚拟内存（智能 / 指定盘） | `Cb_MovePageFile` + `Rb_SmartMovePageFile` / `Rb_DiyMovePageFile` | ✅ |
 | **虚拟内存值（物理内存倍数 / 固定值）** | `Rb_PageFilevarValue` / `Rb_PageFileconstValue` + 四个数值框 | ⬜ |
 | 关闭笔记本小键盘 / 开启笔记本休眠 | `Cb_CloseKeypad` / `Cb_Dormancy` | ✅ |

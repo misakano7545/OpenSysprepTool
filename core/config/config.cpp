@@ -189,6 +189,14 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.enableHibernate = op.value("enableHibernate", false);
             cfg.optimization.closeRebootDialog = op.value("closeRebootDialog", false);
             cfg.optimization.myDocumentsTarget = op.value("myDocumentsTarget", std::string{});
+            cfg.optimization.moveDocuments = op.value("moveDocuments", false);
+            cfg.optimization.documentsSmart = op.value("documentsSmart", true);
+            cfg.optimization.moveFavorites = op.value("moveFavorites", false);
+            cfg.optimization.favoritesSmart = op.value("favoritesSmart", true);
+            cfg.optimization.favoritesTarget = op.value("favoritesTarget", std::string{});
+            cfg.optimization.saveIeHomePage = op.value("saveIeHomePage", false);
+            cfg.optimization.ieHomePage = op.value("ieHomePage", std::string{});
+            cfg.optimization.defaultUserHive = op.value("defaultUserHive", std::string{});
             cfg.optimization.pageFileTarget = op.value("pageFileTarget", std::string{});
             cfg.optimization.autoPagefileDrive = op.value("autoPagefileDrive", false);
             cfg.optimization.sysTweaks = op.value("sysTweaks", std::vector<std::string>{});

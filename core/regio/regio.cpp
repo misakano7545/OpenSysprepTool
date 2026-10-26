@@ -615,4 +615,190 @@ std::string describeValue(const Value& value)
     return std::string();
 }
 
+// ---------------------------------------------------------------- 离线 hive
+
+Key openUserHiveKey(const std::string& hiveName, const std::string& subKey, bool writable, std::string& error)
+{
+    if (hiveName.empty())
+    {
+        error = "hive 名为空";
+        return Key();
+    }
+    std::wstring path = toWide(hiveName);
+    if (!subKey.empty())
+    {
+        path += L'\\';
+        path += toWide(subKey);
+    }
+    HKEY handle = nullptr;
+    const LSTATUS status =
+        RegOpenKeyExW(HKEY_USERS, path.c_str(), 0, writable ? (KEY_READ | KEY_WRITE) : KEY_READ, &handle);
+    if (status != ERROR_SUCCESS)
+    {
+        error = "RegOpenKeyEx 失败（HKU\\" + hiveName + (subKey.empty() ? "" : "\\" + subKey) + "）：" +
+            describeWin32(status);
+        return Key();
+    }
+    Key key;
+    key.handle_ = handle;
+    return key;
+}
+
+bool createUserHiveKey(const std::string& hiveName, const std::string& subKey, Key& key, std::string& error)
+{
+    if (hiveName.empty() || subKey.empty())
+    {
+        error = "hive 名或子键为空";
+        return false;
+    }
+    const std::wstring path = toWide(hiveName) + L'\\' + toWide(subKey);
+    HKEY handle = nullptr;
+    DWORD disposition = 0;
+    const LSTATUS status = RegCreateKeyExW(
+        HKEY_USERS, path.c_str(), 0, nullptr, 0, KEY_READ | KEY_WRITE, nullptr, &handle, &disposition
+    );
+    if (status != ERROR_SUCCESS)
+    {
+        error = "RegCreateKeyEx 失败（HKU\\" + hiveName + "\\" + subKey + "）：" + describeWin32(status);
+        return false;
+    }
+    key.handle_ = handle;
+    return true;
+}
+
+LoadedHive::~LoadedHive()
+{
+    std::string ignored;
+    unload(ignored);
+}
+
+LoadedHive::LoadedHive(LoadedHive&& other) noexcept : loaded_(other.loaded_), name_(std::move(other.name_))
+{
+    other.loaded_ = false;
+    other.name_.clear();
+}
+
+LoadedHive& LoadedHive::operator=(LoadedHive&& other) noexcept
+{
+    if (this != &other)
+    {
+        std::string ignored;
+        unload(ignored);
+        loaded_ = other.loaded_;
+        name_ = std::move(other.name_);
+        other.loaded_ = false;
+        other.name_.clear();
+    }
+    return *this;
+}
+
+// 打开并启用一个令牌特权。已启用就返回 true。
+//
+// 为什么必须这一步：RegLoadKey/RegUnLoadKey 要求调用进程的令牌里
+// **启用** SeRestorePrivilege 与 SeBackupPrivilege。管理员令牌里这两个特权
+// 默认是「存在但禁用」，所以哪怕是提权会话，直接 RegLoadKey 也会返回
+// ERROR_PRIVILEGE_NOT_HELD(1314)。这个坑不实测根本发现不了。
+bool enablePrivilege(const wchar_t* name, std::string& error)
+{
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token) == 0)
+    {
+        error = "OpenProcessToken 失败：GetLastError=" + std::to_string(GetLastError());
+        return false;
+    }
+
+    LUID luid = {};
+    if (LookupPrivilegeValueW(nullptr, name, &luid) == 0)
+    {
+        error = "LookupPrivilegeValue 失败：" + toUtf8(std::wstring(name));
+        CloseHandle(token);
+        return false;
+    }
+
+    TOKEN_PRIVILEGES privileges = {};
+    privileges.PrivilegeCount = 1;
+    privileges.Privileges[0].Luid = luid;
+    privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    const BOOL ok = AdjustTokenPrivileges(token, FALSE, &privileges, 0, nullptr, nullptr);
+    const DWORD lastError = GetLastError();
+    CloseHandle(token);
+
+    if (ok == 0)
+    {
+        error = "AdjustTokenPrivileges 失败：" + toUtf8(std::wstring(name)) +
+            " GetLastError=" + std::to_string(lastError);
+        return false;
+    }
+    // AdjustTokenPrivileges 在「特权不在令牌里」时也返回成功，必须再看 GetLastError
+    if (lastError == ERROR_NOT_ALL_ASSIGNED)
+    {
+        error = "令牌里没有这个特权：" + toUtf8(std::wstring(name)) + "（需要以管理员身份运行）";
+        return false;
+    }
+    return true;
+}
+
+bool LoadedHive::load(const std::string& utf8File, const std::string& hiveName, std::string& error)
+{
+    if (loaded_)
+    {
+        error = "已经加载了 " + name_ + "，不能重复加载";
+        return false;
+    }
+    if (hiveName.empty())
+    {
+        error = "hive 名为空";
+        return false;
+    }
+
+    // 同名已挂载：直接沿用。这既是幂等（同一次 --prepare 里多条动作写同一个 hive），
+    // 也避免 RegLoadKey 报 ERROR_ALREADY_EXISTS 让人以为失败。
+    HKEY existing = nullptr;
+    if (RegOpenKeyExW(HKEY_USERS, toWide(hiveName).c_str(), 0, KEY_READ, &existing) == ERROR_SUCCESS)
+    {
+        RegCloseKey(existing);
+        name_ = hiveName;
+        loaded_ = true;
+        return true;
+    }
+
+    // 加载/卸载 hive 需要这两个特权；管理员令牌里它们默认是禁用的，必须先启用
+    std::string privilegeError;
+    if (!enablePrivilege(SE_RESTORE_NAME, privilegeError) || !enablePrivilege(SE_BACKUP_NAME, privilegeError))
+    {
+        error = "启用 hive 加载特权失败：" + privilegeError;
+        return false;
+    }
+
+    const std::wstring file = toWide(utf8File);
+    const std::wstring name = toWide(hiveName);
+    const LSTATUS status = RegLoadKeyW(HKEY_USERS, name.c_str(), file.c_str());
+    if (status != ERROR_SUCCESS)
+    {
+        error = "RegLoadKey 失败（" + utf8File + " -> HKU\\" + hiveName + "）：" + describeWin32(status);
+        return false;
+    }
+    name_ = hiveName;
+    loaded_ = true;
+    return true;
+}
+
+bool LoadedHive::unload(std::string& error)
+{
+    if (!loaded_)
+    {
+        return true;
+    }
+    // 卸载前必须确认没有遗留的键句柄，否则 RegUnloadKey 会返回 ERROR_ACCESS_DENIED
+    const LSTATUS status = RegUnLoadKeyW(HKEY_USERS, toWide(name_).c_str());
+    loaded_ = false;
+    if (status != ERROR_SUCCESS)
+    {
+        error = "RegUnloadKey 失败（HKU\\" + name_ + "）：" + describeWin32(status);
+        return false;
+    }
+    return true;
+}
+
 } // namespace osp::regio

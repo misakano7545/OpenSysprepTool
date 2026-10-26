@@ -35,6 +35,9 @@ enum class ActionKind
     BcdTimeout,
     // 删整个注册表键（值集合无法逐条还原，所以不进 journal、标为不可回滚）
     RegistryDeleteKey,
+    // 写进「离线加载的用户 hive」（Users\Default\NTUSER.DAT）：
+    // 用于让新用户继承 我的文档/收藏夹 位置与 IE 主页。执行时临时 RegLoadKey，写完即卸。
+    HiveSet,
 };
 
 const char* actionKindId(ActionKind kind);
@@ -47,7 +50,12 @@ struct Action
     std::string sourceField; // 对应 config 字段路径
     ActionKind kind = ActionKind::RegistrySet;
 
-    // RegistrySet / RegistryDelete
+    // HiveSet：要离线挂载的 hive 文件（如 <系统盘>\Users\Default\NTUSER.DAT）
+    // 与挂载后使用的临时名（HKU\<hiveName>）
+    std::string hiveFile;
+    std::string hiveName = "OSPT_DEFAULT";
+
+    // RegistrySet / RegistryDelete / HiveSet
     std::string hive;      // HKLM / HKCU / HKU\.DEFAULT
     std::string key;       // 不含根键
     std::string valueName; // 空 = 默认值
@@ -74,6 +82,11 @@ struct Action
     // 清理类命令允许非 0 退出码：net stop 一个本来没跑的服务会返回 3521，
     // 这不是失败。置 true 时只记日志与告警，不中止。
     bool tolerateNonZeroExit = false;
+    // 写入被拒时降级为告警而不中止。目前只用于 IE 主页：
+    // Win10/11 上 Software\Microsoft\Internet Explorer\Main 带拒绝写入的 ACL
+    // （实测 RegSetValueEx 返回 ERROR_ACCESS_DENIED，reg.exe 甚至返回 0 却没写进去），
+    // 这是系统行为，不该让整份封装计划失败。
+    bool tolerateFailure = false;
     std::string note;
 };
 
@@ -128,8 +141,11 @@ std::string toJson(const Plan& plan);
 struct JournalEntry
 {
     std::string actionId;
-    std::string kind; // registry / move / copy / createDir
+    std::string kind; // registry / hiveRegistry / move / copy / createDir
     std::string hive;
+    // kind == "hiveRegistry" 时用它：回滚要重新离线挂载这个文件再写回
+    std::string hiveFile;
+    std::string hiveName;
     std::string key;
     std::string valueName;
     bool existed = false;

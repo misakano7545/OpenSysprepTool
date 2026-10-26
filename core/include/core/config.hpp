@@ -36,8 +36,22 @@ struct Optimization
     bool closeNumLock = false;
     bool enableHibernate = false;
     bool closeRebootDialog = false;
-    std::string myDocumentsTarget; // 空表示不转移
-    std::string pageFileTarget;    // 空表示不转移
+    // 我的文档 / IE 收藏夹转移（SC 的 Cb_MoveDocuments / Cb_MoveFavorites）：
+    //   smart=true  -> Rb_SmartMove*：自动选剩余最大的分区，条件不成立则不转移
+    //   smart=false -> Rb_DiyMove*：转移到指定目录，条件不成立则退回智能转移
+    bool moveDocuments = false;
+    bool documentsSmart = true;
+    std::string myDocumentsTarget; // 指定转移目录（documentsSmart=false 时用）
+    bool moveFavorites = false;
+    bool favoritesSmart = true;
+    std::string favoritesTarget;
+    // 同步封装前 IE 主页（SC 的 Cb_Saveiehp）；ieHomePage 空则取当前用户的主页
+    bool saveIeHomePage = false;
+    std::string ieHomePage;
+    // 默认用户配置单元（NTUSER.DAT）的路径。空 = <系统盘>\Users\Default\NTUSER.DAT。
+    // 显式给出来是为了两种真实场景：封装备份盘上目录不在系统盘，以及测试时指向副本。
+    std::string defaultUserHive;
+    std::string pageFileTarget; // 空表示不转移
     // 智能转移虚拟内存（对齐 SC 的 Rb_SmartMovePageFile：自动选剩余空间最大的分区）。
     // 注意这**不是**「算大小」：SC 的 MovePageFile 只搬位置，大小仍交给系统管理
     // （`0 0`）。证据见 15_spec/功能规格.md §二「智能转移…虚拟内存（智能选最大剩余分区

@@ -7,6 +7,15 @@
 
 ### Added
 
+- **M10 离线 hive：我的文档 / IE 收藏夹转移、IE 主页同步**（``core/regio`` 的
+  `LoadedHive` + `ActionKind::HiveSet`）：三项都要写进所有新用户的默认配置
+  （`<系统盘>\Users\Default\NTUSER.DAT`），必须 `RegLoadKey` 离线挂载后写、写完卸载
+  - 载入前显式启用 `SeRestorePrivilege` / `SeBackupPrivilege` —— 管理员令牌里这两项
+    默认是禁用的，不启用会直接 `ERROR_PRIVILEGE_NOT_HELD(1314)`
+  - 写入后**回读校验**：`Internet Explorer\Main` 在 Win10/11 上带拒绝写入的 ACL，
+    会出现「API 返回成功但值没进去」的静默失败（`reg.exe` 也如此），不校验就等于假装做成了
+  - 智能/指定两种目标对齐 SC 的 `Rb_SmartMoveDocuments` / `Rb_DiyMoveDocuments`：
+    智能选剩余最大的固定磁盘，条件不成立则不转移
 - **M10 系统优化项（SC 优化表 27 条）**（`core/tweaks`）：SC 把优化项存成
   `序号|类型|路径|键名|值` 的记录，这 27 条是从主程序字符串转储里**逐字提取**的，
   不是自己编的。`optimization.sysTweaks` 里填 id 即可由 `--prepare` 落成注册表动作

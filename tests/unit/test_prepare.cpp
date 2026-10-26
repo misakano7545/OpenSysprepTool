@@ -121,7 +121,8 @@ TEST_CASE("prepare: unimplemented fields are reported with reasons")
     const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
     REQUIRE(plan.ok);
 
-    CHECK(hasDeferred(plan, "optimization.myDocumentsTarget"));
+    // 我的文档转移已在 B3 落地（离线 hive），不再是推迟项
+    CHECK_FALSE(hasDeferred(plan, "optimization.myDocumentsTarget"));
     CHECK(hasDeferred(plan, "optimization.autoSetIp"));
     CHECK(hasDeferred(plan, "optimization.pinTaskbarItems"));
     CHECK(hasDeferred(plan, "firstLogon.syncIeHomepage"));
@@ -507,4 +508,109 @@ TEST_CASE("prepare: 两个开关都不开时不碰 PagingFiles")
     REQUIRE(plan.ok);
     CHECK(findAction(plan, "optimization.pageFileTarget") == nullptr);
     CHECK(findAction(plan, "optimization.autoPagefileDrive") == nullptr);
+}
+
+TEST_CASE("prepare: 我的文档与收藏夹走离线 hive，智能/指定两种目标都对")
+{
+    // 指定目录（Rb_Diy）：直接用配置里的路径
+    {
+        osp::config::Config cfg;
+        cfg.optimization.moveDocuments = true;
+        cfg.optimization.documentsSmart = false;
+        cfg.optimization.myDocumentsTarget = "D:\Docs";
+        cfg.optimization.moveFavorites = true;
+        cfg.optimization.favoritesSmart = false;
+        cfg.optimization.favoritesTarget = "D:\Favs";
+
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        REQUIRE(plan.ok);
+
+        const osp::prepare::Action* docs = findAction(plan, "optimization.myDocumentsTarget");
+        REQUIRE(docs != nullptr);
+        CHECK(docs->kind == osp::prepare::ActionKind::HiveSet);
+        CHECK(docs->hiveFile.find("NTUSER.DAT") != std::string::npos);
+        CHECK(docs->key.find("User Shell Folders") != std::string::npos);
+        CHECK(docs->valueName == "Personal");
+        CHECK(docs->text == "D:\Docs");
+        CHECK(docs->valueType == "expandSz");
+
+        const osp::prepare::Action* favs = findAction(plan, "optimization.moveFavorites");
+        REQUIRE(favs != nullptr);
+        CHECK(favs->valueName == "Favorites");
+        CHECK(favs->text == "D:\Favs");
+    }
+
+    // 智能转移（Rb_Smart）：选剩余最大的非系统盘
+    {
+        osp::config::Config cfg;
+        cfg.optimization.moveDocuments = true;
+        cfg.optimization.documentsSmart = true;
+        cfg.optimization.myDocumentsTarget = "D:\Ignored";
+
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        options.pagefileCandidates = {
+            {"E:", 500ull * 1024 * 1024 * 1024}, {"F:", 900ull * 1024 * 1024 * 1024}
+        };
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        REQUIRE(plan.ok);
+
+        const osp::prepare::Action* docs = findAction(plan, "optimization.myDocumentsTarget");
+        REQUIRE(docs != nullptr);
+        // 智能模式下忽略显式路径，改用剩余最大的 F:
+        CHECK(docs->text == "F:\\My Documents");
+    }
+
+    // 没有第二个固定盘：按 SC 的说明「条件不成立则不转移」
+    {
+        osp::config::Config cfg;
+        cfg.optimization.moveDocuments = true;
+        cfg.optimization.documentsSmart = true;
+
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        options.pagefileCandidates = {}; // 现场枚举；本机有别的盘就会选到它
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        CHECK(plan.ok);
+        // 无论是否转移成功，都不许抛异常或产出空路径的动作
+        const osp::prepare::Action* docs = findAction(plan, "optimization.myDocumentsTarget");
+        if (docs != nullptr)
+        {
+            CHECK(!docs->text.empty());
+        }
+    }
+}
+
+TEST_CASE("prepare: IE 主页同步写进默认 hive，且写不进去只告警不中断")
+{
+    osp::config::Config cfg;
+    cfg.optimization.saveIeHomePage = true;
+    cfg.optimization.ieHomePage = "http://example.com/osp";
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+    REQUIRE(plan.ok);
+
+    const osp::prepare::Action* ie = findAction(plan, "optimization.saveIeHomePage");
+    REQUIRE(ie != nullptr);
+    CHECK(ie->kind == osp::prepare::ActionKind::HiveSet);
+    CHECK(ie->valueName == "Start Page");
+    CHECK(ie->text == "http://example.com/osp");
+    // Win10/11 上这个键带拒绝写入的 ACL，必须允许降级为告警 —— 否则整份封装会失败
+    CHECK(ie->tolerateFailure);
+}
+
+TEST_CASE("prepare: 默认用户 hive 路径可覆盖")
+{
+    osp::config::Config cfg;
+    cfg.optimization.moveDocuments = true;
+    cfg.optimization.documentsSmart = false;
+    cfg.optimization.myDocumentsTarget = "D:\Docs";
+    cfg.optimization.defaultUserHive = "T:\\copy\\ntuser.dat";
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+    REQUIRE(plan.ok);
+    const osp::prepare::Action* docs = findAction(plan, "optimization.myDocumentsTarget");
+    REQUIRE(docs != nullptr);
+    CHECK(docs->hiveFile == "T:\\copy\\ntuser.dat");
 }

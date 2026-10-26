@@ -231,8 +231,10 @@ def main() -> int:
     check("虚拟内存标记需要重启", pagefile is not None and pagefile.get("requiresReboot") is True)
 
     deferred = {item.get("sourceField") for item in plan.get("deferred", [])}
+    # 我的文档转移已在 B3 落地（离线 hive），不该再出现在推迟项里；
+    # 剩下这些仍是推迟项 —— 每一项都必须写清原因，不许静默略过。
+    check("我的文档转移不再是推迟项", "optimization.myDocumentsTarget" not in deferred)
     for field in (
-        "optimization.myDocumentsTarget",
         "optimization.autoSetIp",
         "firstLogon.syncIeHomepage",
         "deploy.verifyIntegrity",
@@ -242,6 +244,51 @@ def main() -> int:
         check(f"推迟项写明原因: {field}", field in deferred)
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
+
+    # ------------------------------------------------------------ 离线 hive 三项（B3）
+    section("离线 hive：我的文档 / 收藏夹 / IE 主页")
+    hive_cfg = full_config()
+    hive_cfg["optimization"] = dict(hive_cfg.get("optimization") or {})
+    hive_cfg["optimization"].update({
+        "moveDocuments": True,
+        "documentsSmart": False,
+        "myDocumentsTarget": "D:\\OspDocs",
+        "moveFavorites": True,
+        "favoritesSmart": False,
+        "favoritesTarget": "D:\\OspFavs",
+        "saveIeHomePage": True,
+        "ieHomePage": "http://osp.example/home",
+    })
+    hive_cfg_path = os.path.join(work, "cfg-hive.json")
+    hive_plan_path = os.path.join(work, "plan-hive.json")
+    write_json(hive_cfg_path, hive_cfg)
+
+    code, output = run([ospt, "--prepare", hive_cfg_path, "--dry-run", "--report", hive_plan_path])
+    check("离线 hive 计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    hive_plan = {}
+    if os.path.isfile(hive_plan_path):
+        with open(hive_plan_path, "r", encoding="utf-8") as handle:
+            hive_plan = json.load(handle)
+    hive_actions = {item.get("id"): item for item in hive_plan.get("actions", [])}
+
+    docs = hive_actions.get("optimization.myDocumentsTarget") or {}
+    check("我的文档走 hiveSet 动作", docs.get("kind") == "hiveSet", str(docs)[:150])
+    check("我的文档写到 Personal", docs.get("valueName") == "Personal", str(docs.get("valueName")))
+    check("我的文档值是配置里的目录", docs.get("value") == "D:\\OspDocs", str(docs.get("value")))
+    check("我的文档目标是 NTUSER.DAT", "NTUSER.DAT" in str(docs.get("hiveFile", "")).upper(),
+          str(docs.get("hiveFile")))
+
+    favs = hive_actions.get("optimization.moveFavorites") or {}
+    check("收藏夹走 hiveSet 动作", favs.get("kind") == "hiveSet")
+    check("收藏夹写到 Favorites", favs.get("valueName") == "Favorites")
+    check("收藏夹值是配置里的目录", favs.get("value") == "D:\\OspFavs")
+
+    ie = hive_actions.get("optimization.saveIeHomePage") or {}
+    check("IE 主页走 hiveSet 动作", ie.get("kind") == "hiveSet")
+    check("IE 主页写到 Start Page", ie.get("valueName") == "Start Page")
+    check("IE 主页值是配置里的网址", ie.get("value") == "http://osp.example/home")
+    # Win10/11 上这个键带拒绝写入的 ACL，必须允许降级为告警，否则整份封装会失败
+    check("IE 主页允许写入失败降级", ie.get("tolerateFailure") is True, str(ie)[:150])
 
     # ------------------------------------------------------------ 体检项（M10）
     section("体检项与阻断判定")

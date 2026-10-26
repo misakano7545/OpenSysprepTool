@@ -435,6 +435,36 @@ Action makeRegistryAction(
     return action;
 }
 
+// 文件是否存在。用 GetFileAttributesW 而不是 std::filesystem::exists：
+// 后者在权限不足时返回 false，会把「读不到」说成「不存在」。
+bool fileExists(const std::string& utf8Path)
+{
+    const std::filesystem::path path = osp::win7::pathFromUtf8(utf8Path);
+    return ::GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// 当前用户的 IE 主页。SC 的「同步封装前 IE 主页」就是把它搬到默认配置里去。
+std::string currentUserIeHomePage()
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_CURRENT_USER, L"Software\\Microsoft\\Internet Explorer\\Main", 0, KEY_READ, &key
+        ) != ERROR_SUCCESS)
+    {
+        return std::string();
+    }
+    wchar_t buffer[2048] = {};
+    DWORD bytes = sizeof(buffer);
+    DWORD type = 0;
+    std::string result;
+    if (RegGetValueW(key, nullptr, L"Start Page", RRF_RT_REG_SZ, &type, buffer, &bytes) == ERROR_SUCCESS)
+    {
+        result = toUtf8(std::wstring(buffer));
+    }
+    RegCloseKey(key);
+    return result;
+}
+
 regio::Value valueOf(const Action& action)
 {
     regio::Value value;
@@ -960,6 +990,137 @@ bool bcdTimeoutSet(const Action& action, ExecResult& result, std::string& error)
     return true;
 }
 
+// 写进离线挂载的用户 hive（Users\Default\NTUSER.DAT）。
+// 流程：Load -> 建键 -> 读旧值进 journal -> 写 -> Unload。
+// 失败时也必须卸载：LoadedHive 的析构会做，这里再显式调一次以拿到错误信息。
+
+// 回读校验用：写入的值与期望一致吗
+bool matchesExpected(const Action& action, const regio::Value& value, bool exists)
+{
+    if (!exists)
+    {
+        return false;
+    }
+    switch (value.type)
+    {
+    case regio::ValueType::Dword:
+        return value.dword == action.dword;
+    case regio::ValueType::Qword:
+        return value.qword == action.qword;
+    case regio::ValueType::String:
+    case regio::ValueType::ExpandString:
+        return value.text == action.text;
+    case regio::ValueType::MultiString:
+        return value.multi == action.multi;
+    case regio::ValueType::Binary:
+        return true; // 二进制比较留给调用方，这里不重复实现
+    }
+    return false;
+}
+
+bool hiveSet(const Action& action, ExecResult& result, std::string& error)
+{
+    if (action.hiveFile.empty())
+    {
+        error = action.id + "：hiveFile 为空";
+        return false;
+    }
+
+    regio::LoadedHive hive;
+    std::string loadError;
+    if (!hive.load(action.hiveFile, action.hiveName, loadError))
+    {
+        error = action.id + "：" + loadError;
+        return false;
+    }
+
+    bool ok = true;
+    {
+        // 子键可能还不存在（新用户的默认配置里 User Shell Folders 一般有，但不能假设）
+        std::string keyError;
+        regio::Key key = regio::openUserHiveKey(action.hiveName, action.key, true, keyError);
+        if (!key.valid())
+        {
+            if (!regio::createUserHiveKey(action.hiveName, action.key, key, keyError))
+            {
+                error = action.id + "：建键失败 " + action.key + " —— " + keyError;
+                ok = false;
+            }
+        }
+
+        if (ok && key.valid())
+        {
+            regio::Value previous;
+            bool existed = false;
+            if (!regio::readValue(key, action.valueName, previous, existed, error))
+            {
+                ok = false;
+            }
+            else
+            {
+                JournalEntry entry = journalOfValue(action, previous, existed);
+                entry.kind = "hiveRegistry";
+                entry.hiveFile = action.hiveFile;
+                entry.hiveName = action.hiveName;
+                result.journal.entries.push_back(entry);
+
+                if (!regio::writeValue(key, action.valueName, valueOf(action), error))
+                {
+                    if (action.tolerateFailure)
+                    {
+                        result.warnings.push_back(
+                            action.id + "：写入被系统拒绝，已跳过（" + action.key + "\\" + action.valueName +
+                            "）：" + error
+                        );
+                        error.clear();
+                    }
+                    else
+                    {
+                        ok = false;
+                    }
+                }
+                else
+                {
+                    // 写后回读：某些系统键（如 IE 的 Main）带拒绝写入的 ACL，
+                    // 会出现「写入返回成功但值根本没进去」的静默失败（实测 reg.exe
+                    // 在这种键上就返回 0 却查不到值）。不校验就等于假装做成了。
+                    regio::Value readBack;
+                    bool existsAfter = false;
+                    std::string readError;
+                    const bool verified =
+                        regio::readValue(key, action.valueName, readBack, existsAfter, readError) &&
+                        matchesExpected(action, readBack, existsAfter);
+                    if (!verified)
+                    {
+                        if (action.tolerateFailure)
+                        {
+                            error.clear();
+                        }
+                        result.warnings.push_back(
+                            action.id + "：写入后回读不一致（该键可能被系统保护，拒绝写入）：" + action.key +
+                            "\\" + action.valueName + "（" + readError + "）"
+                        );
+                    }
+                    else
+                    {
+                        result.log.push_back(
+                            "HiveSet  " + action.hiveFile + "  [" + action.key + "] \"" + action.valueName +
+                            "\" (" + action.valueType + ") = " + actionValueText(action)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    std::string unloadError;
+    if (!hive.unload(unloadError))
+    {
+        result.warnings.push_back(unloadError);
+    }
+    return ok;
+}
+
 bool executeOne(const Action& action, ExecResult& result, std::string& error)
 {
     switch (action.kind)
@@ -982,6 +1143,8 @@ bool executeOne(const Action& action, ExecResult& result, std::string& error)
         return bcdTimeoutSet(action, result, error);
     case ActionKind::RegistryDeleteKey:
         return registryDeleteKey(action, result, error);
+    case ActionKind::HiveSet:
+        return hiveSet(action, result, error);
     }
     error = "未知的动作类型";
     return false;
@@ -1161,6 +1324,8 @@ const char* actionKindId(ActionKind kind)
         return "bcdTimeout";
     case ActionKind::RegistryDeleteKey:
         return "registryDeleteKey";
+    case ActionKind::HiveSet:
+        return "hiveSet";
     }
     return "unknown";
 }
@@ -1462,13 +1627,144 @@ Plan build(const config::Config& cfg, const Options& options)
     {
         defer("optimization.pinTaskbarItems", "需要调用 Shell 的固定动词并处理用户配置文件，M9 不做");
     }
-    if (!cfg.optimization.myDocumentsTarget.empty())
+    // 我的文档 / IE 收藏夹 / IE 主页：都要写进「所有新用户」的默认配置，
+    // 落点是 <系统盘>\Users\Default\NTUSER.DAT，必须离线挂载后写。
+    const std::string defaultHive = cfg.optimization.defaultUserHive.empty()
+        ? joinPath(opt.defaultUserProfile, "NTUSER.DAT")
+        : cfg.optimization.defaultUserHive;
+    const bool defaultHiveExists = fileExists(defaultHive);
+
+    if (cfg.optimization.moveDocuments || !cfg.optimization.myDocumentsTarget.empty())
     {
-        defer(
-            "optimization.myDocumentsTarget",
-            "要写到所有新用户必须离线加载 " + joinPath(opt.defaultUserProfile, "NTUSER.DAT") +
-                "；离线 hive 归入 M10"
-        );
+        std::string target = cfg.optimization.myDocumentsTarget;
+        if (cfg.optimization.documentsSmart || target.empty())
+        {
+            // 智能转移：SC 的说明是「自动扫描目标系统最大剩余容量的分区，条件不成立则不转移」
+            const std::vector<PagefileCandidate> candidates = options.pagefileCandidates.empty()
+                ? enumeratePagefileCandidates(options.systemDrive)
+                : options.pagefileCandidates;
+            const std::string picked = pickPagefileDrive(candidates);
+            if (picked.empty())
+            {
+                plan.warnings.push_back("智能转移我的文档：除系统盘外没有可用固定磁盘，按 SC 的规矩不转移");
+                target.clear();
+            }
+            else
+            {
+                target = picked + "\\My Documents";
+            }
+        }
+
+        if (!target.empty())
+        {
+            // 找不到文件时仍然出动作：dry-run 要看得见意图，真实执行由 hiveSet 报清楚的错。
+            // 静默跳过会让人以为「配置没生效是因为没这项功能」。
+            if (!defaultHiveExists)
+            {
+                plan.warnings.push_back("找不到默认用户配置 " + defaultHive + "，我的文档位置在执行时会失败");
+            }
+            {
+                Action action;
+                action.kind = ActionKind::HiveSet;
+                action.id = "optimization.myDocumentsTarget";
+                action.group = "系统优化";
+                action.title = "转移我的文档并让所有新用户继承";
+                action.sourceField = cfg.optimization.documentsSmart ? "optimization.documentsSmart"
+                                                                     : "optimization.myDocumentsTarget";
+                action.hiveFile = defaultHive;
+                action.key = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders";
+                action.valueName = "Personal";
+                action.valueType = "expandSz";
+                action.text = target;
+                action.note = "离线写 " + defaultHive + "；已存在的用户配置不受影响";
+                plan.actions.push_back(std::move(action));
+            }
+        }
+    }
+
+    if (cfg.optimization.moveFavorites)
+    {
+        std::string target = cfg.optimization.favoritesTarget;
+        if (cfg.optimization.favoritesSmart || target.empty())
+        {
+            const std::vector<PagefileCandidate> candidates = options.pagefileCandidates.empty()
+                ? enumeratePagefileCandidates(options.systemDrive)
+                : options.pagefileCandidates;
+            const std::string picked = pickPagefileDrive(candidates);
+            if (picked.empty())
+            {
+                plan.warnings.push_back("智能转移 IE 收藏夹：除系统盘外没有可用固定磁盘，按 SC 的规矩不转移");
+                target.clear();
+            }
+            else
+            {
+                target = picked + "\\Favorites";
+            }
+        }
+
+        if (!target.empty())
+        {
+            if (!defaultHiveExists)
+            {
+                plan.warnings.push_back("找不到默认用户配置 " + defaultHive + "，收藏夹位置在执行时会失败");
+            }
+            {
+                Action action;
+                action.kind = ActionKind::HiveSet;
+                action.id = "optimization.moveFavorites";
+                action.group = "系统优化";
+                action.title = "转移 IE 收藏夹并让所有新用户继承";
+                action.sourceField = cfg.optimization.favoritesSmart ? "optimization.favoritesSmart"
+                                                                     : "optimization.favoritesTarget";
+                action.hiveFile = defaultHive;
+                action.key = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders";
+                action.valueName = "Favorites";
+                action.valueType = "expandSz";
+                action.text = target;
+                action.note = "离线写 " + defaultHive + "；已存在的用户配置不受影响";
+                plan.actions.push_back(std::move(action));
+            }
+        }
+    }
+
+    if (cfg.optimization.saveIeHomePage)
+    {
+        // SC 的语义是「同步封装前 IE 主页网址」：把**当前用户**的主页写进默认配置，
+        // 这样新用户进桌面看到的还是封装前那个主页。没显式给就用当前用户的。
+        std::string homePage = cfg.optimization.ieHomePage;
+        if (homePage.empty())
+        {
+            homePage = currentUserIeHomePage();
+        }
+        if (homePage.empty())
+        {
+            plan.warnings.push_back(
+                "同步 IE 主页：读不到当前用户的 IE 主页，跳过（可用 optimization.ieHomePage 显式指定）"
+            );
+        }
+        else
+        {
+            if (!defaultHiveExists)
+            {
+                plan.warnings.push_back("找不到默认用户配置 " + defaultHive + "，IE 主页在执行时会失败");
+            }
+            Action action;
+            action.kind = ActionKind::HiveSet;
+            action.id = "optimization.saveIeHomePage";
+            action.group = "首次进桌面";
+            action.title = "同步封装前 IE 主页到所有新用户";
+            action.sourceField = "optimization.saveIeHomePage";
+            action.hiveFile = defaultHive;
+            action.key = "Software\\Microsoft\\Internet Explorer\\Main";
+            action.valueName = "Start Page";
+            action.valueType = "sz";
+            action.text = homePage;
+            // Win10/11 上这个键带拒绝写入的 ACL，写不进去只告警、不中断封装
+            action.tolerateFailure = true;
+            action.note = "起始页 = " + homePage +
+                "；若被系统键保护拒绝，可在运行计划→登录时 增加一条 reg add 作为替代";
+            plan.actions.push_back(std::move(action));
+        }
     }
     if (cfg.optimization.autoSetIp)
     {
@@ -1779,6 +2075,11 @@ std::string dryRunReport(const Plan& plan)
         case ActionKind::RegistryDeleteKey:
             out += "    RegDeleteTree  " + action.hive + "\\" + action.key + "\n";
             break;
+        case ActionKind::HiveSet:
+            out += "    离线写 hive  " + action.hiveFile + "  [HKU\\" + action.hiveName + "\\" + action.key +
+                "] \"" + action.valueName + "\" (" + action.valueType + ") = " + actionValueText(action) +
+                "\n";
+            break;
         }
 
         if (action.requiresReboot)
@@ -1849,6 +2150,9 @@ std::string toJson(const Plan& plan)
         item["kind"] = actionKindId(action.kind);
         item["requiresReboot"] = action.requiresReboot;
         item["irreversible"] = action.irreversible;
+        // 允许写入失败降级的动作要显式标出来，验收脚本据此判断
+        // （IE 主页在 Win10+ 的键带拒绝写入 ACL）
+        item["tolerateFailure"] = action.tolerateFailure;
         item["note"] = action.note;
 
         switch (action.kind)
@@ -1874,6 +2178,14 @@ std::string toJson(const Plan& plan)
         case ActionKind::MoveTree:
             item["path"] = action.path;
             item["destination"] = action.destination;
+            break;
+        case ActionKind::HiveSet:
+            item["hiveFile"] = action.hiveFile;
+            item["hiveName"] = action.hiveName;
+            item["key"] = action.key;
+            item["valueName"] = action.valueName;
+            item["valueType"] = action.valueType;
+            item["value"] = actionValueText(action);
             break;
         case ActionKind::BcdTimeout:
             item["program"] = action.program;
