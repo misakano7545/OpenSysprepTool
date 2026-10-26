@@ -345,6 +345,15 @@ def main(argv: list[str]) -> int:
             check(f"{name} 坐标判定为通过", "PASS" in matched[0] and "控件按图纸坐标摆放" in matched[0],
                   matched[0].strip()[:160])
 
+    section("完成页的关机/重启：冒烟必须 dry-run")
+    # 冒烟测试会对每个按钮发 BM_CLICK。完成页的「关机(&T)」「重启(&R)」在新版里
+    # 是真执行（ExitWindowsEx），所以冒烟必须是 dry-run —— CI 的 runner 是管理员
+    # 会话，真调会把机器关掉，整条流水线挂死（第一次跑就踩了）。
+    check("冒烟报告里电源动作是 dry-run", report.get("powerActionsDryRun") is True,
+          str(report.get("powerActionsDryRun")))
+    check("点击到了关机/重启两个按钮", int(report.get("powerActionRequests") or 0) >= 2,
+          str(report.get("powerActionRequests")))
+
     section("宪章 §7 红线：这些控件名一个都不许出现")
     excluded = report.get("excludedControls", [])
     check("报告带上了不做的控件清单", len(excluded) >= 20, str(len(excluded)))

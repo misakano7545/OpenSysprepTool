@@ -207,6 +207,10 @@ struct SmokeResult
     // 走查用的清单：页面一览 + 明确不做的控件名（验收脚本按这两份核对）
     std::vector<PageSummary> pages;
     std::vector<std::string> excludedControls;
+    // 完成页「关机/重启」被点击的次数。冒烟测试里必须是 dry-run（只记录不执行），
+    // 否则在管理员会话里真会关机 —— CI 上第一次跑就把整条流水线挂死了。
+    int powerActionRequests = 0;
+    bool powerActionsDryRun = false;
     std::vector<std::string> forbiddenBindings;
 };
 

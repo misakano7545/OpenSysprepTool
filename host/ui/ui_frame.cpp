@@ -2001,6 +2001,11 @@ SmokeResult runSmokeTest(bool visible)
 
     // 客户区尺寸取 SC 主窗体的 DFM 值（TSCMF: ClientWidth=800 / ClientHeight=540）。
     // 用 900x640 时，图纸绝对坐标的页面会被放大 12%，与 DFM 的版面比例对不上。
+    // 冒烟测试会对每个按钮发 BM_CLICK，包括完成页的「关机(&T)」「重启(&R)」。
+    // 必须是 dry-run：CI 的 runner 是管理员会话，真调 ExitWindowsEx 会把机器关掉，
+    // 整条流水线就此挂死（第一次跑就踩到了）。按钮的响应仍然照常记录进报告。
+    context.frame.powerActionsDryRun = true;
+
     RECT rect = {0, 0, 800, 540};
     HWND handle = context.frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW, 0);
     if (handle == nullptr)
@@ -2343,6 +2348,8 @@ SmokeResult runSmokeTest(bool visible)
     }
 
     context.result.excludedControls = excludedControlIds();
+    context.result.powerActionRequests = context.frame.powerActionRequests;
+    context.result.powerActionsDryRun = context.frame.powerActionsDryRun;
     context.result.forbiddenBindings = forbiddenBindings();
     result = context.result;
     result.ok = (result.failures == 0);
@@ -2475,6 +2482,8 @@ std::string smokeJson(const SmokeResult& result)
     }
     out += "\n  ],\n";
 
+    out += "  \"powerActionRequests\": " + std::to_string(result.powerActionRequests) + ",\n";
+    out += std::string("  \"powerActionsDryRun\": ") + (result.powerActionsDryRun ? "true" : "false") + ",\n";
     out += "  \"excludedControls\": [";
     for (std::size_t i = 0; i < result.excludedControls.size(); ++i)
     {
