@@ -101,6 +101,7 @@ json encode(const Config& cfg)
         {"cleanDllCache", sp.cleanDllCache},
         {"autoLogon", sp.autoLogon},
         {"autoLogonCount", sp.autoLogonCount},
+        {"autoLogonPassword", sp.autoLogonPassword},
         {"workgroup", sp.workgroup},
         {"domain", sp.domain},
         {"domainUser", sp.domainUser},
@@ -246,6 +247,7 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.cleanDllCache = sp.value("cleanDllCache", false);
             cfg.sysprep.autoLogon = sp.value("autoLogon", false);
             cfg.sysprep.autoLogonCount = sp.value("autoLogonCount", 1);
+            cfg.sysprep.autoLogonPassword = sp.value("autoLogonPassword", std::string{});
             cfg.sysprep.workgroup = sp.value("workgroup", std::string{});
             cfg.sysprep.domain = sp.value("domain", std::string{});
             cfg.sysprep.domainUser = sp.value("domainUser", std::string{});

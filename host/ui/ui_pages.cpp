@@ -1015,6 +1015,27 @@ Page sysprepPage(const config::Config& cfg)
         "optimization.clearUpdateCache",
         "本项目新增，图纸无对应控件；由 --prepare 执行"
     ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_AutoLogon",
+        "自动登录（次数内免输入密码）",
+        cfg.sysprep.autoLogon,
+        "sysprep.autoLogon",
+        "《功能规格》§五 系统类：自动登录（Administrator 密码 / 次数）"
+    ));
+    sysset.fields.push_back(makeEdit(
+        "Ed_LogonPassword",
+        "自动登录密码",
+        cfg.sysprep.autoLogonPassword,
+        "sysprep.autoLogonPassword",
+        "留空时走 Winlogon 注册表（空密码的 <AutoLogon> 会被系统忽略）"
+    ));
+    sysset.fields.push_back(makeNumber(
+        "Se_LogonCount",
+        "自动登录次数",
+        cfg.sysprep.autoLogonCount,
+        "sysprep.autoLogonCount",
+        "《功能规格》§五：次数"
+    ));
     page.groups.push_back(std::move(sysset));
 
     Group net;
@@ -1423,6 +1444,18 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.optimization.clearUpdateCache = field.checked;
             }
+            else if (id == "Cb_AutoLogon")
+            {
+                cfg.sysprep.autoLogon = field.checked;
+            }
+            else if (id == "Ed_LogonPassword")
+            {
+                cfg.sysprep.autoLogonPassword = field.value;
+            }
+            else if (id == "Se_LogonCount")
+            {
+                cfg.sysprep.autoLogonCount = toInt(field.value, cfg.sysprep.autoLogonCount);
+            }
             else if (id == "Ed_WorkGroup")
             {
                 cfg.sysprep.workgroup = field.value;
@@ -1718,26 +1751,12 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "sysprep")
     {
         return {
-            "Btn_Syspreprun",
-            "Cb_Uninstalldriver",
-            "Cb_LoadSrsDrv",
-            "Cb_Createnewsid",
-            "Rb_Sysprep_Type1",
-            "Cb_Cutdesktopfile",
-            "Cb_Cleanjunkfiles",
-            "Cb_Dllcache",
-            "Cb_ClearPrivacy",
-            "Cb_ClearUpdateCache",
-            "Rb_WorkGroup",
-            "Rb_Domain",
-            "Ed_WorkGroup",
-            "Ed_Domain_name",
-            "Ed_Domain_user",
-            "Ed_Domain_pw",
-            "Rb_EveryOne",
-            "Rb_EverySer",
-            "Se_Serconut",
-            "Cb_AfterSysprep",
+            "Btn_Syspreprun",   "Cb_Uninstalldriver",  "Cb_LoadSrsDrv",     "Cb_Createnewsid",
+            "Rb_Sysprep_Type1", "Cb_Cutdesktopfile",   "Cb_Cleanjunkfiles", "Cb_Dllcache",
+            "Cb_ClearPrivacy",  "Cb_ClearUpdateCache", "Cb_AutoLogon",      "Ed_LogonPassword",
+            "Se_LogonCount",    "Rb_WorkGroup",        "Rb_Domain",         "Ed_WorkGroup",
+            "Ed_Domain_name",   "Ed_Domain_user",      "Ed_Domain_pw",      "Rb_EveryOne",
+            "Rb_EverySer",      "Se_Serconut",         "Cb_AfterSysprep",
         };
     }
     if (pageId == "run")

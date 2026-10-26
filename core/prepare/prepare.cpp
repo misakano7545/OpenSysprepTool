@@ -1360,15 +1360,21 @@ Plan build(const config::Config& cfg, const Options& options)
         };
         const TraceKey traces[] = {
             {"typedUrls", "清空 IE 地址栏历史", "Software\\Microsoft\\Internet Explorer\\TypedURLs"},
-            {"runMru", "清空「运行」对话框历史", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU"},
-            {"recentDocs", "清空最近文档", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs"},
+            {"runMru",
+             "清空「运行」对话框历史",
+             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU"},
+            {"recentDocs",
+             "清空最近文档",
+             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs"},
             {"lastVisited",
              "清空文件对话框历史（LastVisited）",
              "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\LastVisitedPidlMRU"},
             {"openSave",
              "清空文件对话框历史（OpenSave）",
              "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\OpenSavePidlMRU"},
-            {"trayNotify", "清空托盘图标缓存", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TrayNotify"},
+            {"trayNotify",
+             "清空托盘图标缓存",
+             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TrayNotify"},
             {"winrar", "清空 WinRAR 路径历史", "Software\\WinRAR\\DialogEditHistory"},
         };
 

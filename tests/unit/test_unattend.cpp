@@ -48,11 +48,13 @@ osp::config::Config sampleConfig()
 
     cfg.sysprep.autoLogon = true;
     cfg.sysprep.autoLogonCount = 3;
+    // 有密码时走 <AutoLogon><Password>，不注入 Winlogon 注册表命令，
+    // 这样「RunSynchronous 只有 postinstall 一条」的老断言仍然成立
+    cfg.sysprep.autoLogonPassword = "Test123";
     cfg.sysprep.workgroup = "WORKGROUP";
 
     return cfg;
 }
-
 pugi::xml_document parseOk(const std::string& xml)
 {
     pugi::xml_document doc;
@@ -446,4 +448,37 @@ TEST_CASE("workgroup and domain are mutually exclusive")
         CHECK(identification.child("JoinDomain"));
         CHECK_FALSE(identification.child("JoinWorkgroup"));
     }
+}
+
+TEST_CASE("unattend: AutoLogon carries a base64 Password when a password is set")
+{
+    osp::config::Config cfg = sampleConfig();
+    cfg.sysprep.autoLogon = true;
+    cfg.sysprep.autoLogonCount = 3;
+    cfg.sysprep.autoLogonPassword = "abc";
+    cfg.deploy.userName = "User";
+
+    const std::string xml = osp::unattend::generate(cfg).xml;
+    CHECK(xml.find("<AutoLogon>") != std::string::npos);
+    CHECK(xml.find("<Password>") != std::string::npos);
+    // base64(UTF-16LE("abc" + "Password"))
+    CHECK(xml.find("YQBiAGMAUABhAHMAcwB3AG8AcgBkAA==") != std::string::npos);
+    CHECK(xml.find("<PlainText>false</PlainText>") != std::string::npos);
+}
+
+TEST_CASE("unattend: blank AutoLogon password falls back to the Winlogon registry")
+{
+    osp::config::Config cfg = sampleConfig();
+    cfg.sysprep.autoLogon = true;
+    cfg.sysprep.autoLogonCount = 1;
+    cfg.sysprep.autoLogonPassword.clear();
+    cfg.deploy.userName = "User";
+
+    const std::string xml = osp::unattend::generate(cfg).xml;
+    // 空密码时不写 <Password>，改在 specialize 的 RunSynchronous 里写注册表
+    CHECK(xml.find("<Password>") == std::string::npos);
+    CHECK(xml.find("AutoAdminLogon") != std::string::npos);
+    CHECK(xml.find("DefaultUserName") != std::string::npos);
+    CHECK(xml.find("DefaultPassword") != std::string::npos);
+    CHECK(xml.find("AutoLogonCount") != std::string::npos);
 }

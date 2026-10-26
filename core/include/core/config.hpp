@@ -100,6 +100,9 @@ struct SysprepSettings
     bool cleanDllCache = false;
     bool autoLogon = false;
     int autoLogonCount = 1;
+    // 自动登录密码。空密码时 unattend 的 <AutoLogon> 会被 Winlogon 静默忽略，
+    // 必须同时写 Winlogon 注册表（AutoAdminLogon + 空 DefaultPassword）才生效。
+    std::string autoLogonPassword;
     std::string workgroup;
     std::string domain;
     std::string domainUser;

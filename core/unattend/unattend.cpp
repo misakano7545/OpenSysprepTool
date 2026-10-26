@@ -2,6 +2,8 @@
 
 #include <pugixml.hpp>
 
+#include <windows.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -111,6 +113,69 @@ void addTextChild(pugi::xml_node parent, const char* name, int value)
 void addTextChild(pugi::xml_node parent, const char* name, bool value)
 {
     addChild(parent, name).text().set(value ? "true" : "false");
+}
+
+// ---------------------------------------------------------------- AutoLogon 密码
+
+// unattend 的 <AutoLogon><Password><Value> 要求
+// base64(UTF-16LE(password + "Password"))，且 PlainText 必须是 false。
+std::string base64Encode(const std::vector<std::uint8_t>& bytes)
+{
+    static const char* table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((bytes.size() + 2) / 3 * 4);
+    std::size_t i = 0;
+    while (i + 2 < bytes.size())
+    {
+        const std::uint32_t chunk = (static_cast<std::uint32_t>(bytes[i]) << 16) |
+            (static_cast<std::uint32_t>(bytes[i + 1]) << 8) | static_cast<std::uint32_t>(bytes[i + 2]);
+        out.push_back(table[(chunk >> 18) & 0x3F]);
+        out.push_back(table[(chunk >> 12) & 0x3F]);
+        out.push_back(table[(chunk >> 6) & 0x3F]);
+        out.push_back(table[chunk & 0x3F]);
+        i += 3;
+    }
+    const std::size_t rest = bytes.size() - i;
+    if (rest == 1)
+    {
+        const std::uint32_t chunk = static_cast<std::uint32_t>(bytes[i]) << 16;
+        out.push_back(table[(chunk >> 18) & 0x3F]);
+        out.push_back(table[(chunk >> 12) & 0x3F]);
+        out.append("==");
+    }
+    else if (rest == 2)
+    {
+        const std::uint32_t chunk =
+            (static_cast<std::uint32_t>(bytes[i]) << 16) | (static_cast<std::uint32_t>(bytes[i + 1]) << 8);
+        out.push_back(table[(chunk >> 18) & 0x3F]);
+        out.push_back(table[(chunk >> 12) & 0x3F]);
+        out.push_back(table[(chunk >> 6) & 0x3F]);
+        out.push_back('=');
+    }
+    return out;
+}
+
+std::string encodeAutoLogonPassword(const std::string& utf8Password)
+{
+    const std::string withSuffix = utf8Password + "Password";
+    std::vector<std::uint8_t> utf16le;
+    const int wide =
+        MultiByteToWideChar(CP_UTF8, 0, withSuffix.c_str(), static_cast<int>(withSuffix.size()), nullptr, 0);
+    if (wide <= 0)
+    {
+        return std::string();
+    }
+    std::wstring buffer(static_cast<std::size_t>(wide), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8, 0, withSuffix.c_str(), static_cast<int>(withSuffix.size()), buffer.data(), wide
+    );
+    utf16le.reserve(buffer.size() * 2);
+    for (wchar_t ch : buffer)
+    {
+        utf16le.push_back(static_cast<std::uint8_t>(ch & 0xFF));
+        utf16le.push_back(static_cast<std::uint8_t>((ch >> 8) & 0xFF));
+    }
+    return base64Encode(utf16le);
 }
 
 const char* networkLocationValue(const std::string& raw)
@@ -297,26 +362,48 @@ GenResult generate(const osp::config::Config& cfg)
 
     {
         pugi::xml_node component = addComponent(specialize, "Microsoft-Windows-Deployment");
-        std::vector<const osp::config::RunPlanTask*> postInstall;
+
+        // 空密码自动登录：unattend 的 <AutoLogon> 在密码为空时会被 Winlogon 静默忽略，
+        // 只能改走 Winlogon 注册表。DefaultPassword 必须**存在**（空 REG_SZ 也算），
+        // 否则 AutoAdminLogon 同样不生效。
+        std::vector<std::string> commands;
+        if (cfg.sysprep.autoLogon && cfg.sysprep.autoLogonPassword.empty())
+        {
+            const std::string userName = cfg.deploy.userName.empty() ? "Administrator" : cfg.deploy.userName;
+            const std::string winlogon = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+            commands.push_back("reg add \"" + winlogon + "\" /v AutoAdminLogon /t REG_SZ /d 1 /f");
+            commands.push_back(
+                "reg add \"" + winlogon + "\" /v DefaultUserName /t REG_SZ /d \"" + userName + "\" /f"
+            );
+            commands.push_back("reg add \"" + winlogon + "\" /v DefaultPassword /t REG_SZ /d \"\" /f");
+            if (cfg.sysprep.autoLogonCount > 0)
+            {
+                commands.push_back(
+                    "reg add \"" + winlogon + "\" /v AutoLogonCount /t REG_DWORD /d " +
+                    std::to_string(cfg.sysprep.autoLogonCount) + " /f"
+                );
+            }
+        }
+
         for (const auto& task : cfg.runPlan)
         {
             if (task.phase == "postinstall")
             {
-                postInstall.push_back(&task);
+                commands.push_back(buildCommandLine(task));
             }
         }
 
-        if (!postInstall.empty())
+        if (!commands.empty())
         {
             pugi::xml_node runSync = addChild(component, "RunSynchronous");
             int order = 1;
-            for (const osp::config::RunPlanTask* task : postInstall)
+            for (const std::string& commandLine : commands)
             {
                 pugi::xml_node command = addChild(runSync, "RunSynchronousCommand");
                 command.append_attribute("wcm:action") = "add";
                 // 顺序按 synchronousCommandChildOrder() 的子集：Order, Path
                 addTextChild(command, "Order", order);
-                addTextChild(command, "Path", buildCommandLine(*task));
+                addTextChild(command, "Path", commandLine);
                 ++order;
             }
         }
@@ -349,9 +436,17 @@ GenResult generate(const osp::config::Config& cfg)
         if (cfg.sysprep.autoLogon)
         {
             pugi::xml_node autoLogon = addChild(component, "AutoLogon");
-            // 顺序按 autoLogonChildOrder()
+            // 顺序按 autoLogonChildOrder()：Domain -> Enabled -> LogonCount -> Password -> Username
             addTextChild(autoLogon, "Enabled", true);
             addTextChild(autoLogon, "LogonCount", cfg.sysprep.autoLogonCount);
+            if (!cfg.sysprep.autoLogonPassword.empty())
+            {
+                // Winlogon 会静默忽略没有 <Password> 的 <AutoLogon>，密码必须按
+                // base64(UTF-16LE(密码 + "Password")) 写进 Value，且 PlainText=false
+                pugi::xml_node password = addChild(autoLogon, "Password");
+                addTextChild(password, "Value", encodeAutoLogonPassword(cfg.sysprep.autoLogonPassword));
+                addTextChild(password, "PlainText", false);
+            }
             const std::string userName = cfg.deploy.userName.empty() ? "Administrator" : cfg.deploy.userName;
             addTextChild(autoLogon, "Username", userName);
         }

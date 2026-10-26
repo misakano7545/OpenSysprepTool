@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -449,6 +450,45 @@ def verify_autologon(components: list[tuple[str, str, ET.Element]], cfg: dict | 
     check("AutoLogon/Username 与配置一致", username == expected_user,
           f"xml={username} cfg={expected_user}")
 
+    # 密码：Winlogon 会静默忽略没有 <Password> 的 <AutoLogon>。
+    # 有密码时必须写 base64(UTF-16LE(密码 + "Password")) 且 PlainText=false；
+    # 空密码时不写 <Password>，改由 specialize 的 RunSynchronous 写 Winlogon 注册表。
+    password = auto_logon.find(f"{{{NS}}}Password")
+    if password is None:
+        password = auto_logon.find("Password")
+    plain = cfg.get("sysprep", {}).get("autoLogonPassword") or ""
+
+    if not plain:
+        check("空密码时不写 <AutoLogon>/<Password>", password is None)
+        return
+
+    if not check("有密码时生成 <AutoLogon>/<Password>", password is not None):
+        return
+
+    def password_child(tag: str) -> str | None:
+        node = password.find(f"{{{NS}}}{tag}")
+        if node is None:
+            node = password.find(tag)
+        return None if node is None else (node.text or "").strip()
+
+    expected_value = base64.b64encode((plain + "Password").encode("utf-16-le")).decode("ascii")
+    check("Password/Value 是 base64(UTF-16LE(密码+Password))",
+          password_child("Value") == expected_value,
+          f"xml={password_child('Value')} expected={expected_value}")
+    check("Password/PlainText 为 false", password_child("PlainText") == "false",
+          str(password_child("PlainText")))
+
+
+def verify_autologon_known_vector() -> None:
+    """已知向量：'abc' + 'Password' 的 base64 必须与独立计算值一致。
+
+    这条不读产物，只固定编码规则本身，防止实现里悄悄改了填充或字节序。
+    """
+    section("验收：AutoLogon 密码编码已知向量")
+    expected = base64.b64encode("abcPassword".encode("utf-16-le")).decode("ascii")
+    check("已知向量 'abc' 的编码正确", expected == "YQBiAGMAUABhAHMAcwB3AG8AcgBkAA==", expected)
+    check("已知向量长度是 4 的倍数", len(expected) % 4 == 0, str(len(expected)))
+
 
 def verify_logon_landing(components: list[tuple[str, str, ET.Element]],
                          cfg: dict | None) -> None:
@@ -549,8 +589,28 @@ def verify_run_synchronous(components: list[tuple[str, str, ET.Element]],
     commands = [] if container is None else [
         c for c in container if isinstance(c.tag, str) and local_name(c.tag) == "RunSynchronousCommand"
     ]
-    check("RunSynchronous 条数与输入一致", len(commands) == len(post_install),
-          f"xml={len(commands)} cfg={len(post_install)}")
+
+    # 空密码自动登录会在 specialize 里注入 4 条 reg add（AutoAdminLogon /
+    # DefaultUserName / DefaultPassword / AutoLogonCount），计入期望条数。
+    winlogon_commands = 0
+    sysprep_cfg = cfg.get("sysprep", {})
+    if sysprep_cfg.get("autoLogon") and not (sysprep_cfg.get("autoLogonPassword") or ""):
+        winlogon_commands = 4 if int(sysprep_cfg.get("autoLogonCount", 1)) > 0 else 3
+
+    expected = len(post_install) + winlogon_commands
+    check("RunSynchronous 条数与输入一致", len(commands) == expected,
+          f"xml={len(commands)} cfg={expected}（其中 Winlogon 注入 {winlogon_commands} 条）")
+
+    if winlogon_commands:
+        paths = []
+        for command in commands:
+            for child in command:
+                if local_name(child.tag) == "Path":
+                    paths.append(child.text or "")
+        joined = "\n".join(paths)
+        for token in ("AutoAdminLogon", "DefaultUserName", "DefaultPassword"):
+            check(f"Winlogon 注入含 {token}", token in joined)
+        check("DefaultPassword 写的是空字符串", '/v DefaultPassword /t REG_SZ /d "" /f' in joined)
 
     for index, command in enumerate(commands, start=1):
         order = None
@@ -637,6 +697,7 @@ def main(argv: list[str]) -> int:
     verify_pass_validity(components)
     verify_computer_name(components, cfg)
     verify_autologon(components, cfg)
+    verify_autologon_known_vector()
     verify_logon_landing(components, cfg)
     verify_run_synchronous(components, cfg)
     verify_values(components)
