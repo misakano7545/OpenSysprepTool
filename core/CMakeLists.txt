@@ -13,6 +13,9 @@ add_library(osp_core STATIC
   dism/dism.cpp
   srsinject/srsinject.cpp
   sysprep/sysprep.cpp
+  # M9 新增：注册表 RAII 与封装前设置应用
+  regio/regio.cpp
+  prepare/prepare.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp
 )

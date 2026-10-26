@@ -12,7 +12,7 @@
 
 ## 状态
 
-M1–M8 全部完成，当前版本 **0.1.1**。八个里程碑：工程骨架与核心库、系统体检、
+M1–M8 全部完成，当前版本 **0.1.1**；M9 封装前设置已实现（未发版）。八个里程碑：工程骨架与核心库、系统体检、
 unattend.xml 生成、运行计划调度器、部署运行时与 Windows 7 SP1 兼容、驱动注入与
 sysprep 编排、主程序配置界面、集成测试矩阵与发版。详见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -77,6 +77,9 @@ ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]   生成运
 ospt --inject-drivers --image <挂载点> --driver <目录> --dry-run      模式 A 标准驱动包
 ospt --inject-drivers --image <挂载点> --srs <目录> --dry-run         模式 B SRS 注册表绑定
 ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]        封装编排
+ospt --prepare <cfg.json> [--dry-run|--execute] [--report <json>] [--journal <json>]   封装前设置
+ospt --rollback <journal.json> [--dry-run|--execute]                  回滚封装前设置
+ospt --prepare-selftest                                               封装前设置自检（只写 HKCU）
 ospt --ui-smoke-test [--visible] [--report <json>]      界面冒烟测试
 ospt --version                                          版本与源码地址
 ospt --help                                             用法
@@ -107,11 +110,13 @@ osptd --version                                         版本与源码地址
 `ospt.exe` 与 `osptd.exe` 需要**管理员权限**（装驱动、写离线注册表、跑 sysprep 都要管理员）：
 
 - **界面（无参数或 `--ui`）和真正需要管理员的操作**（`--inject-drivers` / `--sysprep` /
-  `--execute` / `--plan` 不带 `--dry-run`）启动时自动提权：未提权的会话里启动它，会用
+  `--execute` / `--prepare --execute` / `--rollback --execute` / `--plan` 不带 `--dry-run`）
+  启动时自动提权：未提权的会话里启动它，会用
   `runas` 重新启动自己（UAC 可能弹一次），新进程以管理员身份运行，原进程等待其退出并
   返回其退出码。
 - **只读开关不自动提权**：`--version` / `--help` / `--selftest` / `--checkup` /
-  `--gen-unattend` / `--gen-runplan` / `--ui-smoke-test` / `--win7-compat` / `--dry-run`
+  `--gen-unattend` / `--gen-runplan` / `--prepare --dry-run` / `--prepare-selftest` /
+  `--ui-smoke-test` / `--win7-compat` / `--dry-run`
   这些不需要管理员，直接跑（CI 也要能跑）。
 - 清单保持 `asInvoker`：如果写成 `requireAdministrator`，`CreateProcess` 会在未提权时
   直接拒绝（740），自动提权逻辑就没机会跑。提权是在 `main()` 开头做的。
@@ -130,6 +135,23 @@ osptd --version                                         版本与源码地址
   的 `--execute`。这是刻意的安全边界。
 - 界面是原生 Win32 标准控件（页签、编辑框、复选框、下拉框、进度条、列表视图），
   视觉完全自研，不做换肤，不引入任何图片或字体资源。
+
+### 封装前设置（M9）
+
+配置界面里有一批字段以前只被 JSON 存下来，没有执行者。`--prepare` 把它们翻译成显式动作：
+注册表写入、系统命令、目录复制/移动/清空，先 `--dry-run` 预览，`--execute` 才落地。
+可回滚的动作（注册表值、文件移动/复制、新建目录）写进 journal，`--rollback` 逆序还原；
+清空临时目录与 `sfc /purgecache` 标记为**不可回滚**。
+
+本里程碑落地 11 个动作：关闭小键盘、开启休眠、关闭关机事件跟踪（两条策略值）、
+虚拟内存换盘、同步 IE 收藏夹、启用 Administrator、转移桌面文件、清空两个临时目录、
+清理 DLLCache。配置里还有 12 项（我的文档转移、IE 主页同步、自动 IP、清理 SRS、
+卸载本机驱动、文件防篡改、禁止虚拟机部署等）暂不执行，`--prepare` 的 deferred 段
+**逐条写明原因**，不假装做了。
+
+`--prepare-selftest` 只写 `HKCU\Software\OpenSysprepTool\SelfTest`，不需要管理员，
+CI 用它证明执行器与回滚链路真的能跑。真实执行会改系统设置，必须显式 `--execute`；
+`--prepare` 不带开关只打印计划并返回 2。
 
 ## 测试与验收
 
@@ -167,6 +189,7 @@ python tests/integration/verify_runplan.py tests/integration/fixtures/m4_plan.js
 python tests/integration/verify_deploy_exec.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe
 python tests/integration/verify_win7_compat.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe
 python tests/integration/verify_drivers.py build/bin/Release/ospt.exe
+python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 python tests/integration/verify_ui.py build/bin/Release/ospt.exe
 python tests/integration/verify_elevation.py build/bin/Release/ospt.exe build/bin/Release/osptd.exe build/bin/Release/osp_unit_tests.exe
 
@@ -188,6 +211,7 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 | `verify_deploy_exec.py` | 全绿；dry-run 无副作用、等待/超时/中止与回滚都真实执行 |
 | `verify_win7_compat.py` | 子系统版本 6.1 且类型与 target 相符（ospt=WINDOWS）、导入表无 Win8+ API、无动态 VC 运行库；外附 4 组篡改负例 |
 | `verify_drivers.py` | 全绿；断言仓库里没有任何驱动二进制、没有链接 DismApi.dll、dry-run 零副作用 |
+| `verify_prepare.py` | 全绿；dry-run 零副作用、动作与配置逐条对应、推迟项都有原因、`--prepare-selftest` 写入并回滚；提权会话里真实执行 `closeNumLock` 再用 `--rollback` 还原 |
 | `verify_ui.py` | 全绿；逐页核对打开情况、统计六类控件响应证据、断言红线控件名不出现 |
 | `verify_release.py --check-tag` | tag 去掉 `v` 后与 `core/include/core/version.hpp` 的三段版本号完全一致，否则失败 |
 
@@ -198,7 +222,8 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 [ci.yml](https://github.com/misakano7545/OpenSysprepTool/actions/workflows/ci.yml)（`x64` 与 `x86` 双架构矩阵）：
 Configure → Build → Test → Selftest → Version → Unattend 校验 → Runplan 校验 →
 部署运行时验收 → Win7 兼容闸门 → UI 冒烟测试 → M6 驱动注入验收 →
-Artifact 内容断言（打印实际字节数与 SHA256，缺失或 0 字节直接失败）→ 上传 `ospt-x64` / `ospt-x86`。
+M9 封装前设置验收 → Artifact 内容断言（打印实际字节数与 SHA256，缺失或 0 字节直接失败）→
+上传 `ospt-x64` / `ospt-x86`。
 
 [lint.yml](https://github.com/misakano7545/OpenSysprepTool/actions/workflows/lint.yml)：
 固定版本 clang-format（19.1.5），**只检查本次改动涉及的源文件**，不要求历史文件重排。
@@ -252,6 +277,8 @@ core/            静态库 osp_core，两个 exe 共用
   dism/          DISM 封装（M6）
   srsinject/     SRS 离线注册表注入（M6）
   sysprep/       sysprep 编排（M6）
+  regio/         注册表 RAII（M9）
+  prepare/       封装前设置：动作计划、执行与回滚（M9）
 host/            主程序 ospt.exe（含 ui/ 配置界面，M7）
 deploy/          部署运行时 osptd.exe（M5）
 tests/unit/      单元测试（doctest）

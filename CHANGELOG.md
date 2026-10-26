@@ -7,6 +7,24 @@
 
 ### Added
 
+- **M9 封装前设置**：`core/regio`（注册表 RAII，HKLM / HKCU / HKU\\.DEFAULT，六种值类型，
+  HKLM 固定 64 位视图）+ `core/prepare`（配置 → 动作计划 → 执行 → journal → 回滚）
+- `ospt --prepare <cfg.json> --dry-run|--execute [--report <json>] [--journal <json>]`：
+  把配置里以前只存不做的字段落成 11 个显式动作 —— 关闭小键盘、开启休眠、关闭关机事件
+  跟踪（`ShutdownReasonOn` / `ShutdownReasonUI`）、虚拟内存换盘（`PagingFiles` 写成
+  `<盘>:\pagefile.sys 0 0`）、同步 IE 收藏夹到默认用户、启用 Administrator、转移桌面
+  文件到公共桌面、清空用户/Windows 临时目录、`sfc /purgecache`
+- `ospt --rollback <journal.json> --dry-run|--execute`：逆序还原注册表旧值、移回文件、
+  删除复制/新建的目录；临时目录清理与 `sfc /purgecache` 标记为不可回滚
+- `ospt --prepare-selftest`：只写 `HKCU\Software\OpenSysprepTool\SelfTest`，写入三种
+  值类型后回滚并核对，不需要管理员
+- `--prepare` 的 deferred 段逐条列出暂不执行的 12 项配置及原因（我的文档转移、IE 主页、
+  自动 IP、清理 SRS、卸载驱动、文件防篡改、禁止虚拟机部署等），不静默略过
+- `tests/integration/verify_prepare.py`（46 项）：dry-run 零副作用、动作与配置逐条对应、
+  推迟项都有原因、坏配置/坏日志退出码、自检、提权会话里真实执行 `closeNumLock` 再用
+  `--rollback` 还原
+- `tests/unit/test_regio.cpp` / `test_prepare.cpp`（12 个用例 / 136 条断言）
+- CI 增加「封装前设置验收」步骤
 - `tests/integration/verify_elevation.py`：自动提权闸门 —— 断言两个产品的嵌入清单声明
   `asInvoker`（启动时自检 + runas 重启提权）、`ospt.exe` 是 WINDOWS 子系统、
   `osptd.exe` 是 CONSOLE，子系统版本仍为 6.1；**未提权时产物正常退出（启动了提权副本）**，
@@ -18,6 +36,8 @@
 
 ### Changed
 
+- `--prepare` / `--rollback` 只有带 `--execute` 才自动提权；`--dry-run`、只打印计划与
+  `--prepare-selftest` 都不提权（CI 与非管理员会话可直接跑）
 - **`ospt.exe` 改成 GUI 子系统**（`/SUBSYSTEM:WINDOWS,6.01` + `/ENTRY:mainCRTStartup`）：
   正常启动只出现配置界面，不再附带命令行窗口。**`--console` 显式保留/新建命令行窗口**；
   CLI 与冒烟测试的输出在 stdout 不可用时才回落到父控制台，重定向与管道场景不劫流。

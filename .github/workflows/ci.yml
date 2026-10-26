@@ -279,6 +279,25 @@ jobs:
           }
           exit 0
 
+      # M9 增量：封装前设置。dry-run 与 --prepare-selftest 不需要管理员；
+      # execute/rollback 只在提权会话里跑（runner 本身是管理员）。
+      - name: 封装前设置验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm9-prepare.log'
+          python tests\integration\verify_prepare.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
+            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            exit $code
+          }
+          exit 0
+
       - name: Artifact 内容断言
         shell: pwsh
         run: |

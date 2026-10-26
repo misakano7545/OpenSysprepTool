@@ -12,6 +12,8 @@ add_executable(osp_unit_tests
   test_srsinject.cpp
   test_sysprep.cpp
   test_ui.cpp
+  test_regio.cpp
+  test_prepare.cpp
 )
 
 # 界面数据层（页面与字段）被单测直接覆盖：它不依赖窗口，也不依赖 ATL/WTL，

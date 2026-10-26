@@ -20,6 +20,15 @@
 
 #include "ui/ui.hpp"
 
+namespace osp::host {
+
+// 定义在 cli_prepare.cpp（M9）
+int runPrepareCommandLine(int argc, char** argv);
+int runRollbackCommandLine(int argc, char** argv);
+int runPrepareSelfTest();
+
+} // namespace osp::host
+
 namespace {
 
 constexpr const char* kRepoUrl = "https://github.com/misakano7545/OpenSysprepTool";
@@ -192,6 +201,10 @@ void printUsage()
     std::printf("  ospt --inject-drivers --image <挂载点> --srs <目录> --dry-run     模式 B SRS 注册表绑定\n"
     );
     std::printf("  ospt --sysprep --dry-run [--image <挂载点>] [--unattend <xml>]     封装编排\n");
+    std::printf("  ospt --prepare <cfg.json> [--dry-run|--execute] [--report <json>] [--journal <json>]\n");
+    std::printf("                                                    封装前设置：预览 / 执行 / 回滚日志\n");
+    std::printf("  ospt --rollback <journal.json> [--dry-run|--execute]  回滚封装前设置\n");
+    std::printf("  ospt --prepare-selftest                          封装前设置自检（只写 HKCU）\n");
     std::printf("  ospt --ui-smoke-test [--visible] [--report <json>]        界面冒烟测试\n");
     std::printf("  ospt --version     版本与源码地址\n");
     std::printf("  ospt --help        本说明\n");
@@ -1075,7 +1088,16 @@ int main(int argc, char** argv)
     const bool operation = argc >= 2 &&
         (std::strcmp(argv[1], "--inject-drivers") == 0 || std::strcmp(argv[1], "--sysprep") == 0 ||
          std::strcmp(argv[1], "--execute") == 0);
-    const bool needsAdmin = wantsUi || (operation && !dryRun);
+    const bool prepareOperation =
+        argc >= 2 && (std::strcmp(argv[1], "--prepare") == 0 || std::strcmp(argv[1], "--rollback") == 0);
+    bool wantsExecute = false;
+    for (int i = 2; i < argc; ++i)
+    {
+        wantsExecute = wantsExecute || std::strcmp(argv[i], "--execute") == 0;
+    }
+    // --prepare / --rollback 只有 --execute 才需要管理员；--dry-run 与只打印计划不提权。
+    const bool needsAdmin =
+        wantsUi || (operation && !dryRun) || (prepareOperation && wantsExecute && !dryRun);
 
     if (needsAdmin)
     {
@@ -1161,6 +1183,21 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--sysprep") == 0)
     {
         return runSysprep(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--prepare") == 0)
+    {
+        return osp::host::runPrepareCommandLine(argc - 1, argv + 1);
+    }
+
+    if (std::strcmp(arg, "--rollback") == 0)
+    {
+        return osp::host::runRollbackCommandLine(argc - 1, argv + 1);
+    }
+
+    if (std::strcmp(arg, "--prepare-selftest") == 0)
+    {
+        return osp::host::runPrepareSelfTest();
     }
 
     if (std::strcmp(arg, "--ui-smoke-test") == 0)

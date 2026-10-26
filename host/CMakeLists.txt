@@ -10,6 +10,8 @@
 
 add_executable(ospt
   main.cpp
+  # M9：封装前设置的命令行（--prepare / --rollback / --prepare-selftest）
+  cli_prepare.cpp
   # M7a：主界面框架与配置页（原生控件 + WTL 薄封装）
   ui/ui_frame.cpp
   ui/ui_pages.cpp

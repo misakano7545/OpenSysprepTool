@@ -60,7 +60,8 @@ D:\dev\OpenSysprepTool\
 │   ├─ unattend/               unattend.xml 生成
 │   ├─ runplan/                任务模型 + 脚本生成
 │   ├─ sysinfo/                系统查询
-│   ├─ regio/                  注册表 RAII
+│   ├─ regio/                  注册表 RAII（M9）
+│   ├─ prepare/                封装前设置：动作计划 / 执行 / 回滚（M9）
 │   ├─ dism/                   DISM 封装（模式 A：.inf 驱动包）
 │   ├─ srsinject/              SRS 离线 hive 注入（模式 B：裸 .sys + CDD/Services）
 │   ├─ oem/                    OEM 信息
@@ -561,6 +562,54 @@ Win7 真机验证前先确认前提补丁（见 §8 M5.1）：**SP1 必需**；�
 
 验收记录要包含每台 VM 的：系统版本与 SP、产物架构、计划执行日志、失败回滚是否生效。
 
+### M9 — 封装前设置应用（1 周）
+
+**交付**：配置界面里那些**只被 JSON 存下来、没有执行者**的字段，落成显式动作。
+
+问题来源：M7 把配置页按 DFM 图纸铺完了，但 `sysprep.cleanTemp`、`optimization.closeNumLock`、
+`deploy.enableAdministrator` 这些开关只进了 `cfg.json`，没有任何代码读它们去改系统。
+对标产品（SC / ES5P）在封装前会真做这些事，否则这些开关等于装饰。
+
+**模型**（`core/prepare`）：
+
+| 动作类型 | 落地方式 | 可回滚 |
+|---|---|---|
+| `registrySet` / `registryDelete` | `core/regio` 的 RAII 封装，HKLM 固定 64 位视图 | ✅ 记旧值 |
+| `runCommand` | `CreateProcess`（复用 `dism::runCommand`），**不用 `system()`** | ❌ |
+| `copyTree` / `moveTree` | `std::filesystem`，目标已存在时跳过并告警 | ✅ 记路径 |
+| `makeDirectory` / `deleteTree` | 同上；`deleteTree` 只清空内容，保留目录本身 | 建目录 ✅ / 清空 ❌ |
+
+**三道安全边界**：
+
+1. `--dry-run` 只读配置与环境变量，**不碰注册表、不碰文件**；`--prepare` 不带开关只打印计划并返回 2
+2. 真实执行必须显式 `--execute`，且只有这时才自动提权（`--dry-run` 与 `--prepare-selftest` 不提权）
+3. 可回滚动作写进 journal（默认 `ospt-prepare-journal.json`），`--rollback` 逆序还原；
+   不可回滚的动作在计划里逐条标注
+
+**本里程碑落地 11 个动作**：关闭小键盘（`HKU\.DEFAULT` 的 `InitialKeyboardIndicators=2`）、
+开启休眠（`powercfg /hibernate on`）、关闭关机事件跟踪（`ShutdownReasonOn` / `ShutdownReasonUI`）、
+虚拟内存换盘（`PagingFiles` 写成 `<盘>:\pagefile.sys 0 0`）、同步 IE 收藏夹到默认用户、
+启用 Administrator、转移桌面文件到公共桌面、清空用户与 Windows 临时目录、`sfc /purgecache`。
+
+**明确推迟的 12 项**（`--prepare` 的 deferred 段逐条写明原因，不静默略过）：
+我的文档转移、IE 主页同步（两项都要离线加载 `Users\Default\NTUSER.DAT`，归 M10）、
+自动 IP（配置模型缺 IP/掩码/网关/DNS 字段）、清理 SRS、卸载本机驱动（归驱动模块）、
+任务栏固定、智能分辨率、`rebootAfterRun`（要改 unattend 生成器）、
+文件防篡改与 MD5 清单（M10）、禁止虚拟机部署（由 `osptd` 在目标机判定）、
+`loadSrsDrivers`（M6 的 `--inject-drivers --srs` 已覆盖）、`perServerLicensing`（unattend 未写 Licensing 组件）。
+
+**验收**：
+
+```
+python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
+    → dry-run 零副作用、11 个动作与配置逐条对应、推迟项都有原因、坏配置退出码 1
+    → --prepare-selftest 写入三种值类型并回滚（不需要管理员）
+    → 提权会话：--prepare --execute 写 closeNumLock，--rollback --execute 还原
+```
+
+`--prepare-selftest` 只碰 `HKCU\Software\OpenSysprepTool\SelfTest`，所以 CI 的非管理员
+步骤也能证明执行器与回滚链路真的能跑，而不是只打印一段文本。
+
 ---
 
 ## 9. 持续集成与发版
@@ -688,6 +737,7 @@ GPL-3.0 规定分发二进制必须同时提供对应源码。所以：
 | M6 | DISM 相关只能 `--dry-run`，CI 里跑 dry-run 并断言命令行文本；**模式 B 的 SRS 注入断言每个 `RegSetValueEx` 的键路径与值，不碰真实 hive** |
 | M7 | UI smoke test 在无头环境可能跳过，**必须显式打印 skip 原因**，不许静默略过；主程序加 x86 |
 | M8 | `release.yml` 首次实跑，产出 v0.1.0 |
+| M9 | 「封装前设置验收」步骤进 CI ✅ —— `verify_prepare.py` 断言 dry-run 零副作用、动作与配置逐条对应、推迟项都有原因、坏配置/坏日志退出码、`--prepare-selftest` 写入并回滚；runner 是管理员，所以提权分支真实执行 `closeNumLock` 再用 `--rollback` 还原 |
 
 **`lint.yml` 的实际做法**（比原计划更好，记录备查）：
 
@@ -788,7 +838,11 @@ CI 里 runner 自带 PATH，无此问题。
 | **M3 unattend.xml 生成** | ✅ **完成**（`90ca731` + `a5f0a48`；语义修正 `1453063`） |
 | **M4 运行计划调度器** | ✅ **完成**（`9505fdc`，CHANGELOG `df0819c`） |
 | **M5 部署运行时 + Win7 SP1** | ✅ **完成**（`1178515` + `3e6357c` + `30b630b`） |
-| M6–M8 | ⬜ 未开始 |
+| **M6 驱动注入 + sysprep 编排** | ✅ **完成**（`fd90cfe`，CI 增 M6 步骤） |
+| **M7 主程序 UI** | ✅ **完成**（`34b149e` M7a + `705ca2e` M7b + `287deda` 可用化） |
+| **M8 集成测试矩阵 + 发版** | ✅ **完成**（`a604e24`；v0.1.0 已发） |
+| 发版 0.1.1 | ✅ 完成（`5e06d46`；GUI 子系统 + 自动提权在 0.1.1 之后） |
+| **M9 封装前设置应用** | ✅ **完成**（未发版，见下「M9 验收记录」） |
 
 **M1–M5 验收记录**（2026-10-25，末次实测 sha `30b630b`）
 
@@ -847,12 +901,38 @@ CI  run #19（1178515）failure → #20（3e6357c）success → #21（30b630b）
 2. CI 里用 PowerShell 调原生命令时，`2>&1 | Tee-Object` 配合 `$ErrorActionPreference='Stop'`
    会吞掉 `$LASTEXITCODE`，**校验失败却显示 success**。已改成显式判退出码。
 
-**下一步**：M6 驱动注入与 sysprep 编排。M6 会用上 M5 建立的 Win7 能力
-（`core/win7` 的重定向处理、`probeFileNative`），并按 §8 M6 实现两种注入模式。
-顺手可做的两件小事（见 §8 M5.2「两个已知的不对称」）：给 `ospt.exe` 补 `--win7-compat`
-自述；`/SUBSYSTEM:CONSOLE,6.01` 在 M7 改 GUI 子系统前要按 target 区分。
+**M9 验收记录**（2026-10-26，本机 x64 + x86）
 
-**推送状态（2026-10-25）**：主仓库远端 = 本地 = `30b630b`（CI #21 success，Lint #12 success）。
+```
+ctest --test-dir build     -C Release  → 1/1 passed（doctest 104 cases / 27,068 assertions）
+ctest --test-dir build-x86 -C Release  → 1/1 passed（同上，两架构一致）
+  其中 M9 新增 12 cases / 136 assertions（regio 3 + prepare 9）
+
+ospt --prepare-selftest                → prepare selftest OK（3 个动作已写入并回滚，值已还原）
+
+python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
+                                       → RESULT: ALL PASSED（36 项检查，1 项跳过）
+python tests/integration/verify_prepare.py build-x86/bin/Release/ospt.exe
+                                       → RESULT: ALL PASSED（36 项检查，1 项跳过）
+   跳过项 = 未提权会话里的真实执行；提权会话单独跑过：
+   → RESULT: ALL PASSED（46 项检查，0 项跳过）
+     含 execute 写 NumLock=2 → rollback dry-run → rollback execute → 值还原逐项核对
+
+--prepare --dry-run（11 个动作 / 12 项推迟）实测输出节选
+   RegSetValueEx  HKU\.DEFAULT\Control Panel\Keyboard  "InitialKeyboardIndicators" (sz) = 2
+   执行  C:\Windows\System32\powercfg.exe /hibernate on
+   RegSetValueEx  HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management
+                  "PagingFiles" (multiSz) = D:\pagefile.sys 0 0
+   清空目录  C:\Users\Admin\AppData\Local\Temp（不可回滚）
+
+tests/tools/run_acceptance_elevated.ps1 全 15 步 exit=0（新增「封装前设置」一步）
+```
+
+**下一步**：M10 —— 离线加载 `Users\Default\NTUSER.DAT` 把「我的文档转移 / IE 主页同步」
+补上，以及文件防篡改清单（用户态 MD5 校验）与驱动卸载。这三项是 M9 deferred 段里
+最常被配置到的，其余推迟项各有归属模块。
+
+**推送状态（2026-10-26）**：M9 提交后主仓库远端 = 本地（CI 与 Lint 结果见 Actions）。
 驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
 
 **正确的推送姿势**（本阶段踩了坑，见 §10）：
