@@ -1,0 +1,30 @@
+{
+  "form": "MlSkinResDM",
+  "class": "TMlSkinResDM",
+  "clientHeight": null,
+  "clientWidth": null,
+  "controls": [
+    {
+      "path": "MlSkinResDM",
+      "name": "MlSkinResDM",
+      "class": "TMlSkinResDM",
+      "caption": "",
+      "left": null,
+      "top": null,
+      "width": 313,
+      "height": 265,
+      "depth": 0
+    },
+    {
+      "path": "MlSkinResDM/MlSkinImageListMain",
+      "name": "MlSkinImageListMain",
+      "class": "TMlSkinImageList",
+      "caption": "",
+      "left": 136,
+      "top": 88,
+      "width": null,
+      "height": null,
+      "depth": 1
+    }
+  ]
+}

@@ -193,17 +193,153 @@ public:
     std::vector<ControlRef> controls;
     int offsetY = 0;
     int contentHeight = 0;
+    int spinAngle = 0; // 转圈动画的当前角度，由定时器推进
+    UINT_PTR spinTimer = 0;
+    static constexpr UINT_PTR kSpinTimer = 0x51;
+
+    // 控件 ID -> DFM 控件名（自绘时需要知道画什么）
+    std::string imageIdFor(int controlId)
+    {
+        const int index = controlId - static_cast<int>(kIdcFieldBase);
+        const Field* field = fieldAt(index);
+        if (field == nullptr || field->kind != FieldKind::Image)
+        {
+            return std::string();
+        }
+        return field->id;
+    }
 
     BEGIN_MSG_MAP(PagePanel)
     MESSAGE_HANDLER(WM_CREATE, OnCreate)
     MESSAGE_HANDLER(WM_SIZE, OnSize)
     MESSAGE_HANDLER(WM_VSCROLL, OnVScroll)
     MESSAGE_HANDLER(WM_COMMAND, OnCommand)
+    MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
+    MESSAGE_HANDLER(WM_TIMER, OnTimer)
     END_MSG_MAP()
+
+    // 图纸里的 TImage（Pic_RunGif / PIC_Success / PIC_Error）。SC 的位图不能搬，
+    // 这里按同一矩形自绘我们自己的图案：运行页是转动的圆弧，成功页是对勾、失败页是叉。
+    LRESULT OnDrawItem(UINT, WPARAM, LPARAM lParam, BOOL&)
+    {
+        auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (item == nullptr || item->CtlType != ODT_STATIC)
+        {
+            return FALSE;
+        }
+        const std::string id = imageIdFor(static_cast<int>(item->CtlID));
+        if (id.empty())
+        {
+            return FALSE;
+        }
+
+        const int width = item->rcItem.right - item->rcItem.left;
+        const int height = item->rcItem.bottom - item->rcItem.top;
+        HDC dc = item->hDC;
+        RECT area = item->rcItem;
+
+        // 底色与页面一致，避免重绘残影
+        HBRUSH background = ::CreateSolidBrush(::GetSysColor(COLOR_BTNFACE));
+        ::FillRect(dc, &area, background);
+        ::DeleteObject(background);
+
+        const int size = (std::min)(width, height);
+        const int left = area.left + (width - size) / 2;
+        const int top = area.top + (height - size) / 2;
+        const int right = left + size;
+        const int bottom = top + size;
+
+        if (id == "Pic_RunGif")
+        {
+            // 转动的圆弧：四段，靠 timer 推进起始角
+            HPEN pen = ::CreatePen(PS_SOLID, (std::max)(3, size / 14), RGB(0x2F, 0x6F, 0xD0));
+            HGDIOBJ oldPen = ::SelectObject(dc, pen);
+            const int inset = size / 8;
+            for (int i = 0; i < 4; ++i)
+            {
+                const int start = (spinAngle + i * 90) % 360;
+                ::MoveToEx(dc, 0, 0, nullptr);
+                ::AngleArc(
+                    dc,
+                    (left + right) / 2,
+                    (top + bottom) / 2,
+                    (size - inset * 2) / 2,
+                    static_cast<float>(start),
+                    60.0f
+                );
+            }
+            ::SelectObject(dc, oldPen);
+            ::DeleteObject(pen);
+            return TRUE;
+        }
+
+        // 成功 / 失败：圆 + 对勾或叉
+        const bool success = id == "PIC_Success";
+        const COLORREF color = success ? RGB(0x2E, 0xA0, 0x43) : RGB(0xC0, 0x3A, 0x2B);
+        HBRUSH fill = ::CreateSolidBrush(color);
+        HPEN ring = ::CreatePen(PS_SOLID, 2, color);
+        HGDIOBJ oldBrush = ::SelectObject(dc, fill);
+        HGDIOBJ oldPen = ::SelectObject(dc, ring);
+        ::Ellipse(dc, left + 4, top + 4, right - 4, bottom - 4);
+
+        HPEN mark = ::CreatePen(PS_SOLID, (std::max)(3, size / 12), RGB(255, 255, 255));
+        ::SelectObject(dc, mark);
+        if (success)
+        {
+            POINT points[3] = {
+                {left + size / 4, top + size / 2},
+                {left + size / 2 - size / 20, bottom - size / 3},
+                {right - size / 4, top + size / 3},
+            };
+            ::Polyline(dc, points, 3);
+        }
+        else
+        {
+            ::MoveToEx(dc, left + size / 4, top + size / 4, nullptr);
+            ::LineTo(dc, right - size / 4, bottom - size / 4);
+            ::MoveToEx(dc, right - size / 4, top + size / 4, nullptr);
+            ::LineTo(dc, left + size / 4, bottom - size / 4);
+        }
+        ::SelectObject(dc, oldBrush);
+        ::SelectObject(dc, oldPen);
+        ::DeleteObject(fill);
+        ::DeleteObject(ring);
+        ::DeleteObject(mark);
+        return TRUE;
+    }
 
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     {
         rebuild();
+        return 0;
+    }
+
+    // 运行页的转圈动画：自绘的圆弧靠定时器推进角度，80ms 一帧
+    LRESULT OnTimer(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        if (wParam != kSpinTimer || owner == nullptr || currentPage < 0 ||
+            currentPage >= static_cast<int>(owner->pages.size()))
+        {
+            return 0;
+        }
+        spinAngle = (spinAngle + 24) % 360;
+        const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+        int index = 0;
+        for (const Group& group : page.groups)
+        {
+            for (const Field& field : group.fields)
+            {
+                if (field.id == "Pic_RunGif")
+                {
+                    HWND control = controlAt(index);
+                    if (control != nullptr)
+                    {
+                        ::InvalidateRect(control, nullptr, TRUE);
+                    }
+                }
+                ++index;
+            }
+        }
         return 0;
     }
 
@@ -391,44 +527,62 @@ public:
         for (std::size_t g = 0; g < page.groups.size(); ++g)
         {
             const Group& group = page.groups[g];
-            CButton groupBox;
-            groupBox.Create(
-                m_hWnd,
-                rcDefault,
-                toWide(group.caption).c_str(),
-                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-                0,
-                static_cast<UINT>(kIdcGroupBase + g)
-            );
-            decorations.push_back(groupBox.m_hWnd);
+            // caption 为空 = 图纸这里是 Pan_* 面板（BorderSides = []），没有边框，不画分组框
+            if (!group.caption.empty())
+            {
+                CButton groupBox;
+                groupBox.Create(
+                    m_hWnd,
+                    rcDefault,
+                    toWide(group.caption).c_str(),
+                    WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                    0,
+                    static_cast<UINT>(kIdcGroupBase + g)
+                );
+                decorations.push_back(groupBox.m_hWnd);
+            }
 
             for (const Field& field : group.fields)
             {
-                CStatic label;
-                label.Create(
-                    m_hWnd,
-                    rcDefault,
-                    toWide(field.label).c_str(),
-                    WS_CHILD | WS_VISIBLE | SS_LEFT,
-                    0,
-                    static_cast<UINT>(kIdcLabelBase + index)
-                );
-                decorations.push_back(label.m_hWnd);
+                // 图纸绝对布局的控件自己就是「标签」（Lab_* 在 SC 里是独立控件），
+                // 再补一行左侧说明会多出图纸上没有的东西
+                if (!field.placed())
+                {
+                    CStatic label;
+                    label.Create(
+                        m_hWnd,
+                        rcDefault,
+                        toWide(field.label).c_str(),
+                        WS_CHILD | WS_VISIBLE | SS_LEFT,
+                        0,
+                        static_cast<UINT>(kIdcLabelBase + index)
+                    );
+                    decorations.push_back(label.m_hWnd);
+                }
 
                 const UINT controlId = static_cast<UINT>(kIdcFieldBase + index);
                 HWND handle = nullptr;
                 switch (field.kind)
                 {
                 case FieldKind::Info: {
+                    // 图纸绝对布局的 Lab_* 是纯文本标签：不能带 3D 边框（那是编辑框的样子），
+                    // 对齐也照图纸来
+                    DWORD style = WS_CHILD | WS_VISIBLE | SS_LEFT;
+                    DWORD exStyle = WS_EX_CLIENTEDGE;
+                    if (field.placed())
+                    {
+                        exStyle = 0;
+                        if (field.align == 1)
+                        {
+                            style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
+                        }
+                        else if (field.align == 2)
+                        {
+                            style = WS_CHILD | WS_VISIBLE | SS_CENTER;
+                        }
+                    }
                     CStatic value;
-                    value.Create(
-                        m_hWnd,
-                        rcDefault,
-                        toWide(field.value).c_str(),
-                        WS_CHILD | WS_VISIBLE | SS_LEFT,
-                        WS_EX_CLIENTEDGE,
-                        controlId
-                    );
+                    value.Create(m_hWnd, rcDefault, toWide(field.value).c_str(), style, exStyle, controlId);
                     handle = value.m_hWnd;
                     break;
                 }
@@ -512,6 +666,14 @@ public:
                     ::SendMessageW(bar.m_hWnd, PBM_SETRANGE32, 0, 100);
                     ::SendMessageW(bar.m_hWnd, PBM_SETPOS, static_cast<WPARAM>(field.progress), 0);
                     handle = bar.m_hWnd;
+                    break;
+                }
+                case FieldKind::Image: {
+                    // 图纸里的 TImage，图案我们自绘（SC 的位图不搬）。
+                    // SS_OWNERDRAW + 父窗口画：ui_frame 在 WM_DRAWITEM 里按 field.id 选图案。
+                    CStatic image;
+                    image.Create(m_hWnd, rcDefault, L"", WS_CHILD | WS_VISIBLE | SS_OWNERDRAW, 0, controlId);
+                    handle = image.m_hWnd;
                     break;
                 }
                 case FieldKind::List: {
@@ -630,6 +792,45 @@ public:
             return;
         }
         const Page& page = owner->pages[static_cast<std::size_t>(currentPage)];
+
+        // 图纸绝对布局页（运行 / 完成）：坐标是 800x540 设计空间里的绝对值，
+        // 按客户区宽度等比缩放。这类页不滚动、也不做纵向堆叠。
+        if (page.dfmLayout && page.clientWidth > 0 && page.clientHeight > 0)
+        {
+            const double scale = static_cast<double>(width) / static_cast<double>(page.clientWidth);
+            int index = 0;
+            for (const Group& group : page.groups)
+            {
+                for (const Field& field : group.fields)
+                {
+                    HWND control = controlAt(index);
+                    if (control != nullptr && field.placed())
+                    {
+                        ::SetWindowPos(
+                            control,
+                            nullptr,
+                            static_cast<int>(field.x * scale),
+                            static_cast<int>(field.y * scale),
+                            (std::max)(1, static_cast<int>(field.width * scale)),
+                            (std::max)(1, static_cast<int>(field.height * scale)),
+                            SWP_NOZORDER | SWP_NOACTIVATE
+                        );
+                    }
+                    ++index;
+                }
+            }
+            contentHeight = height;
+            SCROLLINFO info = {};
+            info.cbSize = sizeof(info);
+            info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+            info.nMin = 0;
+            info.nMax = (std::max)(height, 1);
+            info.nPage = static_cast<UINT>((std::max)(height, 1));
+            info.nPos = 0;
+            SetScrollInfo(SB_VERT, &info, TRUE);
+            return;
+        }
+
         const int margin = 10;
         const int labelWidth = 170;
         const int rowHeight = 24;
@@ -739,6 +940,32 @@ public:
     {
         currentPage = index;
         rebuild();
+
+        // 只有运行页需要动画定时器，切到别的页要停掉，免得白跑
+        bool needsSpin = false;
+        if (index >= 0 && index < static_cast<int>(owner->pages.size()))
+        {
+            for (const Group& group : owner->pages[static_cast<std::size_t>(index)].groups)
+            {
+                for (const Field& field : group.fields)
+                {
+                    if (field.id == "Pic_RunGif")
+                    {
+                        needsSpin = true;
+                    }
+                }
+            }
+        }
+        if (needsSpin && spinTimer == 0)
+        {
+            spinTimer = ::SetTimer(m_hWnd, kSpinTimer, 80, nullptr);
+        }
+        else if (!needsSpin && spinTimer != 0)
+        {
+            ::KillTimer(m_hWnd, kSpinTimer);
+            spinTimer = 0;
+        }
+
         RECT client = {};
         ::GetClientRect(m_hWnd, &client);
         layout(client.right, client.bottom, false);
@@ -1325,7 +1552,9 @@ SmokeResult runSmokeTest(bool visible)
         ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
     ::InitCommonControlsEx(&controls);
 
-    RECT rect = {0, 0, 900, 640};
+    // 客户区尺寸取 SC 主窗体的 DFM 值（TSCMF: ClientWidth=800 / ClientHeight=540）。
+    // 用 900x640 时，图纸绝对坐标的页面会被放大 12%，与 DFM 的版面比例对不上。
+    RECT rect = {0, 0, 800, 540};
     HWND handle = context.frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW, 0);
     if (handle == nullptr)
     {
@@ -1384,6 +1613,52 @@ SmokeResult runSmokeTest(bool visible)
                 "tabSel=" + std::to_string(selected) +
                     " 面板控件数=" + std::to_string(context.frame.panel->controls.size())
             );
+
+            // 图纸绝对布局的页面（运行 / 完成）：把每个控件的实际矩形也记进报告，
+            // 验收脚本据此核对「真的按图纸坐标摆出来了」，而不是只在模型里对。
+            if (page.dfmLayout && opened)
+            {
+                RECT panelRect = {};
+                ::GetClientRect(context.frame.panel->m_hWnd, &panelRect);
+                const double scale =
+                    page.clientWidth > 0 ? static_cast<double>(panelRect.right) / page.clientWidth : 1.0;
+                int controlIndex = 0;
+                for (const auto& group : page.groups)
+                {
+                    for (const auto& field : group.fields)
+                    {
+                        HWND control = context.frame.panel->controlAt(controlIndex);
+                        ++controlIndex;
+                        if (control == nullptr || !field.placed())
+                        {
+                            continue;
+                        }
+                        RECT rect = {};
+                        ::GetWindowRect(control, &rect);
+                        ::MapWindowPoints(
+                            nullptr, context.frame.panel->m_hWnd, reinterpret_cast<LPPOINT>(&rect), 2
+                        );
+                        const int expectedX = static_cast<int>(field.x * scale);
+                        const int expectedY = static_cast<int>(field.y * scale);
+                        const int expectedW = (std::max)(1, static_cast<int>(field.width * scale));
+                        const int expectedH = (std::max)(1, static_cast<int>(field.height * scale));
+                        const bool closeEnough = std::abs(rect.left - expectedX) <= 2 &&
+                            std::abs(rect.top - expectedY) <= 2 &&
+                            std::abs((rect.right - rect.left) - expectedW) <= 2 &&
+                            std::abs((rect.bottom - rect.top) - expectedH) <= 2;
+                        context.record(
+                            closeEnough,
+                            "控件按图纸坐标摆放: " + field.id,
+                            "实际=" + std::to_string(rect.left) + "," + std::to_string(rect.top) + " " +
+                                std::to_string(rect.right - rect.left) + "x" +
+                                std::to_string(rect.bottom - rect.top) +
+                                " 期望=" + std::to_string(expectedX) + "," + std::to_string(expectedY) + " " +
+                                std::to_string(expectedW) + "x" + std::to_string(expectedH) +
+                                " 缩放=" + std::to_string(scale)
+                        );
+                    }
+                }
+            }
 
             PageSummary summary;
             summary.id = page.id;

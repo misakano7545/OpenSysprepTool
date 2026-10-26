@@ -1,0 +1,162 @@
+{
+  "form": "Sbox",
+  "class": "TSbox",
+  "clientHeight": 136,
+  "clientWidth": 300,
+  "controls": [
+    {
+      "path": "Sbox",
+      "name": "Sbox",
+      "class": "TSbox",
+      "caption": "Sbox",
+      "left": 0,
+      "top": 0,
+      "width": null,
+      "height": null,
+      "depth": 0
+    },
+    {
+      "path": "Sbox/Pan_Line4",
+      "name": "Pan_Line4",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 299,
+      "top": 0,
+      "width": 1,
+      "height": 135,
+      "depth": 1
+    },
+    {
+      "path": "Sbox/Pan_Line2",
+      "name": "Pan_Line2",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 0,
+      "width": 1,
+      "height": 135,
+      "depth": 1
+    },
+    {
+      "path": "Sbox/Pan_Lin3",
+      "name": "Pan_Lin3",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 134,
+      "width": 300,
+      "height": 1,
+      "depth": 1
+    },
+    {
+      "path": "Sbox/Pan_Line1",
+      "name": "Pan_Line1",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 0,
+      "width": 300,
+      "height": 2,
+      "depth": 1
+    },
+    {
+      "path": "Sbox/Sbpage",
+      "name": "Sbpage",
+      "class": "TMlSkinPageControl",
+      "caption": "",
+      "left": 7,
+      "top": 8,
+      "width": 284,
+      "height": 120,
+      "depth": 1
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet1",
+      "name": "MlSkinTabSheet1",
+      "class": "TMlSkinTabSheet",
+      "caption": "1",
+      "left": null,
+      "top": null,
+      "width": null,
+      "height": null,
+      "depth": 2
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet1/Rb_Silence",
+      "name": "Rb_Silence",
+      "class": "TMlSkinRadioBox",
+      "caption": "静默重启[无界面]",
+      "left": 5,
+      "top": 36,
+      "width": 126,
+      "height": 17,
+      "depth": 3
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet1/Rb_Show",
+      "name": "Rb_Show",
+      "class": "TMlSkinRadioBox",
+      "caption": "倒计时重启[有界面]",
+      "left": 147,
+      "top": 36,
+      "width": 134,
+      "height": 17,
+      "depth": 3
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet1/Btn_Scrok",
+      "name": "Btn_Scrok",
+      "class": "TMlSkinColorButton",
+      "caption": "确认(&R)",
+      "left": 184,
+      "top": 81,
+      "width": 73,
+      "height": 27,
+      "depth": 3
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet2",
+      "name": "MlSkinTabSheet2",
+      "class": "TMlSkinTabSheet",
+      "caption": "2",
+      "left": null,
+      "top": null,
+      "width": null,
+      "height": null,
+      "depth": 2
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet2/Rb_Silence_nc",
+      "name": "Rb_Silence_nc",
+      "class": "TMlSkinRadioBox",
+      "caption": "静默重启[无界面]",
+      "left": 5,
+      "top": 36,
+      "width": 126,
+      "height": 17,
+      "depth": 3
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet2/Rb_Show_nc",
+      "name": "Rb_Show_nc",
+      "class": "TMlSkinRadioBox",
+      "caption": "倒计时重启[有界面]",
+      "left": 147,
+      "top": 36,
+      "width": 134,
+      "height": 17,
+      "depth": 3
+    },
+    {
+      "path": "Sbox/Sbpage/MlSkinTabSheet2/Btn_Ncok",
+      "name": "Btn_Ncok",
+      "class": "TMlSkinColorButton",
+      "caption": "确认(&R)",
+      "left": 184,
+      "top": 81,
+      "width": 73,
+      "height": 27,
+      "depth": 3
+    }
+  ]
+}

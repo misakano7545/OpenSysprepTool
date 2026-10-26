@@ -1,0 +1,107 @@
+{
+  "form": "AppMsgForm",
+  "class": "TAppMsgForm",
+  "clientHeight": 242,
+  "clientWidth": 480,
+  "controls": [
+    {
+      "path": "AppMsgForm",
+      "name": "AppMsgForm",
+      "class": "TAppMsgForm",
+      "caption": "AppMsgForm",
+      "left": 0,
+      "top": 0,
+      "width": null,
+      "height": null,
+      "depth": 0
+    },
+    {
+      "path": "AppMsgForm/Btn_Bigok",
+      "name": "Btn_Bigok",
+      "class": "TMlSkinButton",
+      "caption": "确定(&K)",
+      "left": 0,
+      "top": 191,
+      "width": 480,
+      "height": 51,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/Btn_Close",
+      "name": "Btn_Close",
+      "class": "TMlSkinButton",
+      "caption": "",
+      "left": 456,
+      "top": 0,
+      "width": 24,
+      "height": 20,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/lbTip",
+      "name": "lbTip",
+      "class": "TMlSkinLabel",
+      "caption": "",
+      "left": 16,
+      "top": 72,
+      "width": 449,
+      "height": 73,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/Btn_Exit",
+      "name": "Btn_Exit",
+      "class": "TMlSkinButton",
+      "caption": "取消(&E)",
+      "left": 0,
+      "top": 191,
+      "width": 240,
+      "height": 51,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/Btn_Ok",
+      "name": "Btn_Ok",
+      "class": "TMlSkinButton",
+      "caption": "确定(&K)",
+      "left": 240,
+      "top": 191,
+      "width": 240,
+      "height": 51,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/Lab_little",
+      "name": "Lab_little",
+      "class": "TMlSkinLabel",
+      "caption": "封装总裁",
+      "left": 16,
+      "top": 6,
+      "width": 121,
+      "height": 25,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/ScMbBg",
+      "name": "ScMbBg",
+      "class": "TMlFormLayerBorder",
+      "caption": "",
+      "left": 276,
+      "top": 16,
+      "width": null,
+      "height": null,
+      "depth": 1
+    },
+    {
+      "path": "AppMsgForm/ScMbSkin",
+      "name": "ScMbSkin",
+      "class": "TMlSkinForm",
+      "caption": "",
+      "left": 236,
+      "top": 16,
+      "width": null,
+      "height": null,
+      "depth": 1
+    }
+  ]
+}

@@ -331,6 +331,20 @@ def main(argv: list[str]) -> int:
 
         check("退出无崩溃的记录在报告里", "窗口销毁无崩溃" in lines)
 
+    section("运行 / 完成页按 SC 的 DFM 坐标摆放")
+    lines = report.get("lines", [])
+    placed = [line for line in lines if "控件按图纸坐标摆放" in line]
+    # DFM 里两页共 5 + 8 个控件（完成页的 Btn_Bugs 是有意缺项）
+    check("坐标核对覆盖运行页 5 个控件与完成页 8 个控件", len(placed) == 13, f"{len(placed)} 条")
+    for name in ("Pic_RunGif", "Pro_Total", "Pro_Task", "Lab_Run", "Lab_Total",
+                 "PIC_Success", "Lab_Complete", "PIC_Error", "Pro_End", "Lab_Countdown",
+                 "Lab_CompleteErr", "Btn_Shutdown", "Btn_Restart"):
+        matched = [line for line in placed if name in line]
+        check(f"坐标核对了 {name}", bool(matched), "未出现在报告里")
+        if matched:
+            check(f"{name} 坐标判定为通过", "PASS" in matched[0] and "控件按图纸坐标摆放" in matched[0],
+                  matched[0].strip()[:160])
+
     section("宪章 §7 红线：这些控件名一个都不许出现")
     excluded = report.get("excludedControls", [])
     check("报告带上了不做的控件清单", len(excluded) >= 20, str(len(excluded)))

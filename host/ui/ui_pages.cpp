@@ -137,6 +137,22 @@ Field makeButton(
     return field;
 }
 
+// DFM 里 TImage 的占位：矩形按图纸，图案由窗口层自绘（SC 的位图不搬）
+Field makeImage(const std::string& id, const std::string& label, int x, int y, int width, int height)
+{
+    Field field;
+    field.id = id;
+    field.label = label;
+    field.kind = FieldKind::Image;
+    field.x = x;
+    field.y = y;
+    field.width = width;
+    field.height = height;
+    field.dfmClass = "TImage";
+    field.note = "图纸矩形逐字；图案自绘，不使用 SC 的位图";
+    return field;
+}
+
 Field makeProgress(const std::string& id, const std::string& label, int percent)
 {
     Field field;
@@ -361,6 +377,8 @@ const char* fieldKindId(FieldKind kind)
         return "progress";
     case FieldKind::List:
         return "list";
+    case FieldKind::Image:
+        return "image";
     }
     return "unknown";
 }
@@ -1107,7 +1125,14 @@ Page sysprepPage(const config::Config& cfg)
     return page;
 }
 
+} // namespace
+
 // ---------------------------------------------------------------- 运行期页面
+
+// 运行页 / 完成页：这两个页在 SC 里是固定版面（居中大图 + 居中说明 + 底部进度条），
+// 所以整页按 DFM 的绝对坐标摆放，不走引擎的纵向排列。
+// 坐标与控件名逐条来自 docs/sc_layout/TSCMF.json（由 tools/dfm_layout.py 从 DFM 生成），
+// 单测 test_ui 会拿同一份 JSON 逐项比对，抄错或漂移都会红。
 
 Page runPage()
 {
@@ -1116,16 +1141,75 @@ Page runPage()
     page.title = "运行";
     page.dfmSheet = "MlSkinTabSheet6";
     page.configPage = false;
+    page.dfmLayout = true;
+    page.clientWidth = 800;  // Page_mf.Width（DFM）
+    page.clientHeight = 398; // Page_mf.Height（DFM）
 
+    // Pan_Work 是 SC 的无边框面板（BorderSides = []），这里只用来承载控件，不画边框
     Group work;
     work.id = "Pan_Work";
-    work.caption = "运行";
-    work.fields.push_back(makeInfo("Lab_Run", "当前动作", "正在执行，请稍候..."));
-    work.fields.push_back(makeInfo("Lab_Total", "总进度", "总进度:"));
-    work.fields.push_back(makeProgress("Pro_Total", "总进度", 0));
-    work.fields.push_back(makeProgress("Pro_Task", "当前任务", 0));
-    page.groups.push_back(std::move(work));
+    work.caption = "";
 
+    // DFM 顺序：Pic_RunGif, Pro_Total, Pro_Task, Lab_Run, Lab_Total
+    // Pic_RunGif 在 SC 里是一张动图（Picture.Data 48771 字节）。SC 的图片不能搬，
+    // 这里按同一矩形（347,104 100x100）自绘一个转动的圆弧。
+    work.fields.push_back(makeImage("Pic_RunGif", "运行动画", 347, 104, 100, 100));
+
+    Field total;
+    total.id = "Pro_Total";
+    total.label = "总进度";
+    total.kind = FieldKind::Progress;
+    total.progress = 0;
+    total.x = 97;
+    total.y = 333;
+    total.width = 600;
+    total.height = 10;
+    total.dfmClass = "TAeroColorProgressBar";
+    total.note = "图纸坐标逐字；总进度条在任务进度条下方";
+    work.fields.push_back(std::move(total));
+
+    Field task;
+    task.id = "Pro_Task";
+    task.label = "当前任务";
+    task.kind = FieldKind::Progress;
+    task.progress = 0;
+    task.x = 97;
+    task.y = 322;
+    task.width = 600;
+    task.height = 5;
+    task.dfmClass = "TAeroColorProgressBar";
+    task.note = "图纸坐标逐字；高度只有 5px，是细条";
+    work.fields.push_back(std::move(task));
+
+    Field run;
+    run.id = "Lab_Run";
+    run.label = "";
+    run.kind = FieldKind::Info;
+    run.value = "正在执行，请稍候...";
+    run.x = 0;
+    run.y = 231;
+    run.width = 794;
+    run.height = 34;
+    run.dfmClass = "TMlSkinLabel";
+    run.align = 2;
+    run.note = "图纸 Caption 逐字；AlignmentHorizontal = taCenter，居中显示";
+    work.fields.push_back(std::move(run));
+
+    Field totalLabel;
+    totalLabel.id = "Lab_Total";
+    totalLabel.label = "";
+    totalLabel.kind = FieldKind::Info;
+    totalLabel.value = "总进度:";
+    totalLabel.x = 13;
+    totalLabel.y = 331;
+    totalLabel.width = 78;
+    totalLabel.height = 22;
+    totalLabel.dfmClass = "TMlSkinLabel";
+    totalLabel.align = 1;
+    totalLabel.note = "图纸 Caption 逐字；AlignmentHorizontal = taRightJustify，右对齐";
+    work.fields.push_back(std::move(totalLabel));
+
+    page.groups.push_back(std::move(work));
     return page;
 }
 
@@ -1136,29 +1220,109 @@ Page donePage()
     page.title = "完成";
     page.dfmSheet = "MlSkinTabSheet7";
     page.configPage = false;
+    page.dfmLayout = true;
+    page.clientWidth = 800;  // Page_mf.Width（DFM）
+    page.clientHeight = 398; // Page_mf.Height（DFM）
 
     Group end;
     end.id = "Pan_End";
-    end.caption = "完成";
-    end.fields.push_back(makeInfo("Lab_Complete", "成功", "恭喜您，执行成功！"));
-    end.fields.push_back(makeInfo("Lab_CompleteErr", "失败", "错误，执行失败！"));
-    end.fields.push_back(makeProgress("Pro_End", "完成度", 100));
-    end.fields.push_back(
-        makeInfo("Lab_Countdown", "倒计时", "程序将在 10 秒后重启计算机，如需取消请点『返回』。")
-    );
-    // 图纸还有 Btn_Bugs（错误报告）——要连 SC 的服务器，2026-10-25 裁决不做
-    end.fields.push_back(makeButton(
-        "Btn_Shutdown", "关机", "afterShutdown", "只置 sysprep.afterAction=shutdown，界面不真的关机"
-    ));
-    end.fields.push_back(
-        makeButton("Btn_Restart", "重启", "afterRestart", "只置 sysprep.afterAction=reboot，界面不真的重启")
-    );
-    page.groups.push_back(std::move(end));
+    end.caption = "";
 
+    // DFM 顺序：PIC_Success, Lab_Complete, PIC_Error, Pro_End, Lab_Countdown,
+    //           Lab_CompleteErr, Btn_Bugs, Btn_Shutdown, Btn_Restart
+    // 成功图与失败图在图纸上占同一矩形（331,96 118x96），互斥显示。
+    end.fields.push_back(makeImage("PIC_Success", "成功图示", 331, 96, 118, 96));
+    end.fields.back().note = "图纸矩形逐字；SC 的位图不搬，这里自绘对勾";
+
+    Field complete;
+    complete.id = "Lab_Complete";
+    complete.label = "";
+    complete.kind = FieldKind::Info;
+    complete.value = "恭喜您，执行成功！";
+    complete.x = 13;
+    complete.y = 209;
+    complete.width = 762;
+    complete.height = 19;
+    complete.dfmClass = "TLabel";
+    complete.note = "图纸 Caption 逐字";
+    end.fields.push_back(std::move(complete));
+
+    end.fields.push_back(makeImage("PIC_Error", "失败图示", 331, 96, 118, 96));
+    end.fields.back().note = "图纸矩形逐字；与 PIC_Success 同位置，二选一显示";
+
+    Field endProgress;
+    endProgress.id = "Pro_End";
+    endProgress.label = "完成度";
+    endProgress.kind = FieldKind::Progress;
+    endProgress.progress = 100;
+    endProgress.x = 152;
+    endProgress.y = 254;
+    endProgress.width = 525;
+    endProgress.height = 8;
+    endProgress.dfmClass = "TAeroColorProgressBar";
+    endProgress.note = "图纸坐标逐字；高度 8px";
+    end.fields.push_back(std::move(endProgress));
+
+    Field countdown;
+    countdown.id = "Lab_Countdown";
+    countdown.label = "";
+    countdown.kind = FieldKind::Info;
+    // 图纸原文用的是中文引号「返回」，逐字照抄
+    countdown.value = "程序将在10秒后重启计算机，如需取消请点“返回”。";
+    countdown.x = 152;
+    countdown.y = 268;
+    countdown.width = 288;
+    countdown.height = 12;
+    countdown.dfmClass = "TLabel";
+    countdown.note = "图纸 Caption 逐字（含中文引号）";
+    end.fields.push_back(std::move(countdown));
+
+    Field completeErr;
+    completeErr.id = "Lab_CompleteErr";
+    completeErr.label = "";
+    completeErr.kind = FieldKind::Info;
+    completeErr.value = "错误，执行失败！";
+    completeErr.x = 13;
+    completeErr.y = 209;
+    completeErr.width = 762;
+    completeErr.height = 19;
+    completeErr.dfmClass = "TLabel";
+    completeErr.note = "图纸 Caption 逐字；与 Lab_Complete 同位置，二选一显示";
+    end.fields.push_back(std::move(completeErr));
+
+    // Btn_Bugs 在图纸上存在（331,268 118x27，Caption 'Bug'），但它是「错误报告」，
+    // 要把崩溃信息发到 SC 的服务器 —— 宪章 §7 与 2026-10-25 裁决都不做。
+    // 这里是本页唯一的有意缺项，见 docs/SC窗体对照.md 的备注列。
+
+    Field shutdown;
+    shutdown.id = "Btn_Shutdown";
+    shutdown.label = "关机(&T)";
+    shutdown.kind = FieldKind::Button;
+    shutdown.action = "afterShutdown";
+    shutdown.x = 275;
+    shutdown.y = 242;
+    shutdown.width = 94;
+    shutdown.height = 27;
+    shutdown.dfmClass = "TMlSkinColorButton";
+    shutdown.note = "图纸 Caption 逐字（含快捷键标记）；只置 sysprep.afterAction=shutdown";
+    end.fields.push_back(std::move(shutdown));
+
+    Field restart;
+    restart.id = "Btn_Restart";
+    restart.label = "重启(&R)";
+    restart.kind = FieldKind::Button;
+    restart.action = "afterRestart";
+    restart.x = 421;
+    restart.y = 242;
+    restart.width = 94;
+    restart.height = 27;
+    restart.dfmClass = "TMlSkinColorButton";
+    restart.note = "图纸 Caption 逐字（含快捷键标记）；只置 sysprep.afterAction=reboot";
+    end.fields.push_back(std::move(restart));
+
+    page.groups.push_back(std::move(end));
     return page;
 }
-
-} // namespace
 
 // ---------------------------------------------------------------- 页表
 
@@ -1773,11 +1937,22 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     }
     if (pageId == "run")
     {
-        return {"Lab_Run", "Lab_Total", "Pro_Total", "Pro_Task"};
+        // 顺序与 DFM 的 MlSkinTabSheet6 一致（Pic_RunGif 在最前）
+        return {"Pic_RunGif", "Pro_Total", "Pro_Task", "Lab_Run", "Lab_Total"};
     }
     if (pageId == "done")
     {
-        return {"Lab_Complete", "Lab_CompleteErr", "Pro_End", "Lab_Countdown", "Btn_Shutdown", "Btn_Restart"};
+        // 顺序与 DFM 的 MlSkinTabSheet7 一致；Btn_Bugs 是唯一有意缺项（错误报告要连 SC 的服务器）
+        return {
+            "PIC_Success",
+            "Lab_Complete",
+            "PIC_Error",
+            "Pro_End",
+            "Lab_Countdown",
+            "Lab_CompleteErr",
+            "Btn_Shutdown",
+            "Btn_Restart",
+        };
     }
     return {};
 }

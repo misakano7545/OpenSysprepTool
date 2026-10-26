@@ -40,6 +40,7 @@ enum class FieldKind
     Button,   // 命令按钮
     Progress, // 进度条
     List,     // 列表视图
+    Image,    // 图片占位（DFM 里的 TImage）。SC 的原图不能搬，这里按同一矩形自绘
 };
 
 const char* fieldKindId(FieldKind kind);
@@ -75,12 +76,31 @@ struct Field
     std::string binding;
     // 取值依据：图纸 / 核心模型 / 宪章裁决
     std::string note;
+
+    // DFM 绝对布局（来自 docs/sc_layout/*.json，800x540 设计空间）。
+    // x < 0 表示这个字段不按图纸摆放，走引擎的纵向自动排列。
+    // 运行页与完成页必须按图纸坐标摆：SC 那边是「居中大图 + 居中说明 + 底部双进度条」
+    // 这种固定版面，用自动排列摆出来的东西形状完全不对。
+    int x = -1;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    // DFM 里的控件名（Label/Panel 这类容器名），用于走查与验收核对
+    std::string dfmClass;
+    // 文本对齐：0 左（默认）/ 1 右（taRightJustify）/ 2 居中（taCenter）。
+    // 图纸里 Lab_Total 是右对齐、Lab_Run 是居中，按自动左对齐摆会明显不对。
+    int align = 0;
+
+    bool placed() const noexcept
+    {
+        return x >= 0;
+    }
 };
 
 struct Group
 {
     std::string id;      // DFM 分组框名，如 "Gb_Targetsys_Desktop"
-    std::string caption; // 分组标题，与图纸 Caption 一致
+    std::string caption; // 分组标题，与图纸 Caption 一致；空 = 图纸这里是 Pan_* 面板（无边框）
     std::vector<Field> fields;
 };
 
@@ -90,6 +110,11 @@ struct Page
     std::string title;      // "目标系统"，与 DFM 的 TabSheet.Caption 逐字一致
     std::string dfmSheet;   // DFM 里的页对象名，如 "MlSkinTabSheet2"
     bool configPage = true; // 配置页 / 运行期页面（运行、完成为运行期页面）
+    // 整页按 DFM 绝对坐标摆放（运行 / 完成页）。false = 引擎自动纵向排列。
+    bool dfmLayout = false;
+    // DFM 的设计尺寸（主窗体的 Page_mf 是 800x398，运行/完成页的项目是 794x375）
+    int clientWidth = 0;
+    int clientHeight = 0;
     std::vector<Group> groups;
 };
 
@@ -98,6 +123,12 @@ struct Page
 // 所以渲染结果天生不确定。要逐字比较渲染结果（测试、快照）就必须注入一份固定的报告。
 Page systemPage();
 Page systemPage(const sysinfo::CheckupReport& report);
+
+// 运行页 / 完成页（运行期页面，整页按 DFM 绝对坐标摆放）。
+// 单独导出是为了让 test_ui_layout 能拿 docs/sc_layout/TSCMF.json 逐控件比对 ——
+// 这两页的版面一旦漂移，用户一眼就能看出来。
+Page runPage();
+Page donePage();
 
 // 按 DFM 的 11 个页签，交付其中 7 个；cfg 提供编辑初值。
 // 唯一会读实时系统状态的是「母盘系统」页，默认现场采集；重载可注入固定报告，

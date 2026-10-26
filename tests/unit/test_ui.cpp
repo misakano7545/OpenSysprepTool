@@ -135,7 +135,11 @@ TEST_CASE("每个页面的字段与走查名单一致，且字段名互不重复
         {
             // 控件名不能跨页重复，否则走查与冒烟驱动都会认错控件
             CHECK(seen.insert(field.id).second);
-            CHECK(!field.label.empty());
+            // 每个控件都要带文字。图纸绝对布局里的 Lab_*（运行/完成页）本身就是标签，
+            // Caption 记在 value 上、label 为空是正常的，所以两者有一即可。
+            // doctest 不允许在 CHECK 里写 || 复合表达式（Expression Too Complex），先算成 bool。
+            const bool hasText = !field.label.empty() || !field.value.empty();
+            CHECK(hasText);
         }
     }
 }

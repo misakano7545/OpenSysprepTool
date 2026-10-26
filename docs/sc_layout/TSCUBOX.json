@@ -1,0 +1,107 @@
+{
+  "form": "Scubox",
+  "class": "TScubox",
+  "clientHeight": 136,
+  "clientWidth": 300,
+  "controls": [
+    {
+      "path": "Scubox",
+      "name": "Scubox",
+      "class": "TScubox",
+      "caption": "Scubox",
+      "left": 0,
+      "top": 0,
+      "width": null,
+      "height": null,
+      "depth": 0
+    },
+    {
+      "path": "Scubox/Pan_Line4",
+      "name": "Pan_Line4",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 299,
+      "top": 0,
+      "width": 1,
+      "height": 135,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Pan_Line2",
+      "name": "Pan_Line2",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 0,
+      "width": 1,
+      "height": 135,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Pan_Lin3",
+      "name": "Pan_Lin3",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 134,
+      "width": 300,
+      "height": 1,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Pan_Line1",
+      "name": "Pan_Line1",
+      "class": "TMlSkinPanel",
+      "caption": "",
+      "left": 0,
+      "top": 0,
+      "width": 300,
+      "height": 2,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Lab_pwub",
+      "name": "Lab_pwub",
+      "class": "TMlSkinLabel",
+      "caption": "密码:",
+      "left": 15,
+      "top": 24,
+      "width": 277,
+      "height": 18,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Ed_Unpwub",
+      "name": "Ed_Unpwub",
+      "class": "TMlSkinPasswordEdit",
+      "caption": "",
+      "left": 15,
+      "top": 48,
+      "width": 266,
+      "height": 26,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Btn_Okub",
+      "name": "Btn_Okub",
+      "class": "TMlSkinColorButton",
+      "caption": "确认(&R)",
+      "left": 208,
+      "top": 88,
+      "width": 73,
+      "height": 27,
+      "depth": 1
+    },
+    {
+      "path": "Scubox/Btn_Ubox_Exit",
+      "name": "Btn_Ubox_Exit",
+      "class": "TMlSkinColorButton",
+      "caption": "退出(&E)",
+      "left": 122,
+      "top": 88,
+      "width": 73,
+      "height": 27,
+      "depth": 1
+    }
+  ]
+}
