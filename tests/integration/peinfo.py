@@ -180,22 +180,6 @@ def is_elevated() -> bool:
         return False
 
 
-def require_elevated(product: str) -> bool:
-    """产物要求管理员权限：未提权时打印明确原因并返回 False。
-
-    没提权就跑闸门会看到一堆「启动失败」，很容易误判成产品坏了 —— 实际是
-    Windows 在装载阶段就把进程拒了。这里把原因说清楚，并给出本机的正确跑法。
-    """
-    if is_elevated():
-        return True
-    print("::error::本会话未提权：ospt.exe / osptd.exe 的嵌入清单声明 requireAdministrator，")
-    print(f"        从非提权会话启动 {os.path.basename(product)} 会被 Windows 直接拒绝")
-    print("        （CreateProcess 740 ERROR_ELEVATION_REQUIRED）。")
-    print("        本机请用 tests/tools/run_acceptance_elevated.ps1 跑全部闸门（它自己拉提权会话），")
-    print("        或在已提权的终端里重新执行本脚本。")
-    return False
-
-
 def run_text(cmd: list[str], timeout: int = 300) -> subprocess.CompletedProcess[str]:
     """跑子进程并把 stdout/stderr 解成 str。
 

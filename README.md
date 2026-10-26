@@ -34,7 +34,7 @@ M1 起每个里程碑都有**两条并列的验收线，缺一不可**：本地�
 
 **绿色程序，不需要安装**，也没有服务与计划任务。全部产物静态链接（`/MT`），
 目标机**不需要装 VC 运行库**；子系统版本固定为 6.1，Windows 7 SP1 及以上可用。
-`ospt.exe` 与 `osptd.exe` 需要**管理员权限**（启动时由 Windows 请求提权），
+`ospt.exe` 与 `osptd.exe` 在需要管理员的操作前自动请求提权（代码里 `runas`，清单为 `asInvoker`），
 其中 `ospt.exe` 正常启动只出现界面窗口，不附带命令行窗口。
 
 ### 前置条件
@@ -98,6 +98,10 @@ osptd --version                                         版本与源码地址
 `ospt.exe` 是 GUI 子系统（`/SUBSYSTEM:WINDOWS,6.01`），装载器不为它分配控制台。7 个页签：
 母盘系统 / 目标系统 / 计划任务 / 部署过程 / 封装过程 / 运行 / 完成。
 
+需要排查输出时显式使用 **`ospt.exe --console`**：保留已有控制台；没有控制台时新建一个，
+显示用法并等待回车。`ospt.exe --console --ui` 可同时保留控制台与配置界面。
+日常双击或无参数启动始终只有 UI，不需要加这个开关。
+
 #### 需要管理员权限
 
 `ospt.exe` 与 `osptd.exe` 需要**管理员权限**（装驱动、写离线注册表、跑 sysprep 都要管理员）：
@@ -131,8 +135,9 @@ osptd --version                                         版本与源码地址
 
 ### 本地验收
 
-`ospt.exe` / `osptd.exe` 要求管理员权限，**下面这些步骤必须在提权会话里跑**（否则产物根本
-启动不了，报 740）。最省事的方式是走统一入口，它自己拉提权会话：
+需要真实执行的部署/驱动操作要求管理员权限；`--dry-run` 与只读生成/校验不需要。
+`verify_ui.py` 的常驻关窗检查在提权会话里跑，避免未提权进程向提权窗口发消息时被 UIPI 拒绝。
+本机统一入口会自己拉一个提权会话：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tests/tools/run_acceptance_elevated.ps1
@@ -176,7 +181,7 @@ python tests/integration/verify_release.py --check-workflow .github/workflows/re
 | `ospt.exe --selftest` | 打印 `config roundtrip OK` |
 | `ospt.exe --ui-smoke-test` | 退出码 0；7 个配置页全部打开、控件全部响应、菜单与配置读写都能跑通、退出无崩溃 |
 | `ospt.exe --ui` | 开出常驻窗口（类名 `OSPTMainFrame`），关窗后退出码 0；`verify_ui.py` 会启动它、等窗口出现、确认 2 秒后仍在运行、再发 `WM_CLOSE` 核对退出 |
-| `verify_elevation.py` | 两个产品清单声明 `requireAdministrator`、测试产物 `asInvoker`；`ospt.exe` 是 WINDOWS 子系统（不分配控制台）、`osptd.exe` 是 CONSOLE；三者子系统版本仍 6.1；未提权会话启动必须失败并报 `740` |
+| `verify_elevation.py` | 两个产品清单声明 `asInvoker`（由代码按需自动提权）；`ospt.exe` 是 WINDOWS 子系统（不分配控制台）、`osptd.exe` 是 CONSOLE；三者子系统版本仍 6.1；未提权启动 UI 后能返回提权副本的真实结果 |
 | `verify_checkup.py` | 全绿；含「OS 版本与 `cmd /c ver` 一致」「sysprep.exe 真实存在」「分区容量偏差 ≤1%」三条硬证据 |
 | `verify_unattend.py` | 全绿；含命名空间、元素顺序、父子嵌套、pass 合法性、计算机名规则、AutoLogon 次数、登录阶段落点 |
 | `verify_runplan.py` | 全绿；覆盖 5 阶段 × 4 类型 × 4 运行方式 × 3 等待策略 × 4 路径类型 |

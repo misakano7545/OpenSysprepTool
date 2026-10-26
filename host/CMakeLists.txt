@@ -4,9 +4,9 @@
 # /ENTRY:mainCRTStartup 让入口仍是标准的 main()，CLI 与 --ui-smoke-test 的输出
 # 靠 main.cpp 里 attachParentConsoleIfNeeded() 回落到父控制台（仅当 stdout 不可用时）。
 #
-# manifest 声明 requireAdministrator：装驱动 / 跑 sysprep 都需要管理员权限。
-# 代价是无法提权时 Windows 直接拒绝启动（CreateProcess 报 740），本机验收与 CI
-# 因此需要在已提权的会话里跑 —— 见 tests/tools/run_acceptance_elevated.ps1。
+# manifest 保持 asInvoker：界面和真正需要权限的操作由 main() 自检后用 runas 提权。
+# 若写 requireAdministrator，未提权的 CreateProcess 会直接以 740 拒绝，代码没机会执行。
+# 提权副本的退出码和 CLI 输出会回传给调用方；只读开关不自动提权。
 
 add_executable(ospt
   main.cpp
@@ -18,9 +18,10 @@ add_executable(ospt
 target_link_options(ospt PRIVATE
   "/SUBSYSTEM:WINDOWS,6.01"
   "/ENTRY:mainCRTStartup"
+  # GUI 子系统保证双击/无参数只有 UI，没有命令行黑框。
+  # 要命令行窗口时用 ospt --console；CLI 输出由 main.cpp 按需挂回父控制台。
   # 清单保持 asInvoker：requireAdministrator 会让 CreateProcess 在未提权时直接拒绝
-  # （740），代码里的自动提权逻辑就没机会跑。改成 asInvoker + 启动时自检 + runas 重启，
-  # 这样 PowerShell / bash / CI 的 & 调用都能正常进入 main()，再由代码提权。
+  # （740），代码里的自动提权逻辑就没机会跑。改成 asInvoker + 启动时自检 + runas 重启。
   "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 

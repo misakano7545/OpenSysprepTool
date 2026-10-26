@@ -31,7 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from peinfo import require_elevated  # noqa: E402  （同目录的共享 PE 工具）
+import peinfo  # noqa: E402  # noqa: E402  （同目录的共享 PE 工具）
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 _checks = 0
@@ -130,8 +130,6 @@ def main(argv: list[str]) -> int:
         return 1
     if not check("osptd.exe 存在", os.path.isfile(osptd), osptd):
         return 1
-    if not require_elevated(osptd):
-        return 3
 
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work, exist_ok=True)

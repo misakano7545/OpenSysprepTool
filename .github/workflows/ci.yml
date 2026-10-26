@@ -52,10 +52,17 @@ jobs:
           exit 0
 
       - name: Selftest
-        run: .\build\bin\Release\ospt.exe --selftest
+        shell: pwsh
+        run: |
+          # WINDOWS 子系统的 exe 直接 & 调用时 pwsh 不等待；管道让它等待并产生退出码
+          .\build\bin\Release\ospt.exe --selftest | Out-Host
+          exit $LASTEXITCODE
 
       - name: Version
-        run: .\build\bin\Release\ospt.exe --version
+        shell: pwsh
+        run: |
+          .\build\bin\Release\ospt.exe --version | Out-Host
+          exit $LASTEXITCODE
 
       # M3 增量（宪章 §9.7）：用固定 fixture 生成 unattend.xml，再按离线参考校验。
       # 失败时把校验脚本的 FAIL 行打成 annotation，匿名访问也能定位。
@@ -68,13 +75,13 @@ jobs:
           # Stop 会在退出码 0 时也终止。用 Continue + 显式判断退出码。
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          $work = 'build\\m3'
+          $work = 'build\m3'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m3_cfg.json' (Join-Path $work 'cfg.json') -Force
 
           Write-Host "python: $(python --version)"
 
-          & '.\build\bin\Release\ospt.exe' --gen-unattend (Join-Path $work 'cfg.json') --out (Join-Path $work 'unattend.xml')
+          & '.\build\bin\Release\ospt.exe' --gen-unattend (Join-Path $work 'cfg.json') --out (Join-Path $work 'unattend.xml') | Out-Host
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::--gen-unattend 退出码 $LASTEXITCODE"
             exit $LASTEXITCODE
@@ -101,17 +108,17 @@ jobs:
           # 同 Unattend 校验：不用 Stop，显式判断退出码
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          $work = 'build\\m4'
+          $work = 'build\m4'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m4_plan.json' (Join-Path $work 'plan.json') -Force
 
-          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run')
+          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run') | Out-Host
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::--gen-runplan 退出码 $LASTEXITCODE"
             exit $LASTEXITCODE
           }
 
-          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run-drives') --drives 'tests\integration\fixtures\m4_drives.json'
+          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run-drives') --drives 'tests\integration\fixtures\m4_drives.json' | Out-Host
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::--gen-runplan --drives 退出码 $LASTEXITCODE"
             exit $LASTEXITCODE
@@ -150,27 +157,10 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'deploy-exec.log'
-
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          if ($elev) {
-            python tests\integration\verify_deploy_exec.py \
-              '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' *>&1 |
-              Tee-Object -FilePath $log
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-deploy.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            $innerFile = Join-Path $env:TEMP 'osp-deploy.ps1'
-            $inner = "Set-Location '$PWD'; python tests\integration\verify_deploy_exec.py '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' > '$PWD\$log' 2>&1; Set-Content '$done' `$LASTEXITCODE"
-            [IO.File]::WriteAllText($innerFile, "`u{FEFF}" + $inner, (New-Object System.Text.UTF8Encoding($false)))
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$innerFile) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-            Get-Content $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          }
+          python tests\integration\verify_deploy_exec.py `
+            '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
           if ($code -ne 0) {
             $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
@@ -188,38 +178,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          $log = 'win7-compat.log'
+          $failed = $false
 
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          if ($elev) {
-            python tests\integration\verify_win7_compat.py \
-              '.\build\bin\Release\osptd.exe' \
-              '.\build\bin\Release\ospt.exe' \
-              '.\build\bin\Release\osp_unit_tests.exe' *>&1 |
-              Tee-Object -FilePath $log
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-win7.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            $innerFile = Join-Path $env:TEMP 'osp-win7.ps1'
-            $inner = "Set-Location '$PWD'; python tests\integration\verify_win7_compat.py '.\build\bin\Release\osptd.exe' '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osp_unit_tests.exe' > '$PWD\$log' 2>&1; Set-Content '$done' `$LASTEXITCODE"
-            [IO.File]::WriteAllText($innerFile, "`u{FEFF}" + $inner, (New-Object System.Text.UTF8Encoding($false)))
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$innerFile) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-            Get-Content $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          }
+          python tests\integration\verify_win7_compat.py `
+            '.\build\bin\Release\osptd.exe' `
+            '.\build\bin\Release\ospt.exe' `
+            '.\build\bin\Release\osp_unit_tests.exe' *>&1 |
+            Tee-Object -FilePath win7-compat.log
+          $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content win7-compat.log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
-            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
-            exit $code
+            else { Get-Content win7-compat.log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            $failed = $true
           }
 
-          # 负例：篡改产物后闸门必须失败
           python tests\integration\verify_win7_compat_negative.py '.\build\bin\Release\osptd.exe' *>&1 |
             Tee-Object -FilePath win7-compat-negative.log
           $code2 = $LASTEXITCODE
@@ -227,8 +200,9 @@ jobs:
             $hits2 = Get-Content win7-compat-negative.log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits2) { $hits2 | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content win7-compat-negative.log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
-            exit $code2
+            $failed = $true
           }
+          if ($failed) { exit 1 }
           exit 0
 
       - name: UI 冒烟测试
@@ -237,36 +211,25 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'm7b-ui.log'
-
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          if ($elev) {
-            python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' *>&1 |
-              Tee-Object -FilePath $log
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-ui.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            $innerFile = Join-Path $env:TEMP 'osp-ui.ps1'
-            $inner = "Set-Location '$PWD'; python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' > '$PWD\$log' 2>&1; Set-Content '$done' `$LASTEXITCODE"
-            [IO.File]::WriteAllText($innerFile, "`u{FEFF}" + $inner, (New-Object System.Text.UTF8Encoding($false)))
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$innerFile) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-            Get-Content $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          }
+          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' --smoke-only *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
           if ($code -ne 0) {
             $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
-            else {
-              Write-Host '::error::UI 冒烟测试失败，且日志里没有 FAIL/RESULT/Traceback 行，下面是尾部输出'
-              Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" }
-            }
+            else { Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
           }
 
+          # 提权后的窗口拒绝未提权进程的 WM_CLOSE（UIPI）。交互验收在提权子会话里跑。
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File tests\tools\verify-ui-elevated.ps1 `
+            -Repo $PWD.Path -Ospt '.\build\bin\Release\ospt.exe'
+          $code2 = $LASTEXITCODE
+          if ($code2 -ne 0) {
+            Write-Host "::error::提权 UI 交互验收失败，exit=$code2"
+            exit $code2
+          }
           Get-Content $log | Select-String -Pattern 'SMOKE-SKIP' |
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0
@@ -277,46 +240,18 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'elevation.log'
-
-          $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-          $elev = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 会话是否已提权: $elev  (user=$($id.Name))"
-
-          # verify_elevation.py 在两种会话里都要跑：
-          #   未提权 -> 断言「启动必须失败并报 740」
-          #   已提权 -> 断言「能运行且自述 elevated=true」
-          # 已提权时直接用当前会话跑；未提权时先跑未提权分支，再用 runas 抬一个提权会话跑提权分支。
-          python tests\integration\verify_elevation.py \
-            '.\build\bin\Release\ospt.exe' \
-            '.\build\bin\Release\osptd.exe' \
+          python tests\integration\verify_elevation.py `
+            '.\build\bin\Release\ospt.exe' `
+            '.\build\bin\Release\osptd.exe' `
             '.\build\bin\Release\osp_unit_tests.exe' *>&1 |
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
-
-          if (-not $elev) {
-            Write-Host "用 runas 拉一个提权会话，跑提权分支"
-            $done = Join-Path $env:TEMP 'osp-elev-gate.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            $innerFile = Join-Path $env:TEMP 'osp-elev-gate.ps1'
-            $inner = "Set-Location '$PWD'; python tests\integration\verify_elevation.py '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' '.\build\bin\Release\osp_unit_tests.exe' > '$PWD\elevated-gate.log' 2>&1; Set-Content '$done' `$LASTEXITCODE"
-            [IO.File]::WriteAllText($innerFile, "`u{FEFF}" + $inner, (New-Object System.Text.UTF8Encoding($false)))
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$innerFile) -Verb RunAs -Wait
-            if (Test-Path $done) { $code2 = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-            Get-Content elevated-gate.log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-            if ($code2 -ne 0) {
-              Write-Host "::error::提权分支的权限闸门失败，exit=$code2"
-              exit $code2
-            }
-          }
-
           if ($code -ne 0) {
             $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
           }
-
           Get-Content $log | Select-String -Pattern 'SKIP' |
             ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
           exit 0
@@ -333,26 +268,9 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'm6-drivers.log'
-
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          if ($elev) {
-            python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' *>&1 |
-              Tee-Object -FilePath $log
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-drivers.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            $innerFile = Join-Path $env:TEMP 'osp-drivers.ps1'
-            $inner = "Set-Location '$PWD'; python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' > '$PWD\$log' 2>&1; Set-Content '$done' `$LASTEXITCODE"
-            [IO.File]::WriteAllText($innerFile, "`u{FEFF}" + $inner, (New-Object System.Text.UTF8Encoding($false)))
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$innerFile) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-            Get-Content $log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
-          }
+          python tests\integration\verify_drivers.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
           if ($code -ne 0) {
             $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }

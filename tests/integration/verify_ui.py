@@ -27,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from peinfo import require_elevated  # noqa: E402  （同目录的共享 PE 工具）
+import peinfo  # noqa: E402  # noqa: E402  （同目录的共享 PE 工具）
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # 与 host/ui/ui_pages.cpp 的 pagesFromConfig 顺序一致
@@ -121,40 +121,60 @@ def appears_as_token(text: str, name: str) -> bool:
 
 
 def check_interactive_ui(ospt: str) -> None:
-    """--ui 必须真的开出一个常驻窗口，并在 WM_CLOSE 后正常退出。
-
-    这是「能不能当 GUI 用」的判据：光有冒烟测试不够 —— 冒烟是自动驱动完就销毁窗口，
-    人根本插不上手。
-    """
+    """无参数启动必须开出 UI 并常驻；窗口可能属于自动提权后的子进程。"""
     import ctypes
     import time
 
-    user32 = ctypes.windll.user32
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.restype = ctypes.c_int
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.c_void_p]
+    user32.GetWindowRect.restype = wintypes.BOOL
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, ctypes.c_size_t, ctypes.c_size_t]
+    user32.PostMessageW.restype = wintypes.BOOL
 
     class RECT(ctypes.Structure):
         _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
                     ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
-    proc = subprocess.Popen([ospt, "--ui"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    before: set[int] = set()
+    found: list[tuple[int, int]] = []
+    consoles: list[int] = []
 
-    target_pid = proc.pid
-    found: list[int] = []
-
-    def enum_callback(hwnd, _lparam):
-        pid = ctypes.c_ulong(0)
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if pid.value != target_pid:
-            return True
+    def scan(_hwnd=0, _lparam=0):
+        hwnd = _hwnd
         buffer = ctypes.create_unicode_buffer(256)
         user32.GetClassNameW(hwnd, buffer, 256)
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if buffer.value == "OSPTMainFrame":
-            found.append(hwnd)
-            return False
+            found.append((hwnd, pid.value))
+        if buffer.value == "ConsoleWindowClass":
+            consoles.append(hwnd)
         return True
 
-    enum_proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)(enum_callback)
+    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(scan)
+    user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.EnumWindows(enum_proc, 0)
+    before = {hwnd for hwnd, _pid in found}
+    found.clear()
 
-    deadline = time.time() + 15
+    if not peinfo.is_elevated():
+        check("无参数启动开出主窗口（OSPTMainFrame）", False,
+              "未提权会话：启动后窗口属于提权子进程，UIPI 会拒绝本脚本发送 WM_CLOSE；"
+              "请从已提权会话运行 verify_ui.py")
+        return
+
+    proc = subprocess.Popen([ospt], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    deadline = time.time() + 20
     while time.time() < deadline and not found:
         if proc.poll() is not None:
             break
@@ -168,38 +188,47 @@ def check_interactive_ui(ospt: str) -> None:
             try:
                 output = proc.stdout.read().decode("utf-8", "replace")
             except Exception:
-                output = ""
+                pass
         if "无窗口站" in output:
-            # 无头环境：程序自己已经显式说明了原因，这里同样不静默略过
-            check("无窗口站环境：--ui 显式说明了跳过原因并退出", code == 3, f"code={code} / {output.strip()[:80]}")
-            _say("  本机没有窗口站，--ui 的常驻检查被显式跳过（原因由程序自己打印）")
+            check("无窗口站环境：无参数启动显式说明跳过原因并退出", code == 3,
+                  f"code={code} / {output.strip()[:80]}")
+            _say("  本机没有窗口站，无参数启动的常驻检查被显式跳过")
         else:
-            check("ospt.exe --ui 开出了主窗口（类名 OSPTMainFrame）", False, f"进程状态={code} 输出={output[:120]}")
+            check("无参数启动开出主窗口（OSPTMainFrame）", False,
+                  f"启动器状态={code} 输出={output[:120]}")
         proc.kill()
         return
-    check("ospt.exe --ui 开出了主窗口（类名 OSPTMainFrame）", True)
 
-    hwnd = found[0]
-    check("窗口可见", bool(user32.IsWindowVisible(hwnd)))
-
+    new_frames = [(hwnd, pid) for hwnd, pid in found if hwnd not in before]
+    check("无参数启动开出主窗口（OSPTMainFrame）", bool(new_frames))
+    if not new_frames:
+        proc.kill()
+        return
+    hwnd, owner_pid = new_frames[0]
+    check("主窗口可见", bool(user32.IsWindowVisible(hwnd)))
     rect = RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     width = rect.right - rect.left
     height = rect.bottom - rect.top
     check("窗口尺寸合理（>600x400）", width > 600 and height > 400, f"{width}x{height}")
+    owner_consoles = []
+    for console in consoles:
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(console, ctypes.byref(pid))
+        if pid.value == owner_pid:
+            owner_consoles.append(console)
+    check("无参数启动不附带命令行窗口", not owner_consoles,
+          f"主窗口 PID={owner_pid}，控制台窗口数={len(owner_consoles)}")
 
-    # 常驻：再等一会儿，进程不能自己退出（这正是「能用」与「跑完就关」的区别）
     time.sleep(2.0)
-    alive = proc.poll() is None
-    check("窗口起来 2 秒后进程仍在运行（常驻，不是跑完就退）", alive, f"退出码={proc.poll()}")
-
-    # 关窗即退出：发 WM_CLOSE，等同用户点右上角 X
+    check("窗口起来 2 秒后启动器仍在等待（UI 常驻）", proc.poll() is None,
+          f"启动器退出码={proc.poll()}")
     user32.PostMessageW(hwnd, 0x0010, 0, 0)
     try:
         code = proc.wait(timeout=15)
-        check("关窗后进程正常退出（退出码 0）", code == 0, f"code={code}")
+        check("关窗后启动器收到真实退出码 0", code == 0, f"code={code}")
     except subprocess.TimeoutExpired:
-        check("关窗后进程正常退出（退出码 0）", False, "15 秒内没退出，消息循环可能有问题")
+        check("关窗后启动器收到真实退出码 0", False, "15 秒内没退出")
         proc.kill()
 
 
@@ -210,6 +239,7 @@ def check_usage_lists_ui(ospt: str) -> None:
     check("用法里列出 --ui（打开配置界面）", "--ui" in output)
     check("用法里列出无参数直接打开界面", re.search(r"^\s*ospt\s+打开配置界面", output, re.M) is not None)
     check("用法里仍有 --ui-smoke-test", "--ui-smoke-test" in output)
+    check("用法里列出 --console（显式保留命令行窗口）", "--console" in output)
 
 
 def main(argv: list[str]) -> int:
@@ -221,8 +251,6 @@ def main(argv: list[str]) -> int:
     section("前置")
     if not check("ospt.exe 存在", os.path.isfile(ospt), ospt):
         return 1
-    if not require_elevated(ospt):
-        return 3
 
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     # 先删掉上一次的报告：否则产物没写出报告时会读到残留，闸门就成了空判
@@ -324,10 +352,12 @@ def main(argv: list[str]) -> int:
         leaked = [name for name in excluded if appears_as_token(lines, name)]
         check("冒烟记录里没有任何红线/不做控件名", not leaked, ", ".join(leaked[:8]))
 
-    section("交互式界面：--ui 能开、能常驻、能关")
+    section("交互式界面：无参数只开 UI、能常驻、能关")
     check_usage_lists_ui(ospt)
-    if not skipped:
+    if "--smoke-only" not in argv and not skipped:
         check_interactive_ui(ospt)
+    elif "--smoke-only" in argv:
+        _say("  --smoke-only：常驻关窗检查由提权子会话单独执行")
     else:
         _say("  本机没有窗口站，跳过 --ui 的常驻检查（原因已在上方打印）")
 

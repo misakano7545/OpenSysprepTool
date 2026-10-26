@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -402,8 +403,7 @@ static bool isElevated()
     return ok != 0 && elevation.TokenIsElevated != 0;
 }
 
-// 未提权时用 runas 重新启动自己（带原参数），等待它退出并返回其退出码。
-// 返回 -1 表示已提权（不需要重启）；返回 >=0 表示重启副本的退出码。
+// 未提权时用 runas 重启，等待并返回真实退出码；控制台输出经临时文件回传。
 static int relaunchElevatedAndWait(int argc, char** argv)
 {
     if (isElevated())
@@ -411,7 +411,6 @@ static int relaunchElevatedAndWait(int argc, char** argv)
         return -1;
     }
 
-    // 拼出原命令行
     std::wstring args;
     for (int i = 1; i < argc; ++i)
     {
@@ -425,18 +424,10 @@ static int relaunchElevatedAndWait(int argc, char** argv)
         ::MultiByteToWideChar(CP_UTF8, 0, a, -1, wa.data(), wlen);
         if (wa.find(L' ') != std::wstring::npos || wa.find(L'"') != std::wstring::npos)
         {
-            std::wstring escaped;
-            escaped += L'"';
+            std::wstring escaped = L"\"";
             for (wchar_t c : wa)
             {
-                if (c == L'"')
-                {
-                    escaped += L"\\\"";
-                }
-                else
-                {
-                    escaped += c;
-                }
+                escaped += (c == L'"') ? L"\\\"" : std::wstring(1, c);
             }
             escaped += L'"';
             wa = std::move(escaped);
@@ -446,23 +437,23 @@ static int relaunchElevatedAndWait(int argc, char** argv)
 
     wchar_t exePath[MAX_PATH] = {};
     ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    wchar_t tempDir[MAX_PATH] = {};
+    wchar_t logPath[MAX_PATH] = {};
+    ::GetTempPathW(MAX_PATH, tempDir);
+    ::GetTempFileNameW(tempDir, L"osp", 0, logPath);
+    const std::wstring command = L"/d /s /c \"\"" + std::wstring(exePath) + L"\" " + args + L" > \"" +
+        std::wstring(logPath) + L"\" 2>&1\"";
 
     SHELLEXECUTEINFOW sei = {};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.hwnd = nullptr;
     sei.lpVerb = L"runas";
-    sei.lpFile = exePath;
-    sei.lpParameters = args.empty() ? nullptr : args.c_str();
-    sei.lpDirectory = nullptr;
-    sei.nShow = SW_SHOWNORMAL;
-
-    if (::ShellExecuteExW(&sei) == 0)
+    sei.lpFile = L"cmd.exe";
+    sei.lpParameters = command.c_str();
+    sei.nShow = SW_HIDE;
+    if (::ShellExecuteExW(&sei) == 0 || sei.hProcess == nullptr)
     {
-        return -2;
-    }
-    if (sei.hProcess == nullptr)
-    {
+        ::DeleteFileW(logPath);
         return -2;
     }
 
@@ -470,6 +461,16 @@ static int relaunchElevatedAndWait(int argc, char** argv)
     ::WaitForSingleObject(sei.hProcess, INFINITE);
     ::GetExitCodeProcess(sei.hProcess, &exitCode);
     ::CloseHandle(sei.hProcess);
+
+    std::ifstream log(logPath, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+    if (!bytes.empty())
+    {
+        std::fwrite(bytes.data(), 1, bytes.size(), stdout);
+        std::fflush(stdout);
+    }
+    log.close();
+    ::DeleteFileW(logPath);
     return static_cast<int>(exitCode);
 }
 

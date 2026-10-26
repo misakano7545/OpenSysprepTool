@@ -2,6 +2,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 #include <windows.h>
@@ -38,8 +39,9 @@ static bool isElevated()
     return ok != 0 && elevation.TokenIsElevated != 0;
 }
 
-// 未提权时用 runas 重新启动自己（带原参数），等待它退出并返回其退出码。
-// 返回 -1 表示已提权（不需要重启）；返回 >=0 表示重启副本的退出码。
+// 未提权时用 runas 重新启动自己，等待退出并返回真实退出码。
+// CLI 的 stdout/stderr 由提权子进程重定向到临时文件，父进程读回自己的输出流。
+// 返回 -1 表示已提权；>=0 表示提权副本的退出码；-2 表示提权失败。
 static int relaunchElevatedAndWait(int argc, char** argv)
 {
     if (isElevated())
@@ -47,7 +49,8 @@ static int relaunchElevatedAndWait(int argc, char** argv)
         return -1;
     }
 
-    // 拼出原命令行
+    const bool wantsUi = argc < 2 || std::strcmp(argv[1], "--ui") == 0 ||
+        (argc >= 3 && std::strcmp(argv[1], "--console") == 0 && std::strcmp(argv[2], "--ui") == 0);
     std::wstring args;
     for (int i = 1; i < argc; ++i)
     {
@@ -61,18 +64,10 @@ static int relaunchElevatedAndWait(int argc, char** argv)
         ::MultiByteToWideChar(CP_UTF8, 0, a, -1, wa.data(), wlen);
         if (wa.find(L' ') != std::wstring::npos || wa.find(L'"') != std::wstring::npos)
         {
-            std::wstring escaped;
-            escaped += L'"';
+            std::wstring escaped = L"\"";
             for (wchar_t c : wa)
             {
-                if (c == L'"')
-                {
-                    escaped += L"\\\"";
-                }
-                else
-                {
-                    escaped += c;
-                }
+                escaped += (c == L'"') ? L"\\\"" : std::wstring(1, c);
             }
             escaped += L'"';
             wa = std::move(escaped);
@@ -83,30 +78,54 @@ static int relaunchElevatedAndWait(int argc, char** argv)
     wchar_t exePath[MAX_PATH] = {};
     ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 
+    // UI 只开窗口；CLI 要回传输出。临时文件只用于这一次提权调用，读完即删。
+    wchar_t tempDir[MAX_PATH] = {};
+    wchar_t logPath[MAX_PATH] = {};
+    ::GetTempPathW(MAX_PATH, tempDir);
+    ::GetTempFileNameW(tempDir, L"osp", 0, logPath);
+
+    std::wstring command;
+    if (wantsUi)
+    {
+        command = L"\"" + std::wstring(exePath) + L"\" " + args;
+    }
+    else
+    {
+        command = L"/d /s /c \"\"" + std::wstring(exePath) + L"\" " + args + L" > \"" +
+            std::wstring(logPath) + L"\" 2>&1\"";
+    }
+
     SHELLEXECUTEINFOW sei = {};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.hwnd = nullptr;
     sei.lpVerb = L"runas";
-    sei.lpFile = exePath;
-    sei.lpParameters = args.empty() ? nullptr : args.c_str();
-    sei.lpDirectory = nullptr;
-    sei.nShow = SW_SHOWNORMAL;
+    sei.lpFile = wantsUi ? exePath : L"cmd.exe";
+    sei.lpParameters = wantsUi ? args.c_str() : command.c_str();
+    sei.nShow = wantsUi ? SW_SHOWNORMAL : SW_HIDE;
 
-    if (::ShellExecuteExW(&sei) == 0)
+    if (::ShellExecuteExW(&sei) == 0 || sei.hProcess == nullptr)
     {
-        return -2; // 用户拒绝 UAC 或系统不允许提权
-    }
-    if (sei.hProcess == nullptr)
-    {
+        ::DeleteFileW(logPath);
         return -2;
     }
 
-    // 等提权副本跑完，把它的退出码作为本进程的退出码（CI 需要这个结果）
     DWORD exitCode = 1;
     ::WaitForSingleObject(sei.hProcess, INFINITE);
     ::GetExitCodeProcess(sei.hProcess, &exitCode);
     ::CloseHandle(sei.hProcess);
+
+    if (!wantsUi)
+    {
+        std::ifstream log(logPath, std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+        if (!bytes.empty())
+        {
+            std::fwrite(bytes.data(), 1, bytes.size(), stdout);
+            std::fflush(stdout);
+        }
+        log.close();
+    }
+    ::DeleteFileW(logPath);
     return static_cast<int>(exitCode);
 }
 
@@ -116,19 +135,31 @@ static int relaunchElevatedAndWait(int argc, char** argv)
 //
 // 只在 **stdout 不可用** 的时候才回落到父控制台。反过来无条件 attach 会把调用方给的
 // 重定向流劫走：脚本与 CI 抓到的就是空字符串（实测踩过）。
-void attachParentConsoleIfNeeded()
+void attachParentConsoleIfNeeded(bool allocateIfMissing)
 {
-    const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
-    const bool usable =
-        out != nullptr && out != INVALID_HANDLE_VALUE && ::GetFileType(out) != FILE_TYPE_UNKNOWN;
-    if (usable)
+    // --console 是显式调试入口：即使 stdout 已被重定向，也创建/保留一个可见控制台；
+    // 普通 CLI 则只在 stdout 不可用时挂回父控制台，绝不劫走重定向流。
+    if (allocateIfMissing && ::GetConsoleWindow() == nullptr)
     {
-        return; // 管道 / 文件 / 已挂上控制台，一律不动
+        if (::AllocConsole() == 0)
+        {
+            return;
+        }
     }
-
-    if (::AttachConsole(ATTACH_PARENT_PROCESS) == 0)
+    else
     {
-        return; // 没有父控制台（例如双击启动）：输出丢弃，退出码照旧有效
+        const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        const bool usable =
+            out != nullptr && out != INVALID_HANDLE_VALUE && ::GetFileType(out) != FILE_TYPE_UNKNOWN;
+        if (usable)
+        {
+            return; // 管道 / 文件 / 已挂上控制台，一律不动
+        }
+
+        if (::AttachConsole(ATTACH_PARENT_PROCESS) == 0)
+        {
+            return; // 双击启动且不是 --console：输出丢弃，不弹黑框
+        }
     }
 
     FILE* stream = nullptr;
@@ -151,6 +182,8 @@ void printUsage()
     std::printf("usage:\n");
     std::printf("  ospt                                             打开配置界面（等同 --ui）\n");
     std::printf("  ospt --ui [--config <cfg.json>]                  打开配置界面，可带一个初始配置\n");
+    std::printf("  ospt --console                                         打开命令行窗口并显示用法\n");
+    std::printf("  ospt --console --ui                                    命令行窗口 + 配置界面（调试用）\n");
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
@@ -1028,13 +1061,21 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-    // 界面（无参数或 --ui）需要管理员权限（装驱动、写离线注册表、跑 sysprep 都要管理员）。
-    // 只读开关不自动提权：--version / --help / --selftest / --checkup / --gen-unattend /
-    // --gen-runplan / --ui-smoke-test 这些不需要管理员，直接跑（CI 也要能跑）。
-    // 只有真正需要管理员的操作（--inject-drivers / --sysprep / --execute / --ui / 无参数）才提权。
-    const bool needsAdmin = argc < 2 ||
-        (std::strcmp(argv[1], "--ui") == 0 || std::strcmp(argv[1], "--inject-drivers") == 0 ||
-         std::strcmp(argv[1], "--sysprep") == 0 || std::strcmp(argv[1], "--execute") == 0);
+    // 无参数 / --ui：只显示界面；--console：显式要求保留命令行窗口。
+    const bool wantsConsole = argc >= 2 && std::strcmp(argv[1], "--console") == 0;
+    const bool wantsUi = argc < 2 || std::strcmp(argv[1], "--ui") == 0 ||
+        (wantsConsole && argc >= 3 && std::strcmp(argv[2], "--ui") == 0);
+
+    // 界面与需要管理员的操作在 main 开头自动提权；只读开关和 dry-run 不提权。
+    bool dryRun = false;
+    for (int i = 2; i < argc; ++i)
+    {
+        dryRun = dryRun || std::strcmp(argv[i], "--dry-run") == 0;
+    }
+    const bool operation = argc >= 2 &&
+        (std::strcmp(argv[1], "--inject-drivers") == 0 || std::strcmp(argv[1], "--sysprep") == 0 ||
+         std::strcmp(argv[1], "--execute") == 0);
+    const bool needsAdmin = wantsUi || (operation && !dryRun);
 
     if (needsAdmin)
     {
@@ -1050,8 +1091,28 @@ int main(int argc, char** argv)
         }
     }
 
-    // GUI 子系统下没有控制台：命令行开关要输出就自己挂回父控制台
-    attachParentConsoleIfNeeded();
+    // ospt.exe 是 GUI 子系统：正常启动不会新建命令行窗口。
+    // CLI 开关若 stdout 已被管道/文件接住则直接写；否则挂回父控制台。
+    // 双击启动时没有父控制台，输出自然丢弃，不会弹出黑框。
+    attachParentConsoleIfNeeded(wantsConsole);
+
+    if (wantsConsole && argc >= 3 && std::strcmp(argv[2], "--ui") == 0)
+    {
+        return runUi(argc - 1, argv + 1);
+    }
+
+    if (wantsConsole && argc >= 3)
+    {
+        return main(argc - 1, argv + 1);
+    }
+
+    if (wantsConsole)
+    {
+        printUsage();
+        std::printf("\n--console：按回车关闭命令行窗口\n");
+        (void)std::getchar();
+        return 0;
+    }
 
     // 不带参数 = 打开配置界面（双击 exe 就能用）
     if (argc < 2)

@@ -179,7 +179,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $PSNativeCommandUseErrorActionPreference = $false
-          $out = & '.\build\bin\Release\ospt.exe' --version
+          # WINDOWS 子系统的 exe 要经管道等待，不能靠裸 & 的 $LASTEXITCODE
+          $out = & '.\build\bin\Release\ospt.exe' --version | Out-String
           $out
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::--version 退出码非零"
@@ -249,7 +250,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $false
           $log = 'release-ui.log'
 
-          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' *>&1 | Tee-Object -FilePath $log
+          python tests\integration\verify_ui.py '.\build\bin\Release\ospt.exe' --smoke-only *>&1 | Tee-Object -FilePath $log
           $code = $LASTEXITCODE
 
           if ($code -ne 0) {
@@ -261,6 +262,12 @@ jobs:
             }
             exit $code
           }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File tests\tools\verify-ui-elevated.ps1 `
+            -Repo $PWD.Path -Ospt '.\build\bin\Release\ospt.exe'
+          $code2 = $LASTEXITCODE
+          if ($code2 -ne 0) { exit $code2 }
+
           Get-Content $log | Select-String -Pattern 'SMOKE-SKIP' |
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0

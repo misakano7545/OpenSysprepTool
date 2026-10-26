@@ -1,10 +1,9 @@
 ﻿<#
   run_acceptance_elevated.ps1 —— 本机验收统一入口（在提权会话里跑）
 
-  为什么需要它：ospt.exe / osptd.exe 的嵌入清单声明 requireAdministrator，未提权的会话
-  启动它们会被 Windows 在装载阶段直接拒绝（CreateProcess 740 ERROR_ELEVATION_REQUIRED），
-  verify_ui / verify_drivers / verify_deploy_exec 会以退出码 3 明确报出来。把全部闸门
-  放进**一个**提权会话里跑，只需提权一次。
+  为什么需要它：UI 的常驻关窗验收需要在提权会话里执行，避免 UIPI 拒绝跨权限窗口消息；
+  需要真实执行的部署/驱动操作也要求管理员。只读生成与 dry-run 验收不要求提权。
+  把全部闸门放进**一个**提权会话里跑，只需提权一次。
 
   用法：
       powershell -ExecutionPolicy Bypass -File tests/tools/run_acceptance_elevated.ps1

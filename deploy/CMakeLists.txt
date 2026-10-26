@@ -1,7 +1,7 @@
 # deploy —— 部署运行时 osptd.exe
 #
-# 子系统保持 CONSOLE（部署时要在命令行看单页进度），但 manifest 声明
-# requireAdministrator：写离线 hive、复制 .sys、调 dism / sysprep 都要管理员。
+# 子系统保持 CONSOLE（部署时要在命令行看单页进度）。
+# 清单保持 asInvoker，真实执行时由 main() 自检并用 runas 提权；dry-run 不需要提权。
 add_executable(osptd
   main.cpp
   # 单页进度页：Win32 控制台原地重绘（Win7 的 conhost 不认 ANSI/VT）

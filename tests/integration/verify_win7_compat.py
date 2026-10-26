@@ -41,7 +41,7 @@ EXPECTED_SUBSYSTEM = (6, 1)
 # 其余产物是控制台程序。宪章 §10 记的「/SUBSYSTEM 曾对所有 exe 写死，
 # M7 改 GUI 子系统要按 target 区分」就在这里被钉住。
 EXPECTED_SUBSYSTEM_KIND = {
-    "ospt.exe": 2,  # WINDOWS
+    "ospt.exe": 2,  # WINDOWS（双击/无参数只有 UI）
     "osptd.exe": 3,  # CONSOLE
     "osp_unit_tests.exe": 3,
 }
