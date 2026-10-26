@@ -1,6 +1,7 @@
 #include "core/prepare.hpp"
 
 #include <windows.h>
+#include <sddl.h>
 
 #include <algorithm>
 #include <cctype>
@@ -215,6 +216,42 @@ std::vector<std::uint8_t> hexDecode(const std::string& text)
 std::string nowText()
 {
     return win7::formatFileTime(win7::fileTimeNow());
+}
+
+// 当前用户 SID 的字符串形式（S-1-5-21-...）。清空回收站要按 SID 定位子目录。
+std::string currentUserSid()
+{
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) == 0)
+    {
+        return std::string();
+    }
+
+    DWORD size = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &size);
+    if (size == 0)
+    {
+        CloseHandle(token);
+        return std::string();
+    }
+
+    std::vector<std::uint8_t> buffer(size, 0);
+    if (GetTokenInformation(token, TokenUser, buffer.data(), size, &size) == 0)
+    {
+        CloseHandle(token);
+        return std::string();
+    }
+    CloseHandle(token);
+
+    auto* user = reinterpret_cast<TOKEN_USER*>(buffer.data());
+    LPWSTR sidText = nullptr;
+    if (ConvertSidToStringSidW(user->User.Sid, &sidText) == 0)
+    {
+        return std::string();
+    }
+    const std::string text = toUtf8(std::wstring(sidText));
+    LocalFree(sidText);
+    return text;
 }
 
 // ---------------------------------------------------------------- 读命令输出
@@ -461,8 +498,12 @@ bool runCommand(const Action& action, ExecResult& result, std::string& error)
     result.log.push_back("执行  " + commandLine + "  → 退出码 " + std::to_string(code));
     if (code != 0)
     {
-        error = "命令退出码非 0（" + std::to_string(code) + "）：" + commandLine;
-        return false;
+        if (!action.tolerateNonZeroExit)
+        {
+            error = "命令退出码非 0（" + std::to_string(code) + "）：" + commandLine;
+            return false;
+        }
+        result.warnings.push_back("命令退出码 " + std::to_string(code) + "（已容忍）：" + commandLine);
     }
 
     if (!action.undoCommand.empty())
@@ -730,12 +771,26 @@ bool deleteTreeContents(const Action& action, ExecResult& result, std::string& e
     std::error_code ec;
     if (!fs::exists(root, ec))
     {
-        result.warnings.push_back("目录不存在，跳过：" + action.path);
+        result.warnings.push_back("路径不存在，跳过：" + action.path);
         return true;
     }
+
+    // 文件：直接删（残留的 unattend.xml 这类单文件清理走同一条路径）
+    if (fs::is_regular_file(root, ec))
+    {
+        fs::remove(root, ec);
+        if (ec)
+        {
+            error = "删除文件失败（" + action.path + "）：" + ec.message();
+            return false;
+        }
+        result.log.push_back("删除文件  " + action.path);
+        return true;
+    }
+
     if (!fs::is_directory(root, ec))
     {
-        error = "不是目录：" + action.path;
+        error = "既不是文件也不是目录：" + action.path;
         return false;
     }
 
@@ -1539,6 +1594,151 @@ Plan build(const config::Config& cfg, const Options& options)
                                 "sysprep 参数与 classic 相同，本次按 classic 执行");
     }
 
+    // ------------------------------------------------------------ 封装前清理
+    // 对齐 SysprepPreparator 的 PreparationTasks（docs/开源参考调研.md §2.2）。
+    // 这些动作都会改系统状态且大多不可回滚，逐项默认关闭，必须显式勾选。
+    const auto addCleanup = [&plan,
+                             &opt](ActionKind kind, const char* id, const char* title, const char* field) {
+        Action action;
+        action.kind = kind;
+        action.id = id;
+        action.group = "封装前清理";
+        action.title = title;
+        action.sourceField = field;
+        action.irreversible = true;
+        return action;
+    };
+
+    if (cfg.sysprep.stopSysprepProcess)
+    {
+        Action action = addCleanup(
+            ActionKind::RunCommand,
+            "sysprep.stopSysprepProcess",
+            "结束已在运行的 sysprep.exe",
+            "sysprep.stopSysprepProcess"
+        );
+        action.program = joinPath(opt.windowsDir, "System32\\taskkill.exe");
+        action.arguments = "/F /IM sysprep.exe /T";
+        action.tolerateNonZeroExit = true;
+        action.note = "没有在跑的 sysprep 时 taskkill 返回非 0，已按容忍处理";
+        plan.actions.push_back(std::move(action));
+    }
+
+    if (cfg.sysprep.cleanShadowCopies)
+    {
+        Action action = addCleanup(
+            ActionKind::RunCommand,
+            "sysprep.cleanShadowCopies",
+            "删除卷影副本与还原点",
+            "sysprep.cleanShadowCopies"
+        );
+        action.program = joinPath(opt.windowsDir, "System32\\vssadmin.exe");
+        action.arguments = "delete shadows /all /quiet";
+        action.tolerateNonZeroExit = true;
+        action.note = "没有卷影副本时返回非 0，已按容忍处理；删除后无法恢复";
+        plan.actions.push_back(std::move(action));
+    }
+
+    if (cfg.sysprep.cleanEventLogs)
+    {
+        // 只清这几个固定日志：wevtutil el 枚举会把 100 多个通道都清掉，
+        // 其中包含驱动安装记录之类的排错依据，没必要。
+        const char* logs[] = {"System", "Application", "Setup", "Windows PowerShell"};
+        for (const char* log : logs)
+        {
+            Action action = addCleanup(
+                ActionKind::RunCommand,
+                (std::string("sysprep.cleanEventLogs.") + log).c_str(),
+                (std::string("清空事件日志：") + log).c_str(),
+                "sysprep.cleanEventLogs"
+            );
+            action.program = joinPath(opt.windowsDir, "System32\\wevtutil.exe");
+            action.arguments = std::string("cl \"") + log + "\"";
+            action.tolerateNonZeroExit = true;
+            action.note = "日志不存在或无权限时返回非 0，已按容忍处理";
+            plan.actions.push_back(std::move(action));
+        }
+    }
+
+    if (cfg.sysprep.cleanRecycleBin)
+    {
+        // 只删当前用户 SID 那一份，不整目录删 —— 其他用户的回收站不属于本次清理范围。
+        const std::string sid = currentUserSid();
+        if (sid.empty())
+        {
+            plan.warnings.push_back("取不到当前用户 SID，已跳过清空回收站");
+        }
+        else
+        {
+            const DWORD drives = GetLogicalDrives();
+            for (int i = 0; i < 26; ++i)
+            {
+                if ((drives & (1u << i)) == 0)
+                {
+                    continue;
+                }
+                const std::string root = std::string(1, static_cast<char>('A' + i)) + ":\\";
+                if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED)
+                {
+                    continue;
+                }
+                Action action = addCleanup(
+                    ActionKind::DeleteTree,
+                    ("sysprep.cleanRecycleBin." + std::string(1, static_cast<char>('A' + i))).c_str(),
+                    ("清空回收站：" + root).c_str(),
+                    "sysprep.cleanRecycleBin"
+                );
+                action.path = root + "$Recycle.Bin\\" + sid;
+                action.note = "只清当前用户 SID 的回收站目录";
+                plan.actions.push_back(std::move(action));
+            }
+        }
+    }
+
+    if (cfg.sysprep.cleanComponentStore)
+    {
+        Action action = addCleanup(
+            ActionKind::RunCommand,
+            "sysprep.cleanComponentStore",
+            "DISM 组件清理（startcomponentcleanup）",
+            "sysprep.cleanComponentStore"
+        );
+        action.program = joinPath(opt.windowsDir, "System32\\Dism\\dism.exe");
+        action.arguments = "/online /cleanup-image /startcomponentcleanup";
+        action.note = "故意不加 /resetbase：那会让已装更新无法卸载，且耗时很长";
+        plan.actions.push_back(std::move(action));
+    }
+
+    if (cfg.sysprep.removeUnattendResidue)
+    {
+        const char* residues[] = {
+            "Panther\\unattend.xml",
+            "System32\\Sysprep\\unattend.xml",
+        };
+        for (const char* residue : residues)
+        {
+            Action action = addCleanup(
+                ActionKind::DeleteTree,
+                (std::string("sysprep.removeUnattendResidue.") + residue).c_str(),
+                (std::string("删除残留应答文件：%WINDIR%\\") + residue).c_str(),
+                "sysprep.removeUnattendResidue"
+            );
+            action.path = joinPath(opt.windowsDir, residue);
+            action.note = "不存在的文件跳过";
+            plan.actions.push_back(std::move(action));
+        }
+
+        Action rootFile = addCleanup(
+            ActionKind::DeleteTree,
+            "sysprep.removeUnattendResidue.systemDrive",
+            "删除系统盘根目录的 unattend.xml",
+            "sysprep.removeUnattendResidue"
+        );
+        rootFile.path = joinPath(opt.systemDrive, "unattend.xml");
+        rootFile.note = "不存在的文件跳过";
+        plan.actions.push_back(std::move(rootFile));
+    }
+
     if (cfg.sysprep.uninstallDrivers)
     {
         defer("sysprep.uninstallDrivers", "需要枚举第三方 OEM 驱动并避开存储控制器，归入 M10 的驱动卸载");
@@ -1608,7 +1808,7 @@ std::string dryRunReport(const Plan& plan)
             out += "    移动目录内容  " + action.path + " → " + action.destination + "\n";
             break;
         case ActionKind::DeleteTree:
-            out += "    清空目录  " + action.path + "\n";
+            out += "    删除路径  " + action.path + "（文件直接删，目录清空内容）\n";
             break;
         case ActionKind::BcdTimeout:
             out += "    执行  " + quoteIfNeeded(action.program) + " /set {bootmgr} timeout " +

@@ -71,6 +71,9 @@ struct Action
     // 命令类动作的撤销命令（如 bcdedit /set ... 写回原值）。
     // 非空时执行后会写进 journal，--rollback 逆序跑它。
     std::string undoCommand;
+    // 清理类命令允许非 0 退出码：net stop 一个本来没跑的服务会返回 3521，
+    // 这不是失败。置 true 时只记日志与告警，不中止。
+    bool tolerateNonZeroExit = false;
     std::string note;
 };
 

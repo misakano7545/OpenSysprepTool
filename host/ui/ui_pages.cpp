@@ -1036,6 +1036,49 @@ Page sysprepPage(const config::Config& cfg)
         "sysprep.autoLogonCount",
         "《功能规格》§五：次数"
     ));
+    // 封装前清理：对齐 SysprepPreparator 的 PreparationTasks，全部默认关闭
+    sysset.fields.push_back(makeCheck(
+        "Cb_StopSysprep",
+        "结束已在运行的 sysprep.exe",
+        cfg.sysprep.stopSysprepProcess,
+        "sysprep.stopSysprepProcess",
+        "不先停会报「sysprep 已在运行」"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_CleanShadow",
+        "删除卷影副本与还原点",
+        cfg.sysprep.cleanShadowCopies,
+        "sysprep.cleanShadowCopies",
+        "不可恢复"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_CleanEventLog",
+        "清空系统事件日志（System/Application/Setup/PowerShell）",
+        cfg.sysprep.cleanEventLogs,
+        "sysprep.cleanEventLogs",
+        "只清这四个固定日志，不做 wevtutil el 全量枚举"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_CleanRecycleBin",
+        "清空回收站（当前用户）",
+        cfg.sysprep.cleanRecycleBin,
+        "sysprep.cleanRecycleBin",
+        "按当前用户 SID 定位，只清固定磁盘"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_CleanComponentStore",
+        "DISM 组件清理（不含 /resetbase）",
+        cfg.sysprep.cleanComponentStore,
+        "sysprep.cleanComponentStore",
+        "/resetbase 会让已装更新无法卸载，故意不加；耗时较长"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_RemoveUnattend",
+        "删除残留的 unattend.xml",
+        cfg.sysprep.removeUnattendResidue,
+        "sysprep.removeUnattendResidue",
+        "Panther / Sysprep / 系统盘根三处；下次 Setup 可能重跑旧应答文件"
+    ));
     page.groups.push_back(std::move(sysset));
 
     Group net;
@@ -1456,6 +1499,30 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.sysprep.autoLogonCount = toInt(field.value, cfg.sysprep.autoLogonCount);
             }
+            else if (id == "Cb_StopSysprep")
+            {
+                cfg.sysprep.stopSysprepProcess = field.checked;
+            }
+            else if (id == "Cb_CleanShadow")
+            {
+                cfg.sysprep.cleanShadowCopies = field.checked;
+            }
+            else if (id == "Cb_CleanEventLog")
+            {
+                cfg.sysprep.cleanEventLogs = field.checked;
+            }
+            else if (id == "Cb_CleanRecycleBin")
+            {
+                cfg.sysprep.cleanRecycleBin = field.checked;
+            }
+            else if (id == "Cb_CleanComponentStore")
+            {
+                cfg.sysprep.cleanComponentStore = field.checked;
+            }
+            else if (id == "Cb_RemoveUnattend")
+            {
+                cfg.sysprep.removeUnattendResidue = field.checked;
+            }
             else if (id == "Ed_WorkGroup")
             {
                 cfg.sysprep.workgroup = field.value;
@@ -1751,12 +1818,16 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "sysprep")
     {
         return {
-            "Btn_Syspreprun",   "Cb_Uninstalldriver",  "Cb_LoadSrsDrv",     "Cb_Createnewsid",
-            "Rb_Sysprep_Type1", "Cb_Cutdesktopfile",   "Cb_Cleanjunkfiles", "Cb_Dllcache",
-            "Cb_ClearPrivacy",  "Cb_ClearUpdateCache", "Cb_AutoLogon",      "Ed_LogonPassword",
-            "Se_LogonCount",    "Rb_WorkGroup",        "Rb_Domain",         "Ed_WorkGroup",
-            "Ed_Domain_name",   "Ed_Domain_user",      "Ed_Domain_pw",      "Rb_EveryOne",
-            "Rb_EverySer",      "Se_Serconut",         "Cb_AfterSysprep",
+            "Btn_Syspreprun",      "Cb_Uninstalldriver", "Cb_LoadSrsDrv",
+            "Cb_Createnewsid",     "Rb_Sysprep_Type1",   "Cb_Cutdesktopfile",
+            "Cb_Cleanjunkfiles",   "Cb_Dllcache",        "Cb_ClearPrivacy",
+            "Cb_ClearUpdateCache", "Cb_AutoLogon",       "Ed_LogonPassword",
+            "Se_LogonCount",       "Cb_StopSysprep",     "Cb_CleanShadow",
+            "Cb_CleanEventLog",    "Cb_CleanRecycleBin", "Cb_CleanComponentStore",
+            "Cb_RemoveUnattend",   "Rb_WorkGroup",       "Rb_Domain",
+            "Ed_WorkGroup",        "Ed_Domain_name",     "Ed_Domain_user",
+            "Ed_Domain_pw",        "Rb_EveryOne",        "Rb_EverySer",
+            "Se_Serconut",         "Cb_AfterSysprep",
         };
     }
     if (pageId == "run")

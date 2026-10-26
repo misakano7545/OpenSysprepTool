@@ -298,6 +298,75 @@ def main() -> int:
         f"blockers={sysprep_blockers} critical={critical_detected}",
     )
 
+    # ------------------------------------------------------------ 封装前清理动作
+    section("封装前清理动作")
+    clean_cfg = full_config()
+    clean_cfg["sysprep"].update({
+        "stopSysprepProcess": True,
+        "cleanShadowCopies": True,
+        "cleanEventLogs": True,
+        "cleanRecycleBin": True,
+        "cleanComponentStore": True,
+        "removeUnattendResidue": True,
+    })
+    clean_cfg_path = os.path.join(work, "cfg-clean.json")
+    clean_plan_path = os.path.join(work, "plan-clean.json")
+    write_json(clean_cfg_path, clean_cfg)
+
+    code, output = run([ospt, "--prepare", clean_cfg_path, "--dry-run", "--report", clean_plan_path])
+    check("清理计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    clean_plan = {}
+    if os.path.isfile(clean_plan_path):
+        with open(clean_plan_path, "r", encoding="utf-8") as handle:
+            clean_plan = json.load(handle)
+    clean_actions = {item.get("id"): item for item in clean_plan.get("actions", [])}
+
+    stop = clean_actions.get("sysprep.stopSysprepProcess")
+    check("结束 sysprep 进程动作存在", stop is not None)
+    check("taskkill 参数正确", stop is not None and "/F /IM sysprep.exe /T" in stop.get("arguments", ""),
+          str(stop))
+
+    shadow = clean_actions.get("sysprep.cleanShadowCopies")
+    check("删除卷影副本动作存在", shadow is not None)
+    check("vssadmin 参数正确",
+          shadow is not None and shadow.get("arguments") == "delete shadows /all /quiet", str(shadow))
+
+    for log in ("System", "Application", "Setup", "Windows PowerShell"):
+        item = clean_actions.get(f"sysprep.cleanEventLogs.{log}")
+        check(f"事件日志动作存在: {log}", item is not None)
+        check(f"事件日志命令正确: {log}",
+              item is not None and f'cl "{log}"' in item.get("arguments", ""), str(item))
+
+    dism_action = clean_actions.get("sysprep.cleanComponentStore")
+    check("DISM 组件清理动作存在", dism_action is not None)
+    check("组件清理不带 /resetbase",
+          dism_action is not None and "resetbase" not in dism_action.get("arguments", ""), str(dism_action))
+    check("组件清理命令正确",
+          dism_action is not None and
+          dism_action.get("arguments") == "/online /cleanup-image /startcomponentcleanup", str(dism_action))
+
+    residue_ids = [key for key in clean_actions if key.startswith("sysprep.removeUnattendResidue.")]
+    check("残留应答文件动作三条", len(residue_ids) == 3, str(residue_ids))
+
+    recycle_ids = [key for key in clean_actions if key.startswith("sysprep.cleanRecycleBin.")]
+    check("回收站动作按固定磁盘生成", len(recycle_ids) >= 1, str(recycle_ids))
+    for key in recycle_ids:
+        check(f"回收站路径按 SID 定位: {key}",
+              "$Recycle.Bin\\S-1-" in clean_actions[key].get("path", ""), str(clean_actions[key]))
+
+    cleanup_ids = [
+        "sysprep.stopSysprepProcess",
+        "sysprep.cleanShadowCopies",
+        "sysprep.cleanComponentStore",
+    ]
+    cleanup_ids += [key for key in clean_actions
+                    if key.startswith("sysprep.cleanEventLogs.")
+                    or key.startswith("sysprep.cleanRecycleBin.")
+                    or key.startswith("sysprep.removeUnattendResidue.")]
+    not_irreversible = [key for key in cleanup_ids
+                        if not clean_actions.get(key, {}).get("irreversible")]
+    check("清理动作全部标记不可回滚", not not_irreversible, str(not_irreversible))
+
     # ------------------------------------------------------------ 拒绝执行
     section("拒绝执行")
     code, output = run([ospt, "--prepare", cfg_path])

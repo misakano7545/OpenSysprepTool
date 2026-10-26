@@ -111,6 +111,14 @@ struct SysprepSettings
     std::string domainPassword;      // 域用户密码（Ed_Domain_pw）
     bool perServerLicensing = false; // 每服务器授权（Rb_EverySer）
     int maxConnections = 5;          // 同时连接数（Se_Serconut，图纸默认 5）
+    // M10 新增：封装前清理（对齐 SysprepPreparator 的 PreparationTasks，
+    // 见 docs/开源参考调研.md §2.2）。默认全关，逐项在界面上显式勾选。
+    bool stopSysprepProcess = false;    // 结束已在运行的 sysprep.exe
+    bool cleanShadowCopies = false;     // 删除卷影副本 / 还原点
+    bool cleanEventLogs = false;        // 清空系统事件日志
+    bool cleanRecycleBin = false;       // 清空回收站
+    bool cleanComponentStore = false;   // DISM 组件清理（不含 /resetbase）
+    bool removeUnattendResidue = false; // 删除残留的 unattend.xml
 };
 
 struct Config

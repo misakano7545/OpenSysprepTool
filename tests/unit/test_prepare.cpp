@@ -3,6 +3,8 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -413,4 +415,93 @@ TEST_CASE("prepare: deleting a registry key is idempotent")
     CHECK(result.ok);
     CHECK(result.applied == 1);
     CHECK(result.journal.entries.empty()); // 不可回滚的动作不进 journal
+}
+
+TEST_CASE("prepare: pre-sysprep cleanup actions are built only when enabled")
+{
+    osp::config::Config cfg;
+    const osp::prepare::Plan plain = osp::prepare::build(cfg, testOptions());
+    for (const char* id : {
+             "sysprep.stopSysprepProcess",
+             "sysprep.cleanShadowCopies",
+             "sysprep.cleanComponentStore",
+             "sysprep.removeUnattendResidue.Panther\\unattend.xml",
+         })
+    {
+        CHECK(findAction(plain, id) == nullptr);
+    }
+
+    cfg.sysprep.stopSysprepProcess = true;
+    cfg.sysprep.cleanShadowCopies = true;
+    cfg.sysprep.cleanEventLogs = true;
+    cfg.sysprep.cleanComponentStore = true;
+    cfg.sysprep.removeUnattendResidue = true;
+
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    REQUIRE(plan.ok);
+
+    const osp::prepare::Action* stop = findAction(plan, "sysprep.stopSysprepProcess");
+    REQUIRE(stop != nullptr);
+    CHECK(stop->arguments == "/F /IM sysprep.exe /T");
+    CHECK(stop->tolerateNonZeroExit);
+
+    const osp::prepare::Action* shadow = findAction(plan, "sysprep.cleanShadowCopies");
+    REQUIRE(shadow != nullptr);
+    CHECK(shadow->arguments == "delete shadows /all /quiet");
+    CHECK(shadow->irreversible);
+
+    // 四个固定日志各一条
+    for (const char* log : {"System", "Application", "Setup", "Windows PowerShell"})
+    {
+        const std::string id = std::string("sysprep.cleanEventLogs.") + log;
+        const osp::prepare::Action* action = findAction(plan, id);
+        REQUIRE(action != nullptr);
+        CHECK(action->program.find("wevtutil.exe") != std::string::npos);
+    }
+
+    const osp::prepare::Action* dism = findAction(plan, "sysprep.cleanComponentStore");
+    REQUIRE(dism != nullptr);
+    CHECK(dism->arguments == "/online /cleanup-image /startcomponentcleanup");
+    // 故意不带 /resetbase
+    CHECK(dism->arguments.find("resetbase") == std::string::npos);
+
+    const osp::prepare::Action* panther =
+        findAction(plan, "sysprep.removeUnattendResidue.Panther\\unattend.xml");
+    REQUIRE(panther != nullptr);
+    CHECK(panther->path == std::string("C:\\Windows") + "\\Panther\\unattend.xml");
+
+    const osp::prepare::Action* rootUnattend = findAction(plan, "sysprep.removeUnattendResidue.systemDrive");
+    REQUIRE(rootUnattend != nullptr);
+    CHECK(rootUnattend->path == std::string("C:\\") + "unattend.xml");
+}
+
+TEST_CASE("prepare: delete tree removes a single file as well as directory contents")
+{
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "ospt_prepare_delete_test";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+    const fs::path file = dir / "residue.xml";
+    {
+        std::ofstream out(file);
+        out << "x";
+    }
+    REQUIRE(fs::exists(file));
+
+    osp::prepare::Action action;
+    action.kind = osp::prepare::ActionKind::DeleteTree;
+    action.id = "test.deleteFile";
+    action.path = (dir / "residue.xml").string();
+
+    const osp::prepare::ExecResult result = osp::prepare::executeActions({action});
+    CHECK(result.ok);
+    CHECK_FALSE(fs::exists(file));
+
+    // 再跑一次：不存在时跳过而不是报错
+    const osp::prepare::ExecResult again = osp::prepare::executeActions({action});
+    CHECK(again.ok);
+    CHECK_FALSE(again.warnings.empty());
+
+    fs::remove_all(dir, ec);
 }

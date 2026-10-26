@@ -109,6 +109,12 @@ json encode(const Config& cfg)
         {"domainPassword", sp.domainPassword},
         {"perServerLicensing", sp.perServerLicensing},
         {"maxConnections", sp.maxConnections},
+        {"stopSysprepProcess", sp.stopSysprepProcess},
+        {"cleanShadowCopies", sp.cleanShadowCopies},
+        {"cleanEventLogs", sp.cleanEventLogs},
+        {"cleanRecycleBin", sp.cleanRecycleBin},
+        {"cleanComponentStore", sp.cleanComponentStore},
+        {"removeUnattendResidue", sp.removeUnattendResidue},
     };
 
     return j;
@@ -255,6 +261,12 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.domainPassword = sp.value("domainPassword", std::string{});
             cfg.sysprep.perServerLicensing = sp.value("perServerLicensing", false);
             cfg.sysprep.maxConnections = sp.value("maxConnections", 5);
+            cfg.sysprep.stopSysprepProcess = sp.value("stopSysprepProcess", false);
+            cfg.sysprep.cleanShadowCopies = sp.value("cleanShadowCopies", false);
+            cfg.sysprep.cleanEventLogs = sp.value("cleanEventLogs", false);
+            cfg.sysprep.cleanRecycleBin = sp.value("cleanRecycleBin", false);
+            cfg.sysprep.cleanComponentStore = sp.value("cleanComponentStore", false);
+            cfg.sysprep.removeUnattendResidue = sp.value("removeUnattendResidue", false);
         }
     }
     catch (const json::exception& e)
