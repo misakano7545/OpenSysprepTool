@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "core/config.hpp"
+
 namespace osp::deploy {
 
 // ---------------------------------------------------------------- 计划模型
@@ -61,8 +63,31 @@ struct Plan
     int presentationResolutionX = 0;
     int presentationResolutionY = 0;
     std::string presentationFontColor; // "#RRGGBB"，空 = 默认
+    // 部署校验（SC 的 Cb_Tampering / Btn_DisableVmrun / SA_Rb_hijack_*）
+    bool verifyIntegrity = false;
+    std::vector<config::DeploySettings::TamperEntry> tamperFiles;
+    bool blockVirtualMachine = false;
+    std::string hijackMode = "terminate";
+    std::string hijackTip;
+    std::string controllerMd5; // 生成计划时 osptd 自身的 MD5，用于判断主控是否被替换
     std::vector<std::string> warnings;
 };
+
+// 部署前闸门的判定结果
+struct PreflightResult
+{
+    bool blocked = false;     // true = 拒绝部署
+    std::string reason;       // 拒绝原因（原样给用户看）
+    std::string tamperedFile; // 命中的被篡改文件（空 = 不是防篡改导致的）
+    bool controllerHijacked = false;
+    std::string tip;                  // SC 的「被劫持弹出提示告之用户」
+    std::vector<std::string> checked; // 通过的检查项，便于逐条打印
+    std::vector<std::string> warnings;
+};
+
+// 执行任何任务前先跑这三道闸门：虚拟机检测、文件防篡改、部署主控校验。
+// 纯只读，不改目标机。
+PreflightResult preflight(const Plan& plan);
 
 // 从运行计划目录读 run/runplan.json（UTF-8 路径）
 Plan load(const std::string& utf8Directory);

@@ -12,6 +12,7 @@ add_library(osp_core STATIC
   # M5 新增：Windows 7 兼容层与部署运行时内核
   win7/win7compat.cpp
   deploy/deploy.cpp
+  deploy/preflight.cpp
   # M6 新增：驱动注入（两种模式）与 sysprep 编排
   dism/dism.cpp
   srsinject/srsinject.cpp
@@ -23,6 +24,8 @@ add_library(osp_core STATIC
   oem/oem.cpp
   # M10 新增：SC 自带的系统优化表（27 条原始数据）
   tweaks/tweaks.cpp
+  # M10 新增：MD5（SC 的文件防篡改校验用的就是 MD5）
+  crypto/md5.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp
 )

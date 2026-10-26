@@ -112,6 +112,17 @@ struct DeploySettings
     int deployResolutionY = 0;        // 部署分辨率高，0 = 不设置（Ed_DeployResolution_Height）
     std::string fontColor;            // 部署文字颜色（Ed_DeployFontcolour）
     bool verifyIntegrity = false;     // 校验文件防篡改，用户态校验（Cb_Tampering）
+    // 防篡改清单（SC 的 Items_Tampering / Items_FileMd5）：部署时逐个校验 MD5。
+    // MD5 在生成运行计划时算好写进去，部署端只比对，不再信任现场文件。
+    struct TamperEntry
+    {
+        std::string path; // 绝对路径或相对计划目录
+        std::string md5;  // 32 位小写十六进制
+    };
+    std::vector<TamperEntry> tamperFiles;
+    // 被劫持策略（SC 的 SA_Rb_hijack_type1/type2）：continue / terminate
+    std::string hijackMode = "terminate";
+    std::string hijackTip; // 被劫持时弹给用户的提示（SA_Lab_ShowTip）
     bool enableAdministrator = false; // 开启 administrator（Cb_Admin）
 };
 

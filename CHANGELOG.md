@@ -7,6 +7,16 @@
 
 ### Added
 
+- **M10 部署前闸门**（`core/deploy/preflight.cpp` + `core/crypto/md5.cpp`）：把 SC 部署设置里
+  三项「部署时才生效」的开关落到 `osptd`，且一律在**执行任何任务之前**判定
+  - 校验文件防篡改（`Cb_Tampering`）：运行计划里带锁定文件清单 + MD5，部署时逐个比对；
+    不一致则提示并中止，一个任务都不跑。MD5 按 RFC 1321 自己实现（SC 语言文件写的就是
+    「校验被锁定文件的 MD5 值」），并用附录 A.5 的官方向量 + certutil 交叉验证
+  - 禁止在虚拟机里部署（`Btn_DisableVmrun`）：CPUID `0x40000000` 叶读 hypervisor 厂商串
+    （VMware / VBox / KVM / Microsoft Hv / Xen / Parallels / QEMU），不依赖 WMI
+  - 部署主控被劫持（`SA_Rb_hijack_type1/2`）：生成计划时记下 `osptd.exe` 的 MD5，部署时
+    比对自身；`terminate` 弹提示并中止，`continue` 只告警（对齐「防流氓封装方式可反劫持」）
+  - 干跑只报告不拦截，真实执行才停；「读不到文件」与「被篡改」是两种不同的原因，分别报出
 - **M10 自动设置 IP**（`core/netcfg` + `--prepare`）：对齐 SC 的 `Cb_AutoSetip` 三种模式
   —— 固定 IP（`Rb_Setip`）、随机 IP（`Rb_SetRandomip`）、IP 段（`Lab_ips` 起止地址），
   加掩码 / 网关 / 首选与备用 DNS。全部翻成 `netsh interface ipv4` 命令，dry-run 逐字可打印

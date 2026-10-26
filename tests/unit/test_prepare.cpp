@@ -127,7 +127,8 @@ TEST_CASE("prepare: unimplemented fields are reported with reasons")
     CHECK_FALSE(hasDeferred(plan, "optimization.autoSetIp"));
     CHECK(hasDeferred(plan, "optimization.pinTaskbarItems"));
     CHECK(hasDeferred(plan, "firstLogon.syncIeHomepage"));
-    CHECK(hasDeferred(plan, "deploy.verifyIntegrity"));
+    // 文件防篡改已在 B7 落地（osptd 的部署前闸门），不再是推迟项
+    CHECK_FALSE(hasDeferred(plan, "deploy.verifyIntegrity"));
     CHECK(hasDeferred(plan, "deploy.blockVirtualMachine"));
     CHECK(hasDeferred(plan, "sysprep.uninstallDrivers"));
     CHECK(hasDeferred(plan, "sysprep.loadSrsDrivers"));

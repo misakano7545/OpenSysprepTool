@@ -12,6 +12,7 @@
 #include "core/config.hpp"
 #include "core/dism.hpp"
 #include "core/log.hpp"
+#include "core/md5.hpp"
 #include "core/runplan.hpp"
 #include "core/srsinject.hpp"
 #include "core/sysinfo.hpp"
@@ -636,7 +637,7 @@ int runGenRunplan(int argc, char** argv)
         }
     }
 
-    const osp::runplan::PlanResult plan = osp::runplan::build(parsed.config, drives);
+    osp::runplan::PlanResult plan = osp::runplan::build(parsed.config, drives);
     if (!plan.ok)
     {
         std::printf("runplan generation failed: %s\n", plan.error.c_str());
@@ -650,6 +651,20 @@ int runGenRunplan(int argc, char** argv)
     {
         std::printf("cannot create output directory %s: %s\n", outDir, ec.message().c_str());
         return 1;
+    }
+
+    // 记下部署主控（osptd.exe）的摘要：部署端拿自身摘要比对，判断主程序是否被替换。
+    // 找不到 osptd.exe 不阻断生成，只告警 —— 生成计划与部署可能不在同一台机器上。
+    if (plan.checks.controllerMd5.empty())
+    {
+        // 优先同目录（发布包里 ospt.exe 与 osptd.exe 并排）
+        const std::filesystem::path candidate = std::filesystem::path(argv[0]).parent_path() / "osptd.exe";
+        std::string md5Error;
+        plan.checks.controllerMd5 = osp::crypto::md5File(osp::win7::toUtf8Path(candidate), md5Error);
+        if (plan.checks.controllerMd5.empty())
+        {
+            std::printf("warning: 算不出 osptd.exe 的摘要（%s），部署端将跳过主控校验\n", md5Error.c_str());
+        }
     }
 
     std::string error;

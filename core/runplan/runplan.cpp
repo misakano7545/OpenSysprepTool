@@ -631,6 +631,33 @@ PlanResult build(const osp::config::Config& cfg, const DriveTable& drives)
     plan.presentation.resolutionX = deploy.deployResolutionX;
     plan.presentation.resolutionY = deploy.deployResolutionY;
     plan.presentation.fontColor = deploy.fontColor;
+
+    plan.checks.verifyIntegrity = deploy.verifyIntegrity;
+    plan.checks.blockVirtualMachine = deploy.blockVirtualMachine;
+    plan.checks.hijackMode = deploy.hijackMode.empty() ? "terminate" : deploy.hijackMode;
+    plan.checks.hijackTip = deploy.hijackTip;
+    plan.checks.tamperFiles = deploy.tamperFiles;
+    // SC 的防篡改是「锁定文件列表 + MD5」，所以两者必须成对出现：
+    // 开了校验却没有清单，等于什么都没校验。
+    if (plan.checks.verifyIntegrity && plan.checks.tamperFiles.empty())
+    {
+        plan.error = "deploy.verifyIntegrity 已开启，但 deploy.tamperFiles 为空 —— 没有可校验的文件";
+        return plan;
+    }
+    for (const auto& entry : plan.checks.tamperFiles)
+    {
+        if (entry.md5.size() != 32)
+        {
+            plan.error = "防篡改条目的 MD5 必须是 32 位十六进制：" + entry.path;
+            return plan;
+        }
+    }
+    if (plan.checks.hijackMode != "continue" && plan.checks.hijackMode != "terminate")
+    {
+        plan.error =
+            "deploy.hijackMode 只接受 continue / terminate，当前为 \"" + plan.checks.hijackMode + "\"";
+        return plan;
+    }
     if (!plan.presentation.fontColor.empty() && !isHexColor(plan.presentation.fontColor))
     {
         plan.error = "部署文字颜色必须是 #RRGGBB，当前为 \"" + deploy.fontColor + "\"";
@@ -829,6 +856,25 @@ std::string toJson(const PlanResult& plan)
     presentation["resolutionX"] = plan.presentation.resolutionX;
     presentation["resolutionY"] = plan.presentation.resolutionY;
     presentation["fontColor"] = plan.presentation.fontColor;
+
+    // 部署校验（SC 的 Cb_Tampering / Btn_DisableVmrun / SA_Rb_hijack_*）
+    json& checks = root["deployChecks"];
+    checks["verifyIntegrity"] = plan.checks.verifyIntegrity;
+    checks["blockVirtualMachine"] = plan.checks.blockVirtualMachine;
+    checks["hijackMode"] = plan.checks.hijackMode;
+    checks["hijackTip"] = plan.checks.hijackTip;
+    json tamper = json::array();
+    for (const auto& entry : plan.checks.tamperFiles)
+    {
+        json item;
+        item["path"] = entry.path;
+        item["md5"] = entry.md5;
+        tamper.push_back(std::move(item));
+    }
+    checks["tamperFiles"] = std::move(tamper);
+    // 部署主控的摘要：由 --gen-runplan 时把 osptd.exe 的 MD5 记进来，
+    // 部署端拿自身摘要比对，判断「部署主程序是否被替换」。
+    checks["controllerMd5"] = plan.checks.controllerMd5;
 
     json phases = json::array();
     int total = 0;

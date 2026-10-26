@@ -167,6 +167,20 @@ struct PhasePlan
 
 // 部署过程的呈现设置：osptd 用它在目标机上画进度页。
 // 放在计划文件里，是为了让 osptd 仍然只消费 runplan.json 这一份事实来源。
+struct DeployChecks
+{
+    // SC 的 Cb_Tampering：部署时校验被锁定文件的 MD5，不匹配就提示并中止
+    bool verifyIntegrity = false;
+    std::vector<config::DeploySettings::TamperEntry> tamperFiles;
+    // SC 的 Btn_DisableVmrun：禁止在虚拟机里部署
+    bool blockVirtualMachine = false;
+    // SC 的 SA_Rb_hijack_type1/type2：部署主控被劫持时继续还是终止
+    std::string hijackMode = "terminate";
+    std::string hijackTip;
+    // 部署主控（osptd.exe）的 MD5，生成计划时写入
+    std::string controllerMd5;
+};
+
 struct Presentation
 {
     std::string module;     // grid / trueTrans / colorBar / image
@@ -186,6 +200,7 @@ struct PlanResult
     DriveTable driveTable;
     std::vector<PhasePlan> phases; // 固定 5 个，按 Phase 顺序
     Presentation presentation;
+    DeployChecks checks;
     std::vector<std::string> warnings;
 };
 

@@ -410,8 +410,27 @@ int runDeploy(int argc, char** argv, bool dryRun)
         return 1;
     }
 
+    // 部署前闸门：虚拟机检测 / 文件防篡改 / 部署主控校验。
+    // 一律在**执行任何任务之前**跑：跑了一半才发现被篡改是最坏的情况。
+    const osp::deploy::PreflightResult preflight = osp::deploy::preflight(plan);
     if (dryRun)
     {
+        std::printf("=== 部署前闸门 ===\n");
+        for (const std::string& line : preflight.checked)
+        {
+            std::printf("  [通过] %s\n", line.c_str());
+        }
+        for (const std::string& warning : preflight.warnings)
+        {
+            std::printf("  [告警] %s\n", warning.c_str());
+        }
+        if (preflight.blocked)
+        {
+            std::printf("  [拒绝] %s\n", preflight.reason.c_str());
+            std::printf("（干跑只报告，不中止；真实执行会在这里停下）\n");
+        }
+        std::printf("\n");
+
         const std::string report = osp::deploy::dryRunReport(plan);
         std::fputs(report.c_str(), stdout);
 
@@ -477,6 +496,39 @@ int runDeploy(int argc, char** argv, bool dryRun)
             plan.taskCount
         );
         return 0;
+    }
+
+    // 闸门不放行就停在这里，一个任务都不跑
+    if (preflight.blocked)
+    {
+        std::printf("=== 部署前闸门 ===\n");
+        for (const std::string& line : preflight.checked)
+        {
+            std::printf("  [通过] %s\n", line.c_str());
+        }
+        std::printf("  [拒绝] %s\n", preflight.reason.c_str());
+        // SC 的 SA_Lab_ShowTip：被劫持时把提示弹给用户
+        if (preflight.controllerHijacked && !preflight.tip.empty())
+        {
+            // SC 的 SA_Lab_ShowTip：被劫持时把提示弹给用户（GUI 子系统可弹窗）
+            const int wideLen = ::MultiByteToWideChar(CP_UTF8, 0, preflight.tip.c_str(), -1, nullptr, 0);
+            if (wideLen > 0)
+            {
+                std::wstring wideTip(static_cast<std::size_t>(wideLen), L'\0');
+                ::MultiByteToWideChar(CP_UTF8, 0, preflight.tip.c_str(), -1, wideTip.data(), wideLen);
+                ::MessageBoxW(nullptr, wideTip.c_str(), L"部署已中止", MB_OK | MB_ICONWARNING);
+            }
+        }
+        std::printf("RESULT: FAILED（部署前校验未通过，未执行任何任务）\n");
+        return 1;
+    }
+    for (const std::string& line : preflight.checked)
+    {
+        std::printf("  [通过] %s\n", line.c_str());
+    }
+    for (const std::string& warning : preflight.warnings)
+    {
+        std::printf("  [告警] %s\n", warning.c_str());
     }
 
     // 真实执行：图形页优先（若 presentation 要求且当前会话能开窗口），否则控制台单页

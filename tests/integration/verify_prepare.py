@@ -235,9 +235,10 @@ def main() -> int:
     # 剩下这些仍是推迟项 —— 每一项都必须写清原因，不许静默略过。
     check("我的文档转移不再是推迟项", "optimization.myDocumentsTarget" not in deferred)
     check("自动设置 IP 不再是推迟项", "optimization.autoSetIp" not in deferred)
+    # 防篡改在部署端（osptd 闸门）执行，封装前不该再列为推迟项
+    check("文件防篡改不再是推迟项", "deploy.verifyIntegrity" not in deferred)
     for field in (
         "firstLogon.syncIeHomepage",
-        "deploy.verifyIntegrity",
         "sysprep.uninstallDrivers",
         "sysprep.loadSrsDrivers",
     ):

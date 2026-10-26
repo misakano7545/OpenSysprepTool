@@ -157,8 +157,8 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 单图 / 多图（切换速度）/ 系统默认 | `BackgroundType_0..2` / `Lab_PicSpeed` | ✅ |
 | 顶部文字标题 / 部署分辨率 / 文字颜色 | `Cb_DeployTitle` / `Lab_DeployResolution` / `Lab_DeployFontcolour` | ✅ |
 | 跳过 OOBE / 自动新增用户 / 开启 Administrator | `Cb_Skipoobe` / `Cb_AddUser` / `Cb_Admin` | ✅ |
-| **禁止在虚拟机里部署** | `Btn_DisableVmrun` | ⬜ |
-| **校验文件防篡改**（锁定文件 + MD5 + 篡改提示） | `Cb_Tampering` + `Items_Tampering` / `Items_FileMd5` / `Lab_TamperingTip` | ⬜ |
+| **禁止在虚拟机里部署** | `Btn_DisableVmrun` | ✅（CPUID hypervisor 位 + 厂商串判定） |
+| **校验文件防篡改**（锁定文件 + MD5 + 篡改提示） | `Cb_Tampering` + `Items_Tampering` / `Items_FileMd5` / `Lab_TamperingTip` | ✅（部署前闸门，MD5 用 RFC 1321 实现，与 certutil 交叉验证） |
 | **四套模块各自的配色与文字设置** | `Gb_DM1_Fontset` / `Gb_DM1_Probarset` / `Text1~4_DM1_*` / `Pbtype_*` / `Pictype*` | ⬜ |
 | 模块附加开关（安装计时 / 已用时间 / 系统时间 / 快捷键启动） | `Cb_DM1_Timer` / `Cb_DM2usetime` / `Cb_DM2systime` / `Cb_Openhotkey` | ⬜ |
 
@@ -175,7 +175,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 转移桌面文件到所有用户 | `Cb_Cutdesktopfile` | ✅ |
 | 封装后清理系统垃圾文件 / 清理 DLLcache | `Cb_Cleanjunkfiles` / `Cb_Dllcache` | ✅ |
 | 自动登录 Administrator（密码 / 次数） | `SA_Lab_AdminAutoLogon` / `SA_Lab_Adminpw` / `SA_Lab_Lnum` | ✅ |
-| **部署主控被劫持**（继续 / 终止 + 弹提示） | `SA_Gb_hijack` / `SA_Rb_hijack_type1..2` / `SA_Lab_ShowTip` | ⬜ |
+| **部署主控被劫持**（继续 / 终止 + 弹提示） | `SA_Gb_hijack` / `SA_Rb_hijack_type1..2` / `SA_Lab_ShowTip` | ✅（比对 osptd 自身 MD5；terminate 弹窗并中止） |
 | OEM 智能识别（属性 / 壁纸 / 部署图片） | `SA_Gb_oem` / `SA_Lab_oemlogo` / `SA_Lab_oembgpic` / `SA_Lab_oemDeploy` | ✅ 属性、⬜ 壁纸与部署图片 |
 | 工作组 / 加入域（域用户 + 密码） | `Rb_WorkGroup` / `Rb_Domain` / `Lab_Domain_user` / `Lab_Domain_pw` | ✅ |
 | 每设备或每用户 / 每服务器（同时连接数） | `Rb_EveryOne` / `Rb_EverySer` | ⬜ |

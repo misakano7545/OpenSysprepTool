@@ -259,6 +259,30 @@ Plan load(const std::string& utf8Directory)
     }
 
     // 呈现设置是可选段：老计划文件没有它时按默认值跑控制台进度页
+    if (root.contains("deployChecks") && root["deployChecks"].is_object())
+    {
+        const auto& checks = root["deployChecks"];
+        plan.verifyIntegrity = checks.value("verifyIntegrity", false);
+        plan.blockVirtualMachine = checks.value("blockVirtualMachine", false);
+        plan.hijackMode = checks.value("hijackMode", std::string("terminate"));
+        plan.hijackTip = checks.value("hijackTip", std::string{});
+        plan.controllerMd5 = checks.value("controllerMd5", std::string{});
+        plan.tamperFiles.clear();
+        if (checks.contains("tamperFiles") && checks["tamperFiles"].is_array())
+        {
+            for (const auto& item : checks["tamperFiles"])
+            {
+                osp::config::DeploySettings::TamperEntry entry;
+                entry.path = item.value("path", std::string{});
+                entry.md5 = item.value("md5", std::string{});
+                if (!entry.path.empty())
+                {
+                    plan.tamperFiles.push_back(std::move(entry));
+                }
+            }
+        }
+    }
+
     if (root.contains("presentation") && root["presentation"].is_object())
     {
         const auto& presentation = root["presentation"];

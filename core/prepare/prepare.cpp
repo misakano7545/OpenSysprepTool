@@ -2079,9 +2079,11 @@ Plan build(const config::Config& cfg, const Options& options)
     {
         defer("deploy.blockVirtualMachine", "由部署运行时 osptd 在目标机上判定，封装前不适用");
     }
-    if (cfg.deploy.verifyIntegrity)
+    if (cfg.deploy.verifyIntegrity && cfg.deploy.tamperFiles.empty())
     {
-        defer("deploy.verifyIntegrity", "文件清单与 MD5 校验归入 M10（用户态防篡改）");
+        // 防篡改本身在部署端（osptd 的部署前闸门）执行，封装前不适用；
+        // 但「开了校验却没给清单」是配置错误，必须在这里就点出来。
+        plan.warnings.push_back("deploy.verifyIntegrity 已开启，但 tamperFiles 为空 —— 部署时将拒绝执行");
     }
 
     // ------------------------------------------------------------ 封装清理

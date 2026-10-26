@@ -85,6 +85,8 @@ json encode(const Config& cfg)
         {"deployResolutionY", dp.deployResolutionY},
         {"fontColor", dp.fontColor},
         {"verifyIntegrity", dp.verifyIntegrity},
+        {"hijackMode", dp.hijackMode},
+        {"hijackTip", dp.hijackTip},
         {"enableAdministrator", dp.enableAdministrator},
     };
 
@@ -111,6 +113,18 @@ json encode(const Config& cfg)
 
     // OEM 信息：全空时也写出空串，保证 JSON 往返逐字稳定（不靠「键缺失」表达默认值）
     const OemSettings& om = cfg.oem;
+    {
+        nlohmann::json tamper = nlohmann::json::array();
+        for (const auto& entry : dp.tamperFiles)
+        {
+            nlohmann::json item;
+            item["path"] = entry.path;
+            item["md5"] = entry.md5;
+            tamper.push_back(std::move(item));
+        }
+        j["deploy"]["tamperFiles"] = std::move(tamper);
+    }
+
     j["oem"] = {
         {"manufacturer", om.manufacturer},
         {"model", om.model},
@@ -257,6 +271,22 @@ ParseResult fromJson(const std::string& text)
             cfg.deploy.deployResolutionY = dp.value("deployResolutionY", 0);
             cfg.deploy.fontColor = dp.value("fontColor", std::string{});
             cfg.deploy.verifyIntegrity = dp.value("verifyIntegrity", false);
+            cfg.deploy.hijackMode = dp.value("hijackMode", std::string("terminate"));
+            cfg.deploy.hijackTip = dp.value("hijackTip", std::string{});
+            cfg.deploy.tamperFiles.clear();
+            if (dp.contains("tamperFiles") && dp["tamperFiles"].is_array())
+            {
+                for (const auto& item : dp["tamperFiles"])
+                {
+                    osp::config::DeploySettings::TamperEntry entry;
+                    entry.path = item.value("path", std::string{});
+                    entry.md5 = item.value("md5", std::string{});
+                    if (!entry.path.empty())
+                    {
+                        cfg.deploy.tamperFiles.push_back(std::move(entry));
+                    }
+                }
+            }
             cfg.deploy.enableAdministrator = dp.value("enableAdministrator", false);
         }
 
