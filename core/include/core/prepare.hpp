@@ -84,6 +84,12 @@ struct Deferred
     std::string reason;
 };
 
+struct PagefileCandidate
+{
+    std::string drive; // "D:"
+    std::uint64_t freeBytes = 0;
+};
+
 struct Options
 {
     std::string systemDrive;        // 默认 %SystemDrive%
@@ -92,6 +98,10 @@ struct Options
     std::string windowsDir;         // 默认 %SystemRoot%
     std::string tempDir;            // 默认 %TEMP%
     std::string defaultUserProfile; // 默认 <systemDrive>\Users\Default
+    // 智能转移虚拟内存时的候选分区。空 = 现场枚举（只取固定磁盘）。
+    // 做成可注入是为了让「选剩余最大分区」这条规则能被单测钉住，
+    // 否则断言就依赖跑测试那台机器插了几个盘、各剩多少。
+    std::vector<PagefileCandidate> pagefileCandidates;
 };
 
 // 从环境变量取默认值；空字段会被填上。

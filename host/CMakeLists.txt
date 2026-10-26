@@ -14,6 +14,8 @@ add_executable(ospt
   cli_prepare.cpp
   # M10：OEM 识别与 SC OEM 档案导入（--oem-detect / --import-oem）
   cli_oem.cpp
+  # M10：一键修复（--repair，等同 SC 的 Btn_OsRepair）
+  cli_repair.cpp
   # M7a：主界面框架与配置页（原生控件 + WTL 薄封装）
   ui/ui_frame.cpp
   ui/ui_pages.cpp

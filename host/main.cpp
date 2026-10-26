@@ -28,6 +28,7 @@ namespace osp::host {
 int runPrepareCommandLine(int argc, char** argv);
 int runOemDetect(int argc, char** argv);
 int runImportOem(int argc, char** argv);
+int runRepair(int argc, char** argv);
 int runRollbackCommandLine(int argc, char** argv);
 int runPrepareSelfTest();
 
@@ -104,7 +105,15 @@ static int relaunchElevatedAndWait(int argc, char** argv)
     }
     else
     {
-        command = L"/d /s /c \"\"" + std::wstring(exePath) + L"\" " + args + L" > \"" +
+        // 先 cd /d 到当前目录再跑：runas 启动的进程默认 CWD 是 System32，
+        // 而 ShellExecuteEx 的 lpDirectory 在 runas 路径上并不可靠（实测被忽略），
+        // 于是 `--prepare build\x.json --execute` 这类相对路径会被解析到
+        // C:\Windows\System32\build\x.json。在命令行里显式 cd 是唯一稳的办法。
+        wchar_t currentDir[MAX_PATH] = {};
+        const std::wstring cdPrefix = (::GetCurrentDirectoryW(MAX_PATH, currentDir) != 0)
+            ? (L"cd /d \"" + std::wstring(currentDir) + L"\" && ")
+            : std::wstring();
+        command = L"/d /s /c \"" + cdPrefix + L"\"" + std::wstring(exePath) + L"\" " + args + L" > \"" +
             std::wstring(logPath) + L"\" 2>&1\"";
     }
 
@@ -115,6 +124,16 @@ static int relaunchElevatedAndWait(int argc, char** argv)
     sei.lpFile = wantsUi ? exePath : L"cmd.exe";
     sei.lpParameters = wantsUi ? args.c_str() : command.c_str();
     sei.nShow = wantsUi ? SW_SHOWNORMAL : SW_HIDE;
+
+    // 必须显式传工作目录：runas 启动的进程默认 CWD 是 System32，
+    // 于是 `--prepare build\x.json --execute` 这类相对路径会被解析到
+    // C:\Windows\System32\build\x.json，报「打不开配置文件」。这个坑在提权后极难自己看出来，
+    // 所以这里尽量带上工作目录（runas 路径下不保证生效，命令行里的 cd 才是可靠的）。
+    wchar_t currentDir[MAX_PATH] = {};
+    if (::GetCurrentDirectoryW(MAX_PATH, currentDir) != 0)
+    {
+        sei.lpDirectory = currentDir;
+    }
 
     if (::ShellExecuteExW(&sei) == 0 || sei.hProcess == nullptr)
     {
@@ -202,6 +221,7 @@ void printUsage()
     std::printf("  ospt --oem-detect [--skin <品牌目录>] [--lang CHS|EN] [--json <path>]  OEM 识别\n");
     std::printf("  ospt --import-oem <nt6.ini> [--lang CHS|EN] [--into <cfg.json>] [--out <path>]\n");
     std::printf("                                                    导入 SC 的 OEM 档案\n");
+    std::printf("  ospt --repair [--dry-run|--execute] [--journal <json>]  一键修复（等同 SC 的一键修复）\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
     std::printf("  ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]  生成运行计划\n");
     std::printf("  ospt --inject-drivers --image <挂载点> --driver <目录> --dry-run  模式 A 标准驱动包\n");
@@ -1111,8 +1131,9 @@ int main(int argc, char** argv)
     const bool operation = argc >= 2 &&
         (std::strcmp(argv[1], "--inject-drivers") == 0 || std::strcmp(argv[1], "--sysprep") == 0 ||
          std::strcmp(argv[1], "--execute") == 0);
-    const bool prepareOperation =
-        argc >= 2 && (std::strcmp(argv[1], "--prepare") == 0 || std::strcmp(argv[1], "--rollback") == 0);
+    const bool prepareOperation = argc >= 2 &&
+        (std::strcmp(argv[1], "--prepare") == 0 || std::strcmp(argv[1], "--rollback") == 0 ||
+         std::strcmp(argv[1], "--repair") == 0);
     bool wantsExecute = false;
     for (int i = 2; i < argc; ++i)
     {
@@ -1196,6 +1217,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--import-oem") == 0)
     {
         return osp::host::runImportOem(argc - 1, argv + 1);
+    }
+
+    if (std::strcmp(arg, "--repair") == 0)
+    {
+        return osp::host::runRepair(argc - 1, argv + 1);
     }
 
     if (std::strcmp(arg, "--gen-unattend") == 0)

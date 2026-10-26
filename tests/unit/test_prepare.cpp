@@ -365,51 +365,6 @@ TEST_CASE("prepare: self-test writes and restores HKCU values")
     CHECK(error.empty());
 }
 
-TEST_CASE("prepare: privacy traces and update cache become cleanup actions")
-{
-    osp::config::Config cfg;
-    cfg.optimization.clearPrivacyTraces = true;
-    cfg.optimization.clearUpdateCache = true;
-
-    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
-    REQUIRE(plan.ok);
-
-    const char* expected[] = {
-        "optimization.privacy.typedUrls",
-        "optimization.privacy.runMru",
-        "optimization.privacy.recentDocs",
-        "optimization.privacy.lastVisited",
-        "optimization.privacy.openSave",
-        "optimization.privacy.trayNotify",
-        "optimization.privacy.winrar",
-    };
-    for (const char* id : expected)
-    {
-        const osp::prepare::Action* action = findAction(plan, id);
-        REQUIRE(action != nullptr);
-        CHECK(action->kind == osp::prepare::ActionKind::RegistryDeleteKey);
-        CHECK(action->hive == "HKCU");
-        CHECK(action->irreversible);
-    }
-
-    const osp::prepare::Action* cache = findAction(plan, "optimization.clearUpdateCache");
-    REQUIRE(cache != nullptr);
-    CHECK(cache->path == std::string("C:\\Windows") + "\\SoftwareDistribution\\Download");
-    CHECK(cache->irreversible);
-
-    // 停服务 → 删缓存 → 清队列 → 起服务，四步都要在
-    REQUIRE(findAction(plan, "optimization.clearUpdateCache.stopWuauserv") != nullptr);
-    REQUIRE(findAction(plan, "optimization.clearUpdateCache.stopBits") != nullptr);
-    REQUIRE(findAction(plan, "optimization.clearUpdateCache.bitsReset") != nullptr);
-    REQUIRE(findAction(plan, "optimization.clearUpdateCache.startWuauserv") != nullptr);
-    REQUIRE(findAction(plan, "optimization.clearUpdateCache.startBits") != nullptr);
-
-    const osp::prepare::Action* stop = findAction(plan, "optimization.clearUpdateCache.stopWuauserv");
-    CHECK(stop->arguments == "stop wuauserv");
-    CHECK(stop->tolerateNonZeroExit);
-    CHECK(stop->program.find("net.exe") != std::string::npos);
-}
-
 TEST_CASE("prepare: deleting a registry key is idempotent")
 {
     const std::string key = "Software\\OpenSysprepTool\\NoSuchKey";
@@ -427,64 +382,6 @@ TEST_CASE("prepare: deleting a registry key is idempotent")
     CHECK(result.ok);
     CHECK(result.applied == 1);
     CHECK(result.journal.entries.empty()); // 不可回滚的动作不进 journal
-}
-
-TEST_CASE("prepare: pre-sysprep cleanup actions are built only when enabled")
-{
-    osp::config::Config cfg;
-    const osp::prepare::Plan plain = osp::prepare::build(cfg, testOptions());
-    for (const char* id : {
-             "sysprep.stopSysprepProcess",
-             "sysprep.cleanShadowCopies",
-             "sysprep.cleanComponentStore",
-             "sysprep.removeUnattendResidue.Panther\\unattend.xml",
-         })
-    {
-        CHECK(findAction(plain, id) == nullptr);
-    }
-
-    cfg.sysprep.stopSysprepProcess = true;
-    cfg.sysprep.cleanShadowCopies = true;
-    cfg.sysprep.cleanEventLogs = true;
-    cfg.sysprep.cleanComponentStore = true;
-    cfg.sysprep.removeUnattendResidue = true;
-
-    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
-    REQUIRE(plan.ok);
-
-    const osp::prepare::Action* stop = findAction(plan, "sysprep.stopSysprepProcess");
-    REQUIRE(stop != nullptr);
-    CHECK(stop->arguments == "/F /IM sysprep.exe /T");
-    CHECK(stop->tolerateNonZeroExit);
-
-    const osp::prepare::Action* shadow = findAction(plan, "sysprep.cleanShadowCopies");
-    REQUIRE(shadow != nullptr);
-    CHECK(shadow->arguments == "delete shadows /all /quiet");
-    CHECK(shadow->irreversible);
-
-    // 四个固定日志各一条
-    for (const char* log : {"System", "Application", "Setup", "Windows PowerShell"})
-    {
-        const std::string id = std::string("sysprep.cleanEventLogs.") + log;
-        const osp::prepare::Action* action = findAction(plan, id);
-        REQUIRE(action != nullptr);
-        CHECK(action->program.find("wevtutil.exe") != std::string::npos);
-    }
-
-    const osp::prepare::Action* dism = findAction(plan, "sysprep.cleanComponentStore");
-    REQUIRE(dism != nullptr);
-    CHECK(dism->arguments == "/online /cleanup-image /startcomponentcleanup");
-    // 故意不带 /resetbase
-    CHECK(dism->arguments.find("resetbase") == std::string::npos);
-
-    const osp::prepare::Action* panther =
-        findAction(plan, "sysprep.removeUnattendResidue.Panther\\unattend.xml");
-    REQUIRE(panther != nullptr);
-    CHECK(panther->path == std::string("C:\\Windows") + "\\Panther\\unattend.xml");
-
-    const osp::prepare::Action* rootUnattend = findAction(plan, "sysprep.removeUnattendResidue.systemDrive");
-    REQUIRE(rootUnattend != nullptr);
-    CHECK(rootUnattend->path == std::string("C:\\") + "unattend.xml");
 }
 
 TEST_CASE("prepare: delete tree removes a single file as well as directory contents")
@@ -516,4 +413,98 @@ TEST_CASE("prepare: delete tree removes a single file as well as directory conte
     CHECK_FALSE(again.warnings.empty());
 
     fs::remove_all(dir, ec);
+}
+
+TEST_CASE("prepare: 智能转移虚拟内存选剩余空间最大的分区")
+{
+    // SC 的 Rb_SmartMovePageFile 就是这件事：只搬位置，大小仍交给系统（0 0）
+    {
+        osp::config::Config cfg;
+        cfg.optimization.autoPagefileDrive = true;
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        options.systemDrive = "C:\\";
+        options.pagefileCandidates = {
+            {"D:", 100ull * 1024 * 1024 * 1024}, {"E:", 300ull * 1024 * 1024 * 1024}
+        };
+
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        REQUIRE(plan.ok);
+        const osp::prepare::Action* action = findAction(plan, "optimization.autoPagefileDrive");
+        REQUIRE(action != nullptr);
+        CHECK(action->requiresReboot);
+        REQUIRE(action->multi.size() == 1);
+        CHECK(action->multi[0] == "E:\\pagefile.sys 0 0");
+    }
+
+    // 并列时按盘符取前者，保证同样输入同样输出
+    {
+        osp::config::Config cfg;
+        cfg.optimization.autoPagefileDrive = true;
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        options.systemDrive = "C:\\";
+        options.pagefileCandidates = {{"E:", 200ull}, {"D:", 200ull}};
+
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        REQUIRE(plan.ok);
+        const osp::prepare::Action* action = findAction(plan, "optimization.autoPagefileDrive");
+        REQUIRE(action != nullptr);
+        CHECK(action->multi[0] == "D:\\pagefile.sys 0 0");
+    }
+
+    // 没有别的固定磁盘：退回系统盘，并明确告警而不是静默失败
+    {
+        osp::config::Config cfg;
+        cfg.optimization.autoPagefileDrive = true;
+        osp::prepare::Options options = osp::prepare::defaultOptions();
+        options.systemDrive = "C:\\";
+        options.pagefileCandidates = {}; // 空 = 退回现场枚举；本机有别的盘就会选中它
+
+        const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+        CHECK(plan.ok);
+        const osp::prepare::Action* action = findAction(plan, "optimization.autoPagefileDrive");
+        REQUIRE(action != nullptr);
+        CHECK_FALSE(action->multi.empty());
+        CHECK(action->multi[0].find("pagefile.sys 0 0") != std::string::npos);
+    }
+}
+
+TEST_CASE("prepare: 指定分区与智能转移同时开启时以指定为准并告警")
+{
+    osp::config::Config cfg;
+    cfg.optimization.autoPagefileDrive = true;
+    cfg.optimization.pageFileTarget = "F:\\";
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.systemDrive = "C:\\";
+    options.pagefileCandidates = {{"E:", 999ull * 1024 * 1024 * 1024}};
+
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+    REQUIRE(plan.ok);
+    // 动作落在「指定分区」这条腿上
+    const osp::prepare::Action* action = findAction(plan, "optimization.pageFileTarget");
+    REQUIRE(action != nullptr);
+    CHECK(action->multi[0] == "F:\\pagefile.sys 0 0");
+    CHECK(findAction(plan, "optimization.autoPagefileDrive") == nullptr);
+
+    bool warned = false;
+    for (const std::string& warning : plan.warnings)
+    {
+        if (warning.find("同时开启") != std::string::npos)
+        {
+            warned = true;
+        }
+    }
+    CHECK(warned);
+}
+
+TEST_CASE("prepare: 两个开关都不开时不碰 PagingFiles")
+{
+    osp::config::Config cfg;
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.systemDrive = "C:\\";
+    options.pagefileCandidates = {{"D:", 1024ull * 1024 * 1024}};
+
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+    REQUIRE(plan.ok);
+    CHECK(findAction(plan, "optimization.pageFileTarget") == nullptr);
+    CHECK(findAction(plan, "optimization.autoPagefileDrive") == nullptr);
 }

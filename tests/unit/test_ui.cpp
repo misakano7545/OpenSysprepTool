@@ -159,6 +159,22 @@ TEST_CASE("宪章 §7 红线字段不出现在任何页面上")
     CHECK(contains(excluded, "Rb_Sysprep_Type3"));   // 会员封装方式
     CHECK(contains(excluded, "Btn_Bugs"));           // 错误报告
     CHECK(contains(excluded, "Btn_Update"));         // 更新页
+    CHECK(contains(excluded, "Page_Nodelfile"));     // 需内核驱动，§7 禁止
+    CHECK(contains(excluded, "Btn_OsRepair"));       // 一键修复尚未实现（已排期）
+
+    // 已经实现的不许留在「不做」名单里 —— M7 时期的名单就犯过这个错，
+    // 把后来做出来的 Ctrl+F11、OEM 设置、部署标题、虚拟内存转移都列成了不做。
+    for (const char* done :
+         {"Cb_ResolutionSos",
+          "Cb_CloseRestartbox",
+          "Cb_DeployTitle",
+          "Btn_OemSet",
+          "Cb_MovePageFile",
+          "Cb_MoveDocuments",
+          "Cb_MoveFavorites"})
+    {
+        CHECK_FALSE(contains(excluded, done));
+    }
 
     for (const osp::ui::Page& page : pages)
     {

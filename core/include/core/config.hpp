@@ -38,16 +38,20 @@ struct Optimization
     bool closeRebootDialog = false;
     std::string myDocumentsTarget; // 空表示不转移
     std::string pageFileTarget;    // 空表示不转移
+    // 智能转移虚拟内存（对齐 SC 的 Rb_SmartMovePageFile：自动选剩余空间最大的分区）。
+    // 注意这**不是**「算大小」：SC 的 MovePageFile 只搬位置，大小仍交给系统管理
+    // （`0 0`）。证据见 15_spec/功能规格.md §二「智能转移…虚拟内存（智能选最大剩余分区
+    // 或 指定目录）」与 Cb_MovePageFileDrive / Rb_SmartMovePageFile。
+    bool autoPagefileDrive = false;
+    // SC 的系统优化项（33 条里的 27 条有原始数据，见 docs/SC功能对照.md）。
+    // 空 = 一项都不做；里面是 tweaks::Tweak::id。
+    std::vector<std::string> sysTweaks;
     bool autoSetIp = false;
     std::string ipMode;          // fixed / random / range
     std::string networkLocation; // home / work / public
     // M7b 新增（可选，默认值不变）：对位 DFM 里没有宿主的两个字段
     bool clearSrsDrivers = false; // 清理多余的 SRS 驱动（Cb_ClearSrs）
     bool setResolution = false;   // 智能设置分辨率（Cb_SetResolution）
-    // M10 新增：隐私痕迹与更新缓存清理。SC 在封装前会清 100 多条痕迹，
-    // 这里只做有明确系统位置、清掉不影响功能的那批。
-    bool clearPrivacyTraces = false; // 清理使用痕迹（地址栏/运行/最近文档/对话框历史/托盘缓存）
-    bool clearUpdateCache = false;   // 清理 Windows 更新下载缓存
 };
 
 // 运行计划：5 个阶段 × 4 种任务类型
@@ -111,14 +115,6 @@ struct SysprepSettings
     std::string domainPassword;      // 域用户密码（Ed_Domain_pw）
     bool perServerLicensing = false; // 每服务器授权（Rb_EverySer）
     int maxConnections = 5;          // 同时连接数（Se_Serconut，图纸默认 5）
-    // M10 新增：封装前清理（对齐 SysprepPreparator 的 PreparationTasks，
-    // 见 docs/开源参考调研.md §2.2）。默认全关，逐项在界面上显式勾选。
-    bool stopSysprepProcess = false;    // 结束已在运行的 sysprep.exe
-    bool cleanShadowCopies = false;     // 删除卷影副本 / 还原点
-    bool cleanEventLogs = false;        // 清空系统事件日志
-    bool cleanRecycleBin = false;       // 清空回收站
-    bool cleanComponentStore = false;   // DISM 组件清理（不含 /resetbase）
-    bool removeUnattendResidue = false; // 删除残留的 unattend.xml
 };
 
 struct OemSettings

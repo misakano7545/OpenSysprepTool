@@ -341,6 +341,27 @@ jobs:
             ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
           exit 0
 
+      # M10 增量：SC 优化表与一键修复。断言 27 条数据齐全、值未被改过，
+      # 以及「一键修复只碰优化项、不顺手改 BCD」这条边界。
+      - name: 系统优化与一键修复验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm10-tweaks.log'
+          python tests\integration\verify_tweaks.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
+            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            exit $code
+          }
+          Get-Content $log | Select-String -Pattern 'SKIP' |
+            ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
+          exit 0
+
       - name: Artifact 内容断言
         shell: pwsh
         run: |

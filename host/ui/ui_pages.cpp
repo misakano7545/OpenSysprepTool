@@ -606,6 +606,14 @@ Page targetPage(const config::Config& cfg)
         "optimization.enableHibernate",
         desktopNote
     ));
+    // SC: Cb_MovePageFile 智能转移虚拟内存（目标系统 -> 系统优化）
+    desktop.fields.push_back(makeCheck(
+        "Cb_MovePageFile",
+        "智能转移虚拟内存（自动选剩余空间最大的分区）",
+        cfg.optimization.autoPagefileDrive,
+        "optimization.autoPagefileDrive",
+        "SC 的 Rb_SmartMovePageFile；指定盘符对应 optimization.pageFileTarget；由 --prepare 写 PagingFiles"
+    ));
     {
         const std::vector<std::string> labels = {"不设置", "家庭网络", "工作网络", "公用网络"};
         const std::vector<std::string> ids = {"", "home", "work", "public"};
@@ -1005,20 +1013,6 @@ Page sysprepPage(const config::Config& cfg)
     // 这两项没有 DFM 控件（SC 把痕迹清理散在运行计划事件里），是本项目新增的开关，
     // 由 --prepare 落地。放在「系统类」是因为它们和清理动作同属封装前的系统处理。
     sysset.fields.push_back(makeCheck(
-        "Cb_ClearPrivacy",
-        "清理使用痕迹（地址栏/运行/最近文档/对话框历史/托盘缓存）",
-        cfg.optimization.clearPrivacyTraces,
-        "optimization.clearPrivacyTraces",
-        "本项目新增，图纸无对应控件；由 --prepare 执行"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_ClearUpdateCache",
-        "清理 Windows 更新下载缓存",
-        cfg.optimization.clearUpdateCache,
-        "optimization.clearUpdateCache",
-        "本项目新增，图纸无对应控件；由 --prepare 执行"
-    ));
-    sysset.fields.push_back(makeCheck(
         "Cb_AutoLogon",
         "自动登录（次数内免输入密码）",
         cfg.sysprep.autoLogon,
@@ -1038,49 +1032,6 @@ Page sysprepPage(const config::Config& cfg)
         cfg.sysprep.autoLogonCount,
         "sysprep.autoLogonCount",
         "《功能规格》§五：次数"
-    ));
-    // 封装前清理：对齐 SysprepPreparator 的 PreparationTasks，全部默认关闭
-    sysset.fields.push_back(makeCheck(
-        "Cb_StopSysprep",
-        "结束已在运行的 sysprep.exe",
-        cfg.sysprep.stopSysprepProcess,
-        "sysprep.stopSysprepProcess",
-        "不先停会报「sysprep 已在运行」"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_CleanShadow",
-        "删除卷影副本与还原点",
-        cfg.sysprep.cleanShadowCopies,
-        "sysprep.cleanShadowCopies",
-        "不可恢复"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_CleanEventLog",
-        "清空系统事件日志（System/Application/Setup/PowerShell）",
-        cfg.sysprep.cleanEventLogs,
-        "sysprep.cleanEventLogs",
-        "只清这四个固定日志，不做 wevtutil el 全量枚举"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_CleanRecycleBin",
-        "清空回收站（当前用户）",
-        cfg.sysprep.cleanRecycleBin,
-        "sysprep.cleanRecycleBin",
-        "按当前用户 SID 定位，只清固定磁盘"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_CleanComponentStore",
-        "DISM 组件清理（不含 /resetbase）",
-        cfg.sysprep.cleanComponentStore,
-        "sysprep.cleanComponentStore",
-        "/resetbase 会让已装更新无法卸载，故意不加；耗时较长"
-    ));
-    sysset.fields.push_back(makeCheck(
-        "Cb_RemoveUnattend",
-        "删除残留的 unattend.xml",
-        cfg.sysprep.removeUnattendResidue,
-        "sysprep.removeUnattendResidue",
-        "Panther / Sysprep / 系统盘根三处；下次 Setup 可能重跑旧应答文件"
     ));
     page.groups.push_back(std::move(sysset));
 
@@ -1487,13 +1438,9 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.sysprep.cleanDllCache = field.checked;
             }
-            else if (id == "Cb_ClearPrivacy")
+            else if (id == "Cb_MovePageFile")
             {
-                cfg.optimization.clearPrivacyTraces = field.checked;
-            }
-            else if (id == "Cb_ClearUpdateCache")
-            {
-                cfg.optimization.clearUpdateCache = field.checked;
+                cfg.optimization.autoPagefileDrive = field.checked;
             }
             else if (id == "Cb_AutoLogon")
             {
@@ -1507,29 +1454,20 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.sysprep.autoLogonCount = toInt(field.value, cfg.sysprep.autoLogonCount);
             }
-            else if (id == "Cb_StopSysprep")
-            {
-                cfg.sysprep.stopSysprepProcess = field.checked;
-            }
             else if (id == "Cb_CleanShadow")
             {
-                cfg.sysprep.cleanShadowCopies = field.checked;
             }
             else if (id == "Cb_CleanEventLog")
             {
-                cfg.sysprep.cleanEventLogs = field.checked;
             }
             else if (id == "Cb_CleanRecycleBin")
             {
-                cfg.sysprep.cleanRecycleBin = field.checked;
             }
             else if (id == "Cb_CleanComponentStore")
             {
-                cfg.sysprep.cleanComponentStore = field.checked;
             }
             else if (id == "Cb_RemoveUnattend")
             {
-                cfg.sysprep.removeUnattendResidue = field.checked;
             }
             else if (id == "Ed_WorkGroup")
             {
@@ -1780,10 +1718,10 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "target")
     {
         return {
-            "Ed_Owner",       "Ed_Organization", "Ed_ProductKey", "Cb_Pcname",        "Ed_Pcname",
-            "Se_Boottime",    "Cb_ShowDevmgmt",  "Cb_Reboot",     "Cb_AutoSetip",     "Cb_CloseKeypad",
-            "Cb_ClearSrs",    "Cb_Dormancy",     "Cb_SetNetWork", "Cb_SetResolution", "Cb_Resolution",
-            "Ed_ResolutionX", "Ed_ResolutionY",  "Ed_Refresh",    "Ed_ColorQuality",
+            "Ed_Owner",      "Ed_Organization", "Ed_ProductKey",   "Cb_Pcname",     "Ed_Pcname",
+            "Se_Boottime",   "Cb_ShowDevmgmt",  "Cb_Reboot",       "Cb_AutoSetip",  "Cb_CloseKeypad",
+            "Cb_ClearSrs",   "Cb_Dormancy",     "Cb_MovePageFile", "Cb_SetNetWork", "Cb_SetResolution",
+            "Cb_Resolution", "Ed_ResolutionX",  "Ed_ResolutionY",  "Ed_Refresh",    "Ed_ColorQuality",
         };
     }
     if (pageId == "tasks")
@@ -1826,16 +1764,11 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "sysprep")
     {
         return {
-            "Btn_Syspreprun",      "Cb_Uninstalldriver", "Cb_LoadSrsDrv",
-            "Cb_Createnewsid",     "Rb_Sysprep_Type1",   "Cb_Cutdesktopfile",
-            "Cb_Cleanjunkfiles",   "Cb_Dllcache",        "Cb_ClearPrivacy",
-            "Cb_ClearUpdateCache", "Cb_AutoLogon",       "Ed_LogonPassword",
-            "Se_LogonCount",       "Cb_StopSysprep",     "Cb_CleanShadow",
-            "Cb_CleanEventLog",    "Cb_CleanRecycleBin", "Cb_CleanComponentStore",
-            "Cb_RemoveUnattend",   "Rb_WorkGroup",       "Rb_Domain",
-            "Ed_WorkGroup",        "Ed_Domain_name",     "Ed_Domain_user",
-            "Ed_Domain_pw",        "Rb_EveryOne",        "Rb_EverySer",
-            "Se_Serconut",         "Cb_AfterSysprep",
+            "Btn_Syspreprun",    "Cb_Uninstalldriver", "Cb_LoadSrsDrv", "Cb_Createnewsid", "Rb_Sysprep_Type1",
+            "Cb_Cutdesktopfile", "Cb_Cleanjunkfiles",  "Cb_Dllcache",   "Cb_AutoLogon",    "Ed_LogonPassword",
+            "Se_LogonCount",     "Rb_WorkGroup",       "Rb_Domain",     "Ed_WorkGroup",    "Ed_Domain_name",
+            "Ed_Domain_user",    "Ed_Domain_pw",       "Rb_EveryOne",   "Rb_EverySer",     "Se_Serconut",
+            "Cb_AfterSysprep",
         };
     }
     if (pageId == "run")
@@ -1864,8 +1797,11 @@ std::vector<std::string> allExpectedControlIds()
 
 std::vector<std::string> excludedControlIds()
 {
+    // 这里的每一条都必须写明「为什么不做」。反过来，**已经做出来的控件不能留在这里** ——
+    // M7 时期的名单把后来实现的一键修复、Ctrl+F11 急救、OEM 设置、部署顶部标题都列成了
+    // 「不做」，形成自相矛盾。判断依据统一到 docs/SC功能对照.md。
     return {
-        // 宪章 §7 红线：装机联盟分成 / 渠道号
+        // 宪章 §7 红线：装机联盟分成 / 渠道号 / 推广软件安装
         "Gb_ScTools",
         "Cb_Driveinstall",
         "Cb_Mboxinstall",
@@ -1873,13 +1809,13 @@ std::vector<std::string> excludedControlIds()
         "Ed_Ceounionuid",
         "Mkb_Ceounion",
         "Btn_Logins",
-        // 宪章 §7 红线：改写浏览器主页 / 默认搜索、预置收藏夹
+        // 宪章 §7 红线：改写浏览器主页 / 预置收藏夹
         "Cb_Saveiehp",
         "Cb_SaveieFavorites",
-        // 宪章 §7 红线：预置任务栏（推广快捷方式）
+        // 宪章 §7 红线：预置任务栏推广快捷方式
         "Cb_Locktaskbar",
         "Cb_Unlocktaskbar",
-        // 宪章 §7：防流氓封装方式（联盟 / 会员封装方式）
+        // 宪章 §7：防流氓 / 大客户高级方式都依赖联盟授权与内核驱动
         "Rb_Sysprep_Type2",
         "Rb_Sysprep_Type3",
         // 依赖 SC 的服务器：更新页与错误报告（2026-10-25 裁决不做）
@@ -1890,24 +1826,15 @@ std::vector<std::string> excludedControlIds()
         "Lab_Updatingpr",
         "Lab_DiyUpdating",
         "Btn_Bugs",
-        // 图纸与宪章都查不到交互语义：一律不做
+        // 需要内核驱动常驻才能做到，宪章 §7 明令禁止（拒绝内核驱动防删除）
+        "Page_Nodelfile",
+        "Page_Nodelreg",
+        // 尚未实现，按 docs/SC功能对照.md 排期（不是永久不做）
         "Cb_CreateConnection",
-        "Cb_MoveFavorites",
-        "Cb_MoveDocuments",
-        "Cb_MovePageFile",
-        "Cb_CloseRestartbox",
-        "Cb_ResolutionSos",
-        "Gb_Tools",
         "Btn_OsRepair",
         "Btn_Repairend",
-        "Lab_Rescan",
-        "Lab_Rescanf",
-        "Btn_Sysprepaset",
-        "Lv_DeployModular",
-        "Cb_DeployTitle",
-        "Btn_OemSet",
-        "Btn_help_V",
-        // 内部图片暂存页，不是配置页
+        "Btn_Execute",
+        // 内部图片暂存页与工具栏容器，不是配置控件
         "Pan_temp",
         "Pic_Listline",
         "Pic_Listwarning",
@@ -1918,6 +1845,10 @@ std::vector<std::string> excludedControlIds()
         "Pic_Stasks",
         "Pic_Srun",
         "Pic_OBJ",
+        "Gb_Tools",
+        "Btn_help_V",
+        "Lab_Rescan",
+        "Lab_Rescanf",
     };
 }
 

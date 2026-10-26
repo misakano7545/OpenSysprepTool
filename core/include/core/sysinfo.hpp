@@ -109,7 +109,11 @@ struct Check
     std::string resolution; // 怎么处理
     std::string evidence;   // 命中的路径 / 注册表值 / 原始输出
     bool detected = false;  // 是否命中问题
-    bool evaluated = true;  // false = 本次没查（例如需要管理员）
+    // 一键修复（SC 的 Btn_OsRepair）：这一项能否由「立即处理」自动修掉。
+    // 能修的填建议动作（tweaks::Tweak::id，或内建修复 id），不能修的留空 ——
+    // 空值表示只能人工处理，界面与 --checkup 都要如实区分，不能假装都能修。
+    std::string autoFix;
+    bool evaluated = true; // false = 本次没查（例如需要管理员）
 };
 
 // ---------------------------------------------------------------- 汇总
@@ -128,6 +132,10 @@ struct CheckupReport
     std::vector<Check> checks;
     std::vector<std::string> warnings;
 };
+
+// 逐条比对 SC 优化表（见 core/tweaks），命中的项带 autoFix = 优化项 id。
+// 单独暴露出来是为了让「一键修复」能只跑这一遍而不必跑完整采集。
+void checkTweaks(std::vector<Check>& checks);
 
 // 采集全量体检报告。永不抛异常；单项失败写入 warnings。
 CheckupReport collect();

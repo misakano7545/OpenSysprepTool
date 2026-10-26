@@ -626,8 +626,12 @@ python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 | **OEM 智能识别** | `core/oem`：读 `HKLM\HARDWARE\DESCRIPTION\System\BIOS`，按 SC 的 `Scoem\<品牌>\nt6.ini` 布局匹配 | ✅ |
 | **OEM 信息写入 unattend** | `<OEMInformation>` 六个子元素，落在 `LogonCommands` 与 `OOBE` 之间 | ✅ |
 | **SC 的 `.ini` 读取（GBK）** | `core/config/ini.cpp`：BOM → 合法 UTF-8 → ANSI 三级编码判定 | ✅ |
-| 映像捕获 | `ospt --capture-image`（DISM `/Capture-Image`） | 见下 |
-| 智能虚拟内存 | `ospt --pagefile`（按物理内存与磁盘剩余算初始/最大值） | 见下 |
+| **系统优化项 27 条（SC 原始数据）** | `core/tweaks` + `optimization.sysTweaks` | ✅ |
+| **一键修复** | `ospt --repair`，等同 SC 的 `Btn_OsRepair` | ✅ |
+
+> **功能边界以 `docs/SC功能对照.md` 为唯一依据。** 该表只从 SC 自己的语言文件
+> （`LANGS_SCCHS_2052.bin`）与字符串转储里提取，SC 没有的功能一律不收 —— 前期曾把
+> ES5P 的「映像捕获」「隐私痕迹清理」当成对标项加进来，已全部删除（见该表第七节）。
 
 **OEM 一节为什么这样做**：SC 的 `Scoem\<品牌>\` 目录里每个品牌两份配置 —— `nt6.ini`
 （`[Support]` 的 `Url` / `Tel` / `Stime` + `[General_CHS]` / `[General_EN]` 的
@@ -648,6 +652,11 @@ python tests/integration/verify_oem.py build/bin/Release/ospt.exe
 
 python tests/integration/verify_presentation.py build/bin/Release/osptd.exe
     → 四种模块各画一遍并读像素断言非单色
+
+python tests/integration/verify_tweaks.py build/bin/Release/ospt.exe
+    → 27 条 SC 优化项齐全，抽样值逐字核对（1024 的倍数、TTL 64、优先级 38…）
+    → --repair 只碰优化项，不许顺手改 BCD；未知优化项要告警
+    → 提权会话：真实修复 → 复查全部转为已优化 → 回滚 → 复查恢复
 ```
 
 ---

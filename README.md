@@ -74,6 +74,7 @@ ospt --selftest                                        配置 JSON 往返自检
 ospt --checkup [--json <path>]                          系统体检
 ospt --oem-detect [--skin <品牌目录>] [--lang CHS|EN] [--json <path>]   OEM 识别
 ospt --import-oem <nt6.ini> [--into <cfg.json>] [--out <path>]        导入 SC 的 OEM 档案
+ospt --repair [--dry-run|--execute] [--journal <json>]  一键修复（SC 的一键修复）
 ospt --gen-unattend <cfg.json> --out <unattend.xml>     生成应答文件
 ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]   生成运行计划
 ospt --inject-drivers --image <挂载点> --driver <目录> --dry-run      模式 A 标准驱动包

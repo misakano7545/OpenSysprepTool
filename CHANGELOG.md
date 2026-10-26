@@ -7,6 +7,15 @@
 
 ### Added
 
+- **M10 系统优化项（SC 优化表 27 条）**（`core/tweaks`）：SC 把优化项存成
+  `序号|类型|路径|键名|值` 的记录，这 27 条是从主程序字符串转储里**逐字提取**的，
+  不是自己编的。`optimization.sysTweaks` 里填 id 即可由 `--prepare` 落成注册表动作
+  （可 dry-run、可回滚）。SC 写死的 `ControlSet001` 统一改成 `CurrentControlSet`，
+  否则设置会写进一份没被使用的控制集
+- **M10 一键修复**（`ospt --repair`，对应 SC 的 `Btn_OsRepair`）：体检逐条比对优化表 →
+  只修体检标了 `autoFix` 的项 → 输出 SC 的文案「优化完成，已修复 N 个问题」→ 写回滚日志。
+  需要人工处理的项（杀软、克隆版、BitLocker…）一律不碰；读不到的项（如
+  `SecurePipeServers\winreg` 的 ACL 只给 SYSTEM）如实报「无法判定」，不当成已修好
 - **M10 OEM 信息识别与 SC 档案导入**（`core/oem`、`core/config/ini.cpp`）：
   `ospt --oem-detect [--skin <品牌目录>] [--lang CHS|EN] [--json <path>]` 读
   `HKLM\HARDWARE\DESCRIPTION\System\BIOS` 的厂商/型号，给了品牌目录就按 SC 的
@@ -14,15 +23,12 @@
   把档案并进配置的 `oem` 段
 - 生成的 `unattend.xml` 增加 `<OEMInformation>`（`Manufacturer` / `Model` /
   `SupportHours` / `SupportPhone` / `SupportProvider` / `SupportURL`），落在 `LogonCommands`
-  之后、`OOBE` 之前；老字段给 Win7，`SupportProvider` 给 Win10+（文档已把 Manufacturer
-  标为弃用），一个字段都没有时整段不生成
+  之后、`OOBE` 之前；老字段给 Win7，`SupportProvider` 给 Win10+，一个字段都没有时整段不生成
 - `core/config/ini.cpp`：极简 INI 解析器。编码判定顺序 UTF-8 BOM → UTF-16 BOM →
-  合法 UTF-8 → ANSI（CP_ACP），**SC 那些 GBK 的 `.ini` 靠这一步才读得对**；
-  无键行（`[Version]` 段第一行的产品名）保留而不是丢弃
-- `tests/integration/verify_oem.py`（42 项）：GBK 中文正确还原、`--lang EN` 切换、
-  并进配置不丢原字段、OEMInformation 真的写进 XML 且顺序正确、空档案与坏路径必须被拒绝
-- 修 `--oem-detect` / `--import-oem` 的子命令参数偏移：命令行子命令按 `cli_prepare` 的
-  约定传 `(argc - 1, argv + 1)`，否则第一个位置参数会被当成未知开关
+  合法 UTF-8 → ANSI（CP_ACP），**SC 那些 GBK 的 `.ini` 靠这一步才读得对**
+- `tests/integration/verify_oem.py`（42 项）、`verify_tweaks.py`（22 项）
+- `docs/SC功能对照.md`：以 SC 自己的语言文件为唯一依据的功能对照表，
+  本仓库不再收录 SC 没有的功能
 - **M10 图形部署页**（`deploy/progress_ui.cpp`）：`osptd` 执行计划时画全屏图形进度页，
   四种模块对齐 SC —— `grid`（四格 + 百分比）、`trueTrans`（Aero 条）、`colorBar`
   （按进度换色的渐变条）、`image`（背景图 + 细进度线）

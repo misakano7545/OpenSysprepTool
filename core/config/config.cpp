@@ -48,8 +48,6 @@ json encode(const Config& cfg)
         {"networkLocation", op.networkLocation},
         {"clearSrsDrivers", op.clearSrsDrivers},
         {"setResolution", op.setResolution},
-        {"clearPrivacyTraces", op.clearPrivacyTraces},
-        {"clearUpdateCache", op.clearUpdateCache},
     };
 
     json tasks = json::array();
@@ -109,12 +107,6 @@ json encode(const Config& cfg)
         {"domainPassword", sp.domainPassword},
         {"perServerLicensing", sp.perServerLicensing},
         {"maxConnections", sp.maxConnections},
-        {"stopSysprepProcess", sp.stopSysprepProcess},
-        {"cleanShadowCopies", sp.cleanShadowCopies},
-        {"cleanEventLogs", sp.cleanEventLogs},
-        {"cleanRecycleBin", sp.cleanRecycleBin},
-        {"cleanComponentStore", sp.cleanComponentStore},
-        {"removeUnattendResidue", sp.removeUnattendResidue},
     };
 
     // OEM 信息：全空时也写出空串，保证 JSON 往返逐字稳定（不靠「键缺失」表达默认值）
@@ -198,13 +190,13 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.closeRebootDialog = op.value("closeRebootDialog", false);
             cfg.optimization.myDocumentsTarget = op.value("myDocumentsTarget", std::string{});
             cfg.optimization.pageFileTarget = op.value("pageFileTarget", std::string{});
+            cfg.optimization.autoPagefileDrive = op.value("autoPagefileDrive", false);
+            cfg.optimization.sysTweaks = op.value("sysTweaks", std::vector<std::string>{});
             cfg.optimization.autoSetIp = op.value("autoSetIp", false);
             cfg.optimization.ipMode = op.value("ipMode", std::string{});
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
             cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
             cfg.optimization.setResolution = op.value("setResolution", false);
-            cfg.optimization.clearPrivacyTraces = op.value("clearPrivacyTraces", false);
-            cfg.optimization.clearUpdateCache = op.value("clearUpdateCache", false);
         }
 
         if (j.contains("runPlan"))
@@ -273,12 +265,6 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.domainPassword = sp.value("domainPassword", std::string{});
             cfg.sysprep.perServerLicensing = sp.value("perServerLicensing", false);
             cfg.sysprep.maxConnections = sp.value("maxConnections", 5);
-            cfg.sysprep.stopSysprepProcess = sp.value("stopSysprepProcess", false);
-            cfg.sysprep.cleanShadowCopies = sp.value("cleanShadowCopies", false);
-            cfg.sysprep.cleanEventLogs = sp.value("cleanEventLogs", false);
-            cfg.sysprep.cleanRecycleBin = sp.value("cleanRecycleBin", false);
-            cfg.sysprep.cleanComponentStore = sp.value("cleanComponentStore", false);
-            cfg.sysprep.removeUnattendResidue = sp.value("removeUnattendResidue", false);
         }
 
         if (j.contains("oem"))

@@ -1,5 +1,7 @@
 #include "core/prepare.hpp"
 
+#include "core/tweaks.hpp"
+
 #include <windows.h>
 #include <sddl.h>
 
@@ -134,6 +136,77 @@ std::string normalizeDir(std::string path)
 bool hasDriveLetter(const std::string& path)
 {
     return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) != 0 && path[1] == ':';
+}
+
+std::string lowerAscii(const std::string& text)
+{
+    std::string out = text;
+    for (char& ch : out)
+    {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return out;
+}
+
+// 现场枚举可放页面文件的固定磁盘（排除可移动盘与光驱：
+// 把 pagefile 放到 U 盘上会让系统在拔盘后直接起不来）。
+std::vector<PagefileCandidate> enumeratePagefileCandidates(const std::string& systemDrive)
+{
+    std::vector<PagefileCandidate> candidates;
+    const DWORD mask = GetLogicalDrives();
+    for (int i = 0; i < 26; ++i)
+    {
+        if ((mask & (1u << i)) == 0)
+        {
+            continue;
+        }
+        const std::string drive = std::string(1, static_cast<char>('A' + i)) + ":";
+        // DRIVE_FIXED 才考虑；DRIVE_REMOVABLE / DRIVE_CDROM / DRIVE_NETWORK 一律跳过
+        if (GetDriveTypeW((std::wstring(drive.begin(), drive.end()) + L"\\").c_str()) != DRIVE_FIXED)
+        {
+            continue;
+        }
+        ULARGE_INTEGER freeForCaller = {};
+        if (GetDiskFreeSpaceExW(
+                (std::wstring(drive.begin(), drive.end()) + L"\\").c_str(), &freeForCaller, nullptr, nullptr
+            ) == 0)
+        {
+            continue;
+        }
+        PagefileCandidate candidate;
+        candidate.drive = drive;
+        candidate.freeBytes = freeForCaller.QuadPart;
+        candidates.push_back(candidate);
+    }
+    // 系统盘不参与「智能转移」：原本就在那里，搬一圈没意义
+    const std::string system = lowerAscii(systemDrive);
+    candidates.erase(
+        std::remove_if(
+            candidates.begin(),
+            candidates.end(),
+            [&system](const PagefileCandidate& item) {
+                return lowerAscii(item.drive) == system;
+            }
+        ),
+        candidates.end()
+    );
+    return candidates;
+}
+
+// 智能转移：选剩余空间最大的那个分区。并列时按盘符排序取前者，保证结果可复现。
+// 返回空表示没有可用分区（只剩系统盘，或都被排除）。
+std::string pickPagefileDrive(const std::vector<PagefileCandidate>& candidates)
+{
+    const PagefileCandidate* best = nullptr;
+    for (const PagefileCandidate& item : candidates)
+    {
+        if (best == nullptr || item.freeBytes > best->freeBytes ||
+            (item.freeBytes == best->freeBytes && item.drive < best->drive))
+        {
+            best = &item;
+        }
+    }
+    return best == nullptr ? std::string() : best->drive;
 }
 
 fs::path pathFromUtf8(const std::string& text)
@@ -1257,30 +1330,131 @@ Plan build(const config::Config& cfg, const Options& options)
         plan.actions.push_back(std::move(ui));
     }
 
-    if (!cfg.optimization.pageFileTarget.empty())
+    if (!cfg.optimization.pageFileTarget.empty() || cfg.optimization.autoPagefileDrive)
     {
-        const std::string target = normalizeDir(cfg.optimization.pageFileTarget);
+        // SC 的两个单选：Rb_DiyMovePageFile（指定分区）与 Rb_SmartMovePageFile
+        // （智能选剩余最大的分区）。两者同时给时以「指定」为准，并提示一句 ——
+        // 静默二选一最容易让人觉得配置没生效。
+        std::string rawTarget = cfg.optimization.pageFileTarget;
+        if (!rawTarget.empty() && cfg.optimization.autoPagefileDrive)
+        {
+            plan.warnings.push_back(
+                "optimization.pageFileTarget 与 optimization.autoPagefileDrive 同时开启，"
+                "按指定分区处理：" +
+                rawTarget
+            );
+        }
+        if (rawTarget.empty())
+        {
+            const std::vector<PagefileCandidate> candidates = options.pagefileCandidates.empty()
+                ? enumeratePagefileCandidates(options.systemDrive)
+                : options.pagefileCandidates;
+            const std::string picked = pickPagefileDrive(candidates);
+            if (picked.empty())
+            {
+                plan.warnings.push_back(
+                    "智能转移虚拟内存：除系统盘外没有可用的固定磁盘，改为系统盘由系统管理大小"
+                );
+                rawTarget = options.systemDrive;
+            }
+            else
+            {
+                rawTarget = picked;
+            }
+        }
+
+        const std::string target = normalizeDir(rawTarget);
         if (!hasDriveLetter(target))
         {
-            plan.warnings.push_back("虚拟内存目标不是盘符路径，已跳过：" + cfg.optimization.pageFileTarget);
+            plan.warnings.push_back("虚拟内存目标不是盘符路径，已跳过：" + rawTarget);
         }
         else
         {
             Action action = makeRegistryAction(
                 ActionKind::RegistrySet,
-                "optimization.pageFileTarget",
+                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
+                    ? "optimization.autoPagefileDrive"
+                    : "optimization.pageFileTarget",
                 "系统优化",
-                "把虚拟内存放到指定分区",
-                "optimization.pageFileTarget",
+                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
+                    ? "智能转移虚拟内存到剩余空间最大的分区"
+                    : "把虚拟内存放到指定分区",
+                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
+                    ? "optimization.autoPagefileDrive"
+                    : "optimization.pageFileTarget",
                 "HKLM",
                 "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management",
                 "PagingFiles",
                 "multiSz"
             );
+            // 只搬位置，大小仍交给系统管理：SC 的 MovePageFile 也只做这件事，
+            // 手写具体 MB 数反而会在不同内存的机器上变成新问题。
             action.multi = {target + "pagefile.sys 0 0"};
             action.requiresReboot = true;
             action.note = "0 0 = 由系统管理大小；重启后生效";
             plan.actions.push_back(std::move(action));
+        }
+    }
+
+    if (!cfg.optimization.sysTweaks.empty())
+    {
+        // SC 的系统优化项：数据表在 core/tweaks，这里只负责翻译成动作。
+        // 未知 id 不静默丢弃 —— 写进 warnings，让人一眼看出配置里的名字打错了。
+        for (const std::string& id : cfg.optimization.sysTweaks)
+        {
+            const tweaks::Tweak* tweak = tweaks::find(id);
+            if (tweak == nullptr)
+            {
+                plan.warnings.push_back("optimization.sysTweaks 里有未知优化项，已跳过：" + id);
+                continue;
+            }
+
+            Action action = makeRegistryAction(
+                ActionKind::RegistrySet,
+                tweak->id,
+                "系统优化（SC 优化项）",
+                tweak->title,
+                "optimization.sysTweaks",
+                tweak->hive == tweaks::Hive::CurrentUser ? "HKCU" : "HKLM",
+                tweak->path,
+                tweak->name,
+                tweak->type == tweaks::ValueType::Integer
+                    ? "dword"
+                    : (tweak->type == tweaks::ValueType::String ? "sz" : "binary")
+            );
+
+            if (tweak->type == tweaks::ValueType::Integer)
+            {
+                action.dword = static_cast<std::uint32_t>(std::stoul(tweak->value));
+            }
+            else if (tweak->type == tweaks::ValueType::String)
+            {
+                action.text = tweak->value;
+            }
+            else
+            {
+                // SC 表里的 binary 值是 "00000000" 这种以字节为单位的十六进制串，
+                // 而 Action::bytesHex 按字节对存，所以原样搬即可。
+                action.bytesHex = tweak->value;
+            }
+            action.requiresReboot = tweak->requiresReboot;
+            if (!tweak->scLabel.empty())
+            {
+                action.note = "SC " + tweak->scLabel;
+            }
+            plan.actions.push_back(std::move(action));
+        }
+
+        // 语言文件里有描述、但没有原始数据的那几条：如实报「尚未实现」，
+        // 不假装做了（见 core/tweaks 的 unresolvedLabels）。
+        std::string tail;
+        for (const std::string& label : tweaks::unresolvedLabels())
+        {
+            tail += (tail.empty() ? "" : "、") + label;
+        }
+        if (!tail.empty())
+        {
+            plan.warnings.push_back("SC 优化表里有以下项缺少原始数据，尚未实现：" + tail);
         }
     }
 
@@ -1321,141 +1495,6 @@ Plan build(const config::Config& cfg, const Options& options)
     // SC 在封装前会清一百多条痕迹。这里只做位置确定、清掉不影响功能的那批：
     // 地址栏历史、运行对话框、最近文档、文件对话框历史、托盘缓存、压缩软件路径历史。
     // 删的是整个键，值集合没法逐条还原，所以标为不可回滚。
-    if (cfg.optimization.clearPrivacyTraces)
-    {
-        struct TraceKey
-        {
-            const char* id;
-            const char* title;
-            const char* key;
-        };
-        const TraceKey traces[] = {
-            {"typedUrls", "清空 IE 地址栏历史", "Software\\Microsoft\\Internet Explorer\\TypedURLs"},
-            {"runMru",
-             "清空「运行」对话框历史",
-             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU"},
-            {"recentDocs",
-             "清空最近文档",
-             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs"},
-            {"lastVisited",
-             "清空文件对话框历史（LastVisited）",
-             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\LastVisitedPidlMRU"},
-            {"openSave",
-             "清空文件对话框历史（OpenSave）",
-             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\OpenSavePidlMRU"},
-            {"trayNotify",
-             "清空托盘图标缓存",
-             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TrayNotify"},
-            {"winrar", "清空 WinRAR 路径历史", "Software\\WinRAR\\DialogEditHistory"},
-        };
-
-        for (const TraceKey& trace : traces)
-        {
-            Action action = makeRegistryAction(
-                ActionKind::RegistryDeleteKey,
-                std::string("optimization.privacy.") + trace.id,
-                "隐私痕迹清理",
-                trace.title,
-                "optimization.clearPrivacyTraces",
-                "HKCU",
-                trace.key,
-                "",
-                "sz"
-            );
-            action.irreversible = true;
-            action.note = "整个键删除；键不存在时跳过";
-            plan.actions.push_back(std::move(action));
-        }
-
-        const std::string appData = env("APPDATA");
-        if (!appData.empty())
-        {
-            Action recent;
-            recent.kind = ActionKind::DeleteTree;
-            recent.id = "optimization.privacy.recentFolder";
-            recent.group = "隐私痕迹清理";
-            recent.title = "清空「最近访问」目录";
-            recent.sourceField = "optimization.clearPrivacyTraces";
-            recent.path = joinPath(appData, "Microsoft\\Windows\\Recent");
-            recent.irreversible = true;
-            recent.note = "开始菜单「最近使用的项目」背后的快捷方式目录";
-            plan.actions.push_back(std::move(recent));
-        }
-    }
-
-    if (cfg.optimization.clearUpdateCache)
-    {
-        if (opt.windowsDir.empty())
-        {
-            plan.warnings.push_back("无法确定 %SystemRoot%，已跳过清理更新缓存");
-        }
-        else
-        {
-            const auto addServiceCommand = [&plan,
-                                            &opt](const char* id, const char* title, const char* arguments) {
-                Action action;
-                action.kind = ActionKind::RunCommand;
-                action.id = id;
-                action.group = "隐私痕迹清理";
-                action.title = title;
-                action.sourceField = "optimization.clearUpdateCache";
-                action.program = joinPath(opt.windowsDir, "System32\\net.exe");
-                action.arguments = arguments;
-                // 停一个本来没跑的服务会返回 3521；起一个已在跑的服务返回 2114
-                action.tolerateNonZeroExit = true;
-                return action;
-            };
-
-            // 顺序与 SysprepPreparator 的 WindowsUpdateTempFileCleanupPT 一致：
-            // 先停服务（否则文件被占用删不掉），清缓存，再起服务。
-            Action stopWu = addServiceCommand(
-                "optimization.clearUpdateCache.stopWuauserv", "停止 Windows Update 服务", "stop wuauserv"
-            );
-            stopWu.note = "服务本来没跑时返回 3521，已按容忍处理";
-            plan.actions.push_back(std::move(stopWu));
-
-            Action stopBits =
-                addServiceCommand("optimization.clearUpdateCache.stopBits", "停止 BITS 服务", "stop bits");
-            stopBits.note = "同上";
-            plan.actions.push_back(std::move(stopBits));
-
-            Action action;
-            action.kind = ActionKind::DeleteTree;
-            action.id = "optimization.clearUpdateCache";
-            action.group = "隐私痕迹清理";
-            action.title = "清空 Windows 更新下载缓存";
-            action.sourceField = "optimization.clearUpdateCache";
-            action.path = joinPath(opt.windowsDir, "SoftwareDistribution\\Download");
-            action.irreversible = true;
-            action.note = "只删已下载的更新包，系统需要时会重新下载";
-            plan.actions.push_back(std::move(action));
-
-            Action resetQueue;
-            resetQueue.kind = ActionKind::RunCommand;
-            resetQueue.id = "optimization.clearUpdateCache.bitsReset";
-            resetQueue.group = "隐私痕迹清理";
-            resetQueue.title = "清空 BITS 传输队列";
-            resetQueue.sourceField = "optimization.clearUpdateCache";
-            resetQueue.program = joinPath(opt.windowsDir, "System32\\bitsadmin.exe");
-            resetQueue.arguments = "/reset /allusers";
-            resetQueue.irreversible = true;
-            resetQueue.tolerateNonZeroExit = true;
-            plan.actions.push_back(std::move(resetQueue));
-
-            Action startWu = addServiceCommand(
-                "optimization.clearUpdateCache.startWuauserv",
-                "重新启动 Windows Update 服务",
-                "start wuauserv"
-            );
-            startWu.note = "两个服务默认都是按需启动，这里只是把它们恢复成可用状态";
-            plan.actions.push_back(std::move(startWu));
-
-            Action startBits = addServiceCommand(
-                "optimization.clearUpdateCache.startBits", "重新启动 BITS 服务", "start bits"
-            );
-            plan.actions.push_back(std::move(startBits));
-        }
-    }
 
     // ------------------------------------------------------------ 首次进桌面
     if (cfg.firstLogon.syncIeFavorites)
@@ -1661,136 +1700,6 @@ Plan build(const config::Config& cfg, const Options& options)
         action.irreversible = true;
         return action;
     };
-
-    if (cfg.sysprep.stopSysprepProcess)
-    {
-        Action action = addCleanup(
-            ActionKind::RunCommand,
-            "sysprep.stopSysprepProcess",
-            "结束已在运行的 sysprep.exe",
-            "sysprep.stopSysprepProcess"
-        );
-        action.program = joinPath(opt.windowsDir, "System32\\taskkill.exe");
-        action.arguments = "/F /IM sysprep.exe /T";
-        action.tolerateNonZeroExit = true;
-        action.note = "没有在跑的 sysprep 时 taskkill 返回非 0，已按容忍处理";
-        plan.actions.push_back(std::move(action));
-    }
-
-    if (cfg.sysprep.cleanShadowCopies)
-    {
-        Action action = addCleanup(
-            ActionKind::RunCommand,
-            "sysprep.cleanShadowCopies",
-            "删除卷影副本与还原点",
-            "sysprep.cleanShadowCopies"
-        );
-        action.program = joinPath(opt.windowsDir, "System32\\vssadmin.exe");
-        action.arguments = "delete shadows /all /quiet";
-        action.tolerateNonZeroExit = true;
-        action.note = "没有卷影副本时返回非 0，已按容忍处理；删除后无法恢复";
-        plan.actions.push_back(std::move(action));
-    }
-
-    if (cfg.sysprep.cleanEventLogs)
-    {
-        // 只清这几个固定日志：wevtutil el 枚举会把 100 多个通道都清掉，
-        // 其中包含驱动安装记录之类的排错依据，没必要。
-        const char* logs[] = {"System", "Application", "Setup", "Windows PowerShell"};
-        for (const char* log : logs)
-        {
-            Action action = addCleanup(
-                ActionKind::RunCommand,
-                (std::string("sysprep.cleanEventLogs.") + log).c_str(),
-                (std::string("清空事件日志：") + log).c_str(),
-                "sysprep.cleanEventLogs"
-            );
-            action.program = joinPath(opt.windowsDir, "System32\\wevtutil.exe");
-            action.arguments = std::string("cl \"") + log + "\"";
-            action.tolerateNonZeroExit = true;
-            action.note = "日志不存在或无权限时返回非 0，已按容忍处理";
-            plan.actions.push_back(std::move(action));
-        }
-    }
-
-    if (cfg.sysprep.cleanRecycleBin)
-    {
-        // 只删当前用户 SID 那一份，不整目录删 —— 其他用户的回收站不属于本次清理范围。
-        const std::string sid = currentUserSid();
-        if (sid.empty())
-        {
-            plan.warnings.push_back("取不到当前用户 SID，已跳过清空回收站");
-        }
-        else
-        {
-            const DWORD drives = GetLogicalDrives();
-            for (int i = 0; i < 26; ++i)
-            {
-                if ((drives & (1u << i)) == 0)
-                {
-                    continue;
-                }
-                const std::string root = std::string(1, static_cast<char>('A' + i)) + ":\\";
-                if (GetDriveTypeA(root.c_str()) != DRIVE_FIXED)
-                {
-                    continue;
-                }
-                Action action = addCleanup(
-                    ActionKind::DeleteTree,
-                    ("sysprep.cleanRecycleBin." + std::string(1, static_cast<char>('A' + i))).c_str(),
-                    ("清空回收站：" + root).c_str(),
-                    "sysprep.cleanRecycleBin"
-                );
-                action.path = root + "$Recycle.Bin\\" + sid;
-                action.note = "只清当前用户 SID 的回收站目录";
-                plan.actions.push_back(std::move(action));
-            }
-        }
-    }
-
-    if (cfg.sysprep.cleanComponentStore)
-    {
-        Action action = addCleanup(
-            ActionKind::RunCommand,
-            "sysprep.cleanComponentStore",
-            "DISM 组件清理（startcomponentcleanup）",
-            "sysprep.cleanComponentStore"
-        );
-        action.program = joinPath(opt.windowsDir, "System32\\Dism\\dism.exe");
-        action.arguments = "/online /cleanup-image /startcomponentcleanup";
-        action.note = "故意不加 /resetbase：那会让已装更新无法卸载，且耗时很长";
-        plan.actions.push_back(std::move(action));
-    }
-
-    if (cfg.sysprep.removeUnattendResidue)
-    {
-        const char* residues[] = {
-            "Panther\\unattend.xml",
-            "System32\\Sysprep\\unattend.xml",
-        };
-        for (const char* residue : residues)
-        {
-            Action action = addCleanup(
-                ActionKind::DeleteTree,
-                (std::string("sysprep.removeUnattendResidue.") + residue).c_str(),
-                (std::string("删除残留应答文件：%WINDIR%\\") + residue).c_str(),
-                "sysprep.removeUnattendResidue"
-            );
-            action.path = joinPath(opt.windowsDir, residue);
-            action.note = "不存在的文件跳过";
-            plan.actions.push_back(std::move(action));
-        }
-
-        Action rootFile = addCleanup(
-            ActionKind::DeleteTree,
-            "sysprep.removeUnattendResidue.systemDrive",
-            "删除系统盘根目录的 unattend.xml",
-            "sysprep.removeUnattendResidue"
-        );
-        rootFile.path = joinPath(opt.systemDrive, "unattend.xml");
-        rootFile.note = "不存在的文件跳过";
-        plan.actions.push_back(std::move(rootFile));
-    }
 
     if (cfg.sysprep.uninstallDrivers)
     {

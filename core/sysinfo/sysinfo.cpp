@@ -1434,6 +1434,7 @@ void fillChecks(CheckupReport& report)
     checkUnattendResidue(report.checks);
     checkDirtyBit(report.checks);
     checkStagedAppx(report.checks);
+    checkTweaks(report.checks);
 }
 
 } // namespace
@@ -1602,6 +1603,7 @@ std::string toJson(const CheckupReport& report)
         item["message"] = check.message;
         item["resolution"] = check.resolution;
         item["evidence"] = check.evidence;
+        item["autoFix"] = check.autoFix;
         checks.push_back(std::move(item));
     }
     root["checks"] = std::move(checks);
