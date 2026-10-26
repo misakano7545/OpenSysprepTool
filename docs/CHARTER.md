@@ -926,14 +926,20 @@ python tests/integration/verify_prepare.py build-x86/bin/Release/ospt.exe
    清空目录  C:\Users\Admin\AppData\Local\Temp（不可回滚）
 
 tests/tools/run_acceptance_elevated.ps1 全 15 步 exit=0（新增「封装前设置」一步）
+
+CI  run #40258415493（95720f1）success，x64 与 x86 两个 job 均 success
+    M9 步骤日志实测：RESULT: ALL PASSED（46 项检查，0 项跳过）
+      含 execute 写 NumLock → rollback dry-run → rollback execute → 还原
+    runner 是管理员，所以提权分支在 CI 里也真的跑了，不是靠 SKIP 变绿
+    Lint #40258415499 success
 ```
 
 **下一步**：M10 —— 离线加载 `Users\Default\NTUSER.DAT` 把「我的文档转移 / IE 主页同步」
 补上，以及文件防篡改清单（用户态 MD5 校验）与驱动卸载。这三项是 M9 deferred 段里
 最常被配置到的，其余推迟项各有归属模块。
 
-**推送状态（2026-10-26）**：M9 提交后主仓库远端 = 本地（CI 与 Lint 结果见 Actions）。
-驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
+**推送状态（2026-10-26）**：主仓库远端 = 本地 = `95720f1`（CI #40258415493 success、
+Lint #40258415499 success）。驱动仓库远端 = 本地 = `cb4fc12`，远端递归树 98 文件 / 12.705 MB。
 
 **正确的推送姿势**（本阶段踩了坑，见 §10）：
 
