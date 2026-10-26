@@ -7,6 +7,22 @@
 
 ### Added
 
+- **M10 OEM 信息识别与 SC 档案导入**（`core/oem`、`core/config/ini.cpp`）：
+  `ospt --oem-detect [--skin <品牌目录>] [--lang CHS|EN] [--json <path>]` 读
+  `HKLM\HARDWARE\DESCRIPTION\System\BIOS` 的厂商/型号，给了品牌目录就按 SC 的
+  `Scoem\<品牌>\nt6.ini` 布局匹配档案；`ospt --import-oem <ini> [--into <cfg.json>]`
+  把档案并进配置的 `oem` 段
+- 生成的 `unattend.xml` 增加 `<OEMInformation>`（`Manufacturer` / `Model` /
+  `SupportHours` / `SupportPhone` / `SupportProvider` / `SupportURL`），落在 `LogonCommands`
+  之后、`OOBE` 之前；老字段给 Win7，`SupportProvider` 给 Win10+（文档已把 Manufacturer
+  标为弃用），一个字段都没有时整段不生成
+- `core/config/ini.cpp`：极简 INI 解析器。编码判定顺序 UTF-8 BOM → UTF-16 BOM →
+  合法 UTF-8 → ANSI（CP_ACP），**SC 那些 GBK 的 `.ini` 靠这一步才读得对**；
+  无键行（`[Version]` 段第一行的产品名）保留而不是丢弃
+- `tests/integration/verify_oem.py`（42 项）：GBK 中文正确还原、`--lang EN` 切换、
+  并进配置不丢原字段、OEMInformation 真的写进 XML 且顺序正确、空档案与坏路径必须被拒绝
+- 修 `--oem-detect` / `--import-oem` 的子命令参数偏移：命令行子命令按 `cli_prepare` 的
+  约定传 `(argc - 1, argv + 1)`，否则第一个位置参数会被当成未知开关
 - **M10 图形部署页**（`deploy/progress_ui.cpp`）：`osptd` 执行计划时画全屏图形进度页，
   四种模块对齐 SC —— `grid`（四格 + 百分比）、`trueTrans`（Aero 条）、`colorBar`
   （按进度换色的渐变条）、`image`（背景图 + 细进度线）

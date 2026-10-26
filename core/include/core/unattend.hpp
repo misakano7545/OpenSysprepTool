@@ -38,6 +38,7 @@ bool resolveComputerName(const osp::config::SystemInfo& info, std::string& out, 
 // 元素顺序表：与 ADK Unattend.chm 组件页 Child Elements 顺序一致，供单元测试比对
 const std::vector<const char*>& shellSetupSpecializeOrder();
 const std::vector<const char*>& shellSetupOobeSystemOrder();
+const std::vector<const char*>& oemInformationChildOrder();
 const std::vector<const char*>& oobeChildOrder();
 const std::vector<const char*>& autoLogonChildOrder();
 const std::vector<const char*>& displayChildOrder();

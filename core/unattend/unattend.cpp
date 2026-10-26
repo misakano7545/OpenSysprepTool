@@ -206,6 +206,14 @@ bool isLogonCommandsPhase(const std::string& phase)
     return phase == "desktop";
 }
 
+// 一个字段都没填就不生成 <OEMInformation>：空的 OEM 段会让 OOBE 显示一个
+// 没有厂商名的「支持」入口，比不写更糟。
+bool hasOemContent(const osp::config::OemSettings& oem)
+{
+    return !oem.manufacturer.empty() || !oem.model.empty() || !oem.supportHours.empty() ||
+        !oem.supportPhone.empty() || !oem.supportProvider.empty() || !oem.supportUrl.empty();
+}
+
 std::string buildCommandLine(const osp::config::RunPlanTask& task)
 {
     if (task.arguments.empty())
@@ -234,8 +242,28 @@ const std::vector<const char*>& shellSetupSpecializeOrder()
 
 const std::vector<const char*>& shellSetupOobeSystemOrder()
 {
+    // 参考 Microsoft-Windows-Shell-Setup 的 oobeSystem 子元素，按文档的字母序：
+    // AutoLogon, Display, FirstLogonCommands, LogonCommands, OEMInformation, OOBE, UserAccounts
     static const std::vector<const char*> kOrder{
-        "AutoLogon", "Display", "FirstLogonCommands", "LogonCommands", "OOBE", "UserAccounts"
+        "AutoLogon",
+        "Display",
+        "FirstLogonCommands",
+        "LogonCommands",
+        "OEMInformation",
+        "OOBE",
+        "UserAccounts"
+    };
+    return kOrder;
+}
+
+const std::vector<const char*>& oemInformationChildOrder()
+{
+    // OEMInformation 的子元素，同样按文档字母序。
+    // Manufacturer / Model / SupportHours / SupportPhone 在 Win10 文档里标为已弃用，
+    // 但 Win7（本项目最低目标）只认它们，且 Win10+ 在缺 SupportProvider 时仍会用
+    // Manufacturer，所以两代字段一起写。
+    static const std::vector<const char*> kOrder{
+        "Manufacturer", "Model", "SupportHours", "SupportPhone", "SupportProvider", "SupportURL"
     };
     return kOrder;
 }
@@ -523,6 +551,37 @@ GenResult generate(const osp::config::Config& cfg)
                 addTextChild(command, "Description", logonCommands.descriptions[i]);
                 addTextChild(command, "Order", order);
                 ++order;
+            }
+        }
+
+        // OEM 信息：文档字母序里排在 LogonCommands 与 OOBE 之间
+        if (hasOemContent(cfg.oem))
+        {
+            pugi::xml_node oem = addChild(component, "OEMInformation");
+            // 顺序按 oemInformationChildOrder()
+            if (!cfg.oem.manufacturer.empty())
+            {
+                addTextChild(oem, "Manufacturer", cfg.oem.manufacturer);
+            }
+            if (!cfg.oem.model.empty())
+            {
+                addTextChild(oem, "Model", cfg.oem.model);
+            }
+            if (!cfg.oem.supportHours.empty())
+            {
+                addTextChild(oem, "SupportHours", cfg.oem.supportHours);
+            }
+            if (!cfg.oem.supportPhone.empty())
+            {
+                addTextChild(oem, "SupportPhone", cfg.oem.supportPhone);
+            }
+            if (!cfg.oem.supportProvider.empty())
+            {
+                addTextChild(oem, "SupportProvider", cfg.oem.supportProvider);
+            }
+            if (!cfg.oem.supportUrl.empty())
+            {
+                addTextChild(oem, "SupportURL", cfg.oem.supportUrl);
             }
         }
 

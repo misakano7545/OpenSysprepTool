@@ -319,6 +319,28 @@ jobs:
             ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
           exit 0
 
+      # M10 增量：OEM 识别与 SC 档案导入。重点断言两件事：SC 的 GBK 编码
+      # .ini 能被正确还原（读错就成乱码），以及没有 OEM 字段的 ini 会被拒绝
+      # 而不是静默生成一个空 OEMInformation。
+      - name: OEM 识别与档案导入验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm10-oem.log'
+          python tests\integration\verify_oem.py '.\build\bin\Release\ospt.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
+            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            exit $code
+          }
+          Get-Content $log | Select-String -Pattern 'SKIP' |
+            ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
+          exit 0
+
       - name: Artifact 内容断言
         shell: pwsh
         run: |

@@ -121,6 +121,18 @@ struct SysprepSettings
     bool removeUnattendResidue = false; // 删除残留的 unattend.xml
 };
 
+struct OemSettings
+{
+    // 一个字段都不填时整段不生成，所以默认全空
+    std::string manufacturer;    // -> <Manufacturer>（Win7 显示；Win10+ 已弃用但仍读取）
+    std::string model;           // -> <Model>
+    std::string supportHours;    // -> <SupportHours>（Win7）
+    std::string supportPhone;    // -> <SupportPhone>（Win7）
+    std::string supportProvider; // -> <SupportProvider>（Win10+ 显示名）
+    std::string supportUrl;      // -> <SupportURL>
+    std::string source;          // 来源说明，仅用于报告，不参与生成
+};
+
 struct Config
 {
     int schemaVersion = kSchemaVersion;
@@ -130,6 +142,7 @@ struct Config
     std::vector<RunPlanTask> runPlan;
     DeploySettings deploy;
     SysprepSettings sysprep;
+    OemSettings oem;
 };
 
 struct ParseResult

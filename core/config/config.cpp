@@ -117,6 +117,18 @@ json encode(const Config& cfg)
         {"removeUnattendResidue", sp.removeUnattendResidue},
     };
 
+    // OEM 信息：全空时也写出空串，保证 JSON 往返逐字稳定（不靠「键缺失」表达默认值）
+    const OemSettings& om = cfg.oem;
+    j["oem"] = {
+        {"manufacturer", om.manufacturer},
+        {"model", om.model},
+        {"supportHours", om.supportHours},
+        {"supportPhone", om.supportPhone},
+        {"supportProvider", om.supportProvider},
+        {"supportUrl", om.supportUrl},
+        {"source", om.source},
+    };
+
     return j;
 }
 
@@ -267,6 +279,18 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.cleanRecycleBin = sp.value("cleanRecycleBin", false);
             cfg.sysprep.cleanComponentStore = sp.value("cleanComponentStore", false);
             cfg.sysprep.removeUnattendResidue = sp.value("removeUnattendResidue", false);
+        }
+
+        if (j.contains("oem"))
+        {
+            const auto& om = j["oem"];
+            cfg.oem.manufacturer = om.value("manufacturer", std::string{});
+            cfg.oem.model = om.value("model", std::string{});
+            cfg.oem.supportHours = om.value("supportHours", std::string{});
+            cfg.oem.supportPhone = om.value("supportPhone", std::string{});
+            cfg.oem.supportProvider = om.value("supportProvider", std::string{});
+            cfg.oem.supportUrl = om.value("supportUrl", std::string{});
+            cfg.oem.source = om.value("source", std::string{});
         }
     }
     catch (const json::exception& e)

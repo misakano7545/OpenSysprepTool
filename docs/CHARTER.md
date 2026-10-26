@@ -597,7 +597,6 @@ Win7 真机验证前先确认前提补丁（见 §8 M5.1）：**SP1 必需**；�
 任务栏固定、智能分辨率、`rebootAfterRun`（要改 unattend 生成器）、
 文件防篡改与 MD5 清单（M10）、禁止虚拟机部署（由 `osptd` 在目标机判定）、
 `loadSrsDrivers`（M6 的 `--inject-drivers --srs` 已覆盖）、`perServerLicensing`（unattend 未写 Licensing 组件）。
-
 **验收**：
 
 ```
@@ -609,6 +608,47 @@ python tests/integration/verify_prepare.py build/bin/Release/ospt.exe
 
 `--prepare-selftest` 只碰 `HKCU\Software\OpenSysprepTool\SelfTest`，所以 CI 的非管理员
 步骤也能证明执行器与回滚链路真的能跑，而不是只打印一段文本。
+
+---
+
+### M10 — 剩余功能收口（对标 SC 的完整度）
+
+**交付**：把 M1–M9 之外、SC 有而我们没有的功能补齐，并且逐项带验收。
+
+| 子项 | 落地 | 状态 |
+|---|---|---|
+| 图形部署页（四模块 + Ctrl+F11 急救） | `deploy/progress_ui.cpp`、`osptd --preview-presentation` | ✅ |
+| 封装前清理 6 类（进程/卷影/日志/回收站/组件库/残留） | `core/prepare` 的 `clean*` 开关 | ✅ |
+| 隐私痕迹清理 + Windows 更新缓存清理 | `optimization.clearPrivacyTraces` / `clearUpdateCache` | ✅ |
+| 体检项分级与阻塞判定（8 项新检查 + critical 直通 `--sysprep`） | `core/sysinfo` 的 `Check` | ✅ |
+| AutoLogon 密码（base64(UTF-16LE(pw+"Password"))，空密码走注册表回退） | `core/unattend` | ✅ |
+| 启动菜单超时、防流氓清理、部署呈现字段落成动作/计划 | `core/prepare` + `core/runplan` | ✅ |
+| **OEM 智能识别** | `core/oem`：读 `HKLM\HARDWARE\DESCRIPTION\System\BIOS`，按 SC 的 `Scoem\<品牌>\nt6.ini` 布局匹配 | ✅ |
+| **OEM 信息写入 unattend** | `<OEMInformation>` 六个子元素，落在 `LogonCommands` 与 `OOBE` 之间 | ✅ |
+| **SC 的 `.ini` 读取（GBK）** | `core/config/ini.cpp`：BOM → 合法 UTF-8 → ANSI 三级编码判定 | ✅ |
+| 映像捕获 | `ospt --capture-image`（DISM `/Capture-Image`） | 见下 |
+| 智能虚拟内存 | `ospt --pagefile`（按物理内存与磁盘剩余算初始/最大值） | 见下 |
+
+**OEM 一节为什么这样做**：SC 的 `Scoem\<品牌>\` 目录里每个品牌两份配置 —— `nt6.ini`
+（`[Support]` 的 `Url` / `Tel` / `Stime` + `[General_CHS]` / `[General_EN]` 的
+`Manufacturer` / `Model`）与 `nt5.ini`（XP 时代的 `[General]` / `[Support Information]`）。
+这五个字段与 unattend 的 `OEMInformation` 子元素一一对应，所以「导入档案」与「写应答文件」
+用同一张表。**本仓库不搬运 SC 的品牌数据**（图片与文案各有其权利人，见 §6.1），只实现格式
+与识别逻辑；测试里那份 GBK 样本是脚本自己造的。
+
+**M10 的验收命令**：
+
+```
+python tests/integration/verify_oem.py build/bin/Release/ospt.exe
+    → 本机 BIOS 识别有结果或给出原因
+    → GBK 的 nt6.ini 中文正确还原（读错编码会得到 '?' 或替换字符）
+    → --lang EN 切到 General_EN；--into 并进配置时不清掉原有字段
+    → unattend 里 OEMInformation 六项齐全且排在 OOBE 之前
+    → 没有 OEM 字段的 ini 必须失败，不能静默生成空段
+
+python tests/integration/verify_presentation.py build/bin/Release/osptd.exe
+    → 四种模块各画一遍并读像素断言非单色
+```
 
 ---
 

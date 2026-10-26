@@ -26,6 +26,8 @@ namespace osp::host {
 
 // 定义在 cli_prepare.cpp（M9）
 int runPrepareCommandLine(int argc, char** argv);
+int runOemDetect(int argc, char** argv);
+int runImportOem(int argc, char** argv);
 int runRollbackCommandLine(int argc, char** argv);
 int runPrepareSelfTest();
 
@@ -197,6 +199,9 @@ void printUsage()
     std::printf("  ospt --console --ui                                    命令行窗口 + 配置界面（调试用）\n");
     std::printf("  ospt --selftest    配置 JSON 往返自检\n");
     std::printf("  ospt --checkup [--json <path>]  系统体检\n");
+    std::printf("  ospt --oem-detect [--skin <品牌目录>] [--lang CHS|EN] [--json <path>]  OEM 识别\n");
+    std::printf("  ospt --import-oem <nt6.ini> [--lang CHS|EN] [--into <cfg.json>] [--out <path>]\n");
+    std::printf("                                                    导入 SC 的 OEM 档案\n");
     std::printf("  ospt --gen-unattend <cfg.json> --out <unattend.xml>  生成应答文件\n");
     std::printf("  ospt --gen-runplan <plan.json> --out <run/> [--drives <drives.json>]  生成运行计划\n");
     std::printf("  ospt --inject-drivers --image <挂载点> --driver <目录> --dry-run  模式 A 标准驱动包\n");
@@ -1181,6 +1186,16 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--checkup") == 0)
     {
         return runCheckup(argc, argv);
+    }
+
+    if (std::strcmp(arg, "--oem-detect") == 0)
+    {
+        return osp::host::runOemDetect(argc - 1, argv + 1);
+    }
+
+    if (std::strcmp(arg, "--import-oem") == 0)
+    {
+        return osp::host::runImportOem(argc - 1, argv + 1);
     }
 
     if (std::strcmp(arg, "--gen-unattend") == 0)

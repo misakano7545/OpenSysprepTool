@@ -2,6 +2,7 @@
 add_library(osp_core STATIC
   src/version.cpp
   config/config.cpp
+  config/ini.cpp
   log/log.cpp
   sysinfo/sysinfo.cpp
   runplan/runplan.cpp
@@ -16,6 +17,8 @@ add_library(osp_core STATIC
   # M9 新增：注册表 RAII 与封装前设置应用
   regio/regio.cpp
   prepare/prepare.cpp
+  # M10 新增：OEM 信息识别（读 BIOS 标识 + 导入 SC 的 nt6/nt5.ini）
+  oem/oem.cpp
   # pugixml 以源码形式编入（MIT，见 third_party/LICENSES.md）
   ${CMAKE_SOURCE_DIR}/third_party/pugixml/pugixml.cpp
 )

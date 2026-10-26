@@ -171,6 +171,54 @@ TEST_CASE("shell-setup oobeSystem children follow the documented order")
     CHECK(names.size() == 6); // AutoLogon, Display, FirstLogonCommands, LogonCommands, OOBE, UserAccounts
 }
 
+TEST_CASE("OEM 信息：有内容才生成 <OEMInformation>，且子元素按文档顺序")
+{
+    // 默认配置的 oem 段全空：不能凭空生成一个空的 OEM 段
+    {
+        osp::config::Config cfg = sampleConfig();
+        const auto generated = osp::unattend::generate(cfg);
+        REQUIRE(generated.ok);
+        pugi::xml_document doc = parseOk(generated.xml);
+        pugi::xml_node component =
+            settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
+        REQUIRE(component);
+        CHECK_FALSE(component.child("OEMInformation"));
+    }
+
+    osp::config::Config cfg = sampleConfig();
+    cfg.oem.manufacturer = "ACER（宏碁）";
+    cfg.oem.model = "宏碁系列电脑";
+    cfg.oem.supportHours = "7*24";
+    cfg.oem.supportPhone = "400-700-1000";
+    cfg.oem.supportProvider = "ACER";
+    cfg.oem.supportUrl = "http://www.acer.com.cn";
+
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    pugi::xml_document doc = parseOk(generated.xml);
+    pugi::xml_node component =
+        settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
+    REQUIRE(component);
+
+    pugi::xml_node oem = component.child("OEMInformation");
+    REQUIRE(oem);
+    checkOrderedSubset(childNames(oem), osp::unattend::oemInformationChildOrder());
+    CHECK(std::string(oem.child("Manufacturer").text().get()) == "ACER（宏碁）");
+    CHECK(std::string(oem.child("Model").text().get()) == "宏碁系列电脑");
+    CHECK(std::string(oem.child("SupportHours").text().get()) == "7*24");
+    CHECK(std::string(oem.child("SupportPhone").text().get()) == "400-700-1000");
+    CHECK(std::string(oem.child("SupportProvider").text().get()) == "ACER");
+    CHECK(std::string(oem.child("SupportURL").text().get()) == "http://www.acer.com.cn");
+
+    // OEMInformation 在 oobeSystem 里必须落在 LogonCommands 与 OOBE 之间（文档字母序）
+    const std::vector<std::string> names = childNames(component);
+    const auto position = [&names](const std::string& name) {
+        return static_cast<long>(std::find(names.begin(), names.end(), name) - names.begin());
+    };
+    CHECK(position("OEMInformation") > position("Display"));
+    CHECK(position("OEMInformation") < position("OOBE"));
+}
+
 TEST_CASE("nested element order matches the reference child lists")
 {
     const auto generated = osp::unattend::generate(sampleConfig());
