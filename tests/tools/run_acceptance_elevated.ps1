@@ -77,6 +77,7 @@ Step 'runplan' { & $ospt --gen-runplan tests/integration/fixtures/m4_plan.json -
                  & $Python tests/integration/verify_runplan.py tests/integration/fixtures/m4_plan.json (Join-Path $work 'run') }
 Step '部署运行时' { & $Python tests/integration/verify_deploy_exec.py $ospt $osptd }
 Step '部署前闸门' { & $Python tests/integration/verify_deploy_gate.py $osptd }
+Step '部署进度通道' { & $Python tests/integration/verify_deploy_progress.py $ospt $osptd }
 Step 'Win7 兼容' { & $Python tests/integration/verify_win7_compat.py $ospt $osptd $tests }
 Step 'Win7 闸门负例' { & $Python tests/integration/verify_win7_compat_negative.py $osptd }
 Step '驱动注入' { & $Python tests/integration/verify_drivers.py $ospt }

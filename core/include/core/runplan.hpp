@@ -214,4 +214,9 @@ std::string toJson(const PlanResult& plan);
 // 某阶段的 .cmd 批处理内容
 std::string phaseScript(const PlanResult& plan, const PhasePlan& phase);
 
+// 把计划落盘：<dir>/runplan.json + 五个阶段脚本。目录不存在会创建。
+// CLI 的 --gen-runplan 与界面「运行部署」共用这一份逻辑 —— 两条路径各写一遍
+// 迟早会分叉（之前就是），所以收进 core。
+bool writePlanDirectory(const PlanResult& plan, const std::string& utf8Dir, std::string& error);
+
 } // namespace osp::runplan

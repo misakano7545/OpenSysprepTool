@@ -525,4 +525,48 @@ std::string toUtf8Path(const std::filesystem::path& path)
     return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
 }
 
+bool requestSystemPowerAction(bool reboot, std::string& error)
+{
+    // 先启用关机特权（管理员令牌里默认是禁用状态）
+    HANDLE token = nullptr;
+    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
+    {
+        error = "打开进程令牌失败，GetLastError=" + std::to_string(::GetLastError());
+        return false;
+    }
+
+    LUID luid = {};
+    if (!::LookupPrivilegeValueW(nullptr, SE_SHUTDOWN_NAME, &luid))
+    {
+        error = "查不到 SE_SHUTDOWN_NAME，GetLastError=" + std::to_string(::GetLastError());
+        ::CloseHandle(token);
+        return false;
+    }
+
+    TOKEN_PRIVILEGES privileges = {};
+    privileges.PrivilegeCount = 1;
+    privileges.Privileges[0].Luid = luid;
+    privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    ::AdjustTokenPrivileges(token, FALSE, &privileges, sizeof(privileges), nullptr, nullptr);
+    const DWORD adjustError = ::GetLastError();
+    ::CloseHandle(token);
+    if (adjustError == ERROR_NOT_ALL_ASSIGNED)
+    {
+        // 没提权就没这个特权；如实说明，不要伪装成成功
+        error = "当前进程没有关机特权（需要以管理员运行）";
+        return false;
+    }
+
+    const UINT flags = (reboot ? EWX_REBOOT : EWX_POWEROFF) | EWX_FORCEIFHUNG;
+    if (!::ExitWindowsEx(
+            flags, SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED
+        ))
+    {
+        const DWORD lastError = ::GetLastError();
+        error = std::string(reboot ? "重启" : "关机") + "请求失败，GetLastError=" + std::to_string(lastError);
+        return false;
+    }
+    return true;
+}
+
 } // namespace osp::win7

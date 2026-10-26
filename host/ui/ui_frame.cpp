@@ -13,6 +13,7 @@
 // 不启动 sysprep、不执行 dism —— 冒烟测试会点一遍全部按钮，绝不能让机器真的
 // 重启或开始封装。
 
+#include "deploy_runner.hpp"
 #include "ui.hpp"
 
 #include <windows.h>
@@ -35,7 +36,10 @@
 #include <string>
 #include <vector>
 
+#include "core/runplan.hpp"
+#include "core/win7.hpp"
 #include "core/sysinfo.hpp"
+#include "core/deploy_progress.hpp"
 
 // WTL 要求全局有一个应用模块对象
 CAppModule _Module;
@@ -102,6 +106,50 @@ std::string windowText(HWND wnd)
     return fromWide(buffer);
 }
 
+// 字段在某页里的扁平序号（与 PagePanel 的编号规则一致）
+int indexOfField(const Page& page, const std::string& fieldId)
+{
+    int index = 0;
+    for (const Group& group : page.groups)
+    {
+        for (const Field& field : group.fields)
+        {
+            if (field.id == fieldId)
+            {
+                return index;
+            }
+            ++index;
+        }
+    }
+    return -1;
+}
+
+// 阶段英文 id -> 图纸上的中文标签（preinstall / install / postinstall / logon / desktop）
+std::string phaseLabelOf(const std::string& phaseId)
+{
+    if (phaseId == "preinstall")
+    {
+        return "部署前";
+    }
+    if (phaseId == "install")
+    {
+        return "部署中";
+    }
+    if (phaseId == "postinstall")
+    {
+        return "部署后";
+    }
+    if (phaseId == "logon")
+    {
+        return "登录时";
+    }
+    if (phaseId == "desktop")
+    {
+        return "进桌面";
+    }
+    return phaseId;
+}
+
 class PagePanel;
 
 // ---------------------------------------------------------------- 菜单命令 ID
@@ -109,7 +157,12 @@ class PagePanel;
 constexpr int kIdcMenuOpenConfig = 9100;
 constexpr int kIdcMenuSaveConfigAs = 9101;
 constexpr int kIdcMenuExit = 9102;
-constexpr int kIdcMenuScanNow = 9103; // 与母盘系统页的「封装体检」同一个动作
+constexpr int kIdcMenuScanNow = 9103;   // 与母盘系统页的「封装体检」同一个动作
+constexpr int kIdcMenuRunDeploy = 9104; // 运行部署（拉起 osptd，进度进「运行」页）
+
+// 部署线程 -> 界面线程的自定义消息（回调里 new 一个对象传过来，界面线程负责 delete）
+constexpr UINT kMsgDeployProgress = WM_APP + 11;
+constexpr UINT kMsgDeployFinish = WM_APP + 12;
 
 // ---------------------------------------------------------------- 主框架
 
@@ -141,6 +194,20 @@ public:
 
     long long messageCount = 0; // 处理过的消息数，供冒烟测试确认消息循环真的在跑
 
+    // 部署（运行页 / 完成页）
+    DeployRunner deployRunner;
+    bool deployStarted = false; // 本次会话是否跑过部署
+    bool deploySucceeded = false;
+    int deployFinishedTasks = 0;
+    int deployTotalTasks = 0;
+    std::string deployError;
+    int doneCountdown = 0; // 完成页倒计时剩余秒数
+    UINT_PTR doneTimer = 0;
+    static constexpr UINT_PTR kDoneTimer = 0x52;
+    // 冒烟测试用：为 true 时关机/重启只记录不真的执行
+    bool powerActionsDryRun = false;
+    int powerActionRequests = 0;
+
     BEGIN_MSG_MAP(MainFrame)
     MESSAGE_HANDLER(WM_CREATE, OnCreate)
     MESSAGE_HANDLER(WM_SIZE, OnSize)
@@ -148,10 +215,27 @@ public:
     MESSAGE_HANDLER(WM_COMMAND, OnCommand)
     MESSAGE_HANDLER(WM_CLOSE, OnClose)
     MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
+    MESSAGE_HANDLER(WM_TIMER, OnDoneTimer)
+    MESSAGE_HANDLER(kMsgDeployProgress, OnDeployProgress)
+    MESSAGE_HANDLER(kMsgDeployFinish, OnDeployFinish)
     END_MSG_MAP()
+
+    LRESULT OnDoneTimer(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnDeployProgress(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnDeployFinish(UINT, WPARAM, LPARAM, BOOL&);
 
     void rebuildPages();
     void handleAction(const std::string& action, const std::string& controlId);
+    void refreshStatus();
+
+    // 运行部署：把当前配置生成运行计划，拉起同目录的 osptd，进度进「运行」页
+    bool startDeployment(std::string& error);
+    // 切换页面并刷新（tab 与 panel 一起动）
+    void showPage(const std::string& pageId);
+    // 完成页：按结果显示成功/失败图与文案，并起倒计时
+    void enterDonePage(bool success, const std::string& error);
+    // 关机 / 重启（真的执行；冒烟测试只记录）
+    void requestPowerAction(bool reboot);
 
     // 交互式运行：菜单命令与配置读写
     void applyAllPages();
@@ -712,6 +796,12 @@ public:
                 }
                 }
 
+                // 图纸里靠 Visible 二选一的控件（成功/失败图与文案）：初始按模型隐藏
+                if (handle != nullptr && !field.visible)
+                {
+                    ::ShowWindow(handle, SW_HIDE);
+                }
+
                 ControlRef ref;
                 ref.fieldIndex = index;
                 ref.handle = handle;
@@ -1025,15 +1115,360 @@ void MainFrame::handleAction(const std::string& action, const std::string& contr
     }
     else if (action == "afterShutdown")
     {
-        cfg.sysprep.afterAction = "shutdown";
-        ++shutdownIntentCount;
+        // 完成页的「关机(&T)」——图纸上就是立刻关机，不是只记个意图
+        requestPowerAction(false);
     }
     else if (action == "afterRestart")
+    {
+        requestPowerAction(true);
+    }
+    else if (action == "runDeploy")
+    {
+        std::string error;
+        if (!startDeployment(error))
+        {
+            const std::wstring message = toWide(error);
+            ::MessageBoxW(m_hWnd, message.c_str(), L"无法开始部署", MB_OK | MB_ICONWARNING);
+        }
+    }
+    (void)controlId;
+}
+
+// 进度回调（后台线程 PostMessage 过来）：刷新「运行」页的两条进度条与说明文字
+LRESULT MainFrame::OnDeployProgress(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    std::unique_ptr<osp::deploy::ProgressEvent> event(reinterpret_cast<osp::deploy::ProgressEvent*>(lParam));
+    if (!event || !event->parsed)
+    {
+        return 0;
+    }
+
+    deployFinishedTasks = event->finished;
+    if (event->totalTasks > 0)
+    {
+        deployTotalTasks = event->totalTasks;
+    }
+
+    Page* run = findPage(pages, "run");
+    if (run == nullptr)
+    {
+        return 0;
+    }
+    const int overall = osp::deploy::overallPercent(event->finished, deployTotalTasks);
+    const int taskPercent = osp::deploy::phasePercent(event->taskIndex, event->taskTotal);
+    for (Group& group : run->groups)
+    {
+        for (Field& field : group.fields)
+        {
+            if (field.id == "Pro_Total")
+            {
+                field.progress = overall;
+                if (HWND control = panel->controlAt(indexOfField(*run, field.id)))
+                {
+                    ::SendMessageW(control, PBM_SETPOS, static_cast<WPARAM>(overall), 0);
+                }
+            }
+            else if (field.id == "Pro_Task")
+            {
+                field.progress = taskPercent;
+                if (HWND control = panel->controlAt(indexOfField(*run, field.id)))
+                {
+                    ::SendMessageW(control, PBM_SETPOS, static_cast<WPARAM>(taskPercent), 0);
+                }
+            }
+            else if (field.id == "Lab_Run")
+            {
+                // SC 的说明文字是「正在执行，请稍候...」；跑起来后换成具体阶段与任务
+                std::string text = "正在执行，请稍候...";
+                if (!event->phase.empty() && event->event != "result")
+                {
+                    text = "正在执行：" + phaseLabelOf(event->phase);
+                    if (event->taskIndex > 0)
+                    {
+                        text += "（" + std::to_string(event->taskIndex) + "/" +
+                            std::to_string(event->taskTotal) + "）";
+                    }
+                }
+                field.value = text;
+                if (HWND control = panel->controlAt(indexOfField(*run, field.id)))
+                {
+                    ::SetWindowTextW(control, toWide(text).c_str());
+                }
+            }
+        }
+    }
+    refreshStatus();
+    return 0;
+}
+
+// 部署结束：切到完成页，按结果显示成功/失败
+LRESULT MainFrame::OnDeployFinish(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    std::unique_ptr<DeployRunSummary> summary(reinterpret_cast<DeployRunSummary*>(lParam));
+    if (!summary)
+    {
+        return 0;
+    }
+    enterDonePage(summary->ok, summary->error);
+    return 0;
+}
+
+// 完成页倒计时：每秒减一，到 0 执行用户选择的重启（图纸：程序将在 N 秒后重启）
+LRESULT MainFrame::OnDoneTimer(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    if (wParam != kDoneTimer || doneCountdown <= 0)
+    {
+        return 0;
+    }
+    --doneCountdown;
+
+    Page* done = findPage(pages, "done");
+    if (done != nullptr)
+    {
+        for (Group& group : done->groups)
+        {
+            for (Field& field : group.fields)
+            {
+                if (field.id == "Lab_Countdown")
+                {
+                    const std::string text =
+                        "程序将在" + std::to_string(doneCountdown) + "秒后重启计算机，如需取消请点“返回”。";
+                    field.value = text;
+                    if (HWND control = panel->controlAt(indexOfField(*done, field.id)))
+                    {
+                        ::SetWindowTextW(control, toWide(text).c_str());
+                    }
+                }
+            }
+        }
+    }
+
+    if (doneCountdown <= 0)
+    {
+        ::KillTimer(m_hWnd, kDoneTimer);
+        doneTimer = 0;
+        requestPowerAction(true);
+    }
+    return 0;
+}
+
+// 状态栏文本：部署中显示进度，否则显示配置状态
+void MainFrame::refreshStatus()
+{
+    if (deployRunner.running())
+    {
+        setStatus(
+            "正在部署：" + std::to_string(deployFinishedTasks) + "/" + std::to_string(deployTotalTasks) +
+            " 个任务"
+        );
+        return;
+    }
+    if (deployStarted)
+    {
+        setStatus(
+            std::string(deploySucceeded ? "部署完成" : "部署失败") + "（" +
+            std::to_string(deployFinishedTasks) + "/" + std::to_string(deployTotalTasks) + "）" +
+            (deployError.empty() ? std::string() : "：" + deployError)
+        );
+        return;
+    }
+    setStatus(configDirty ? "配置已修改（未保存）" : "就绪");
+}
+
+// 自身 exe 所在目录（发布包里 ospt.exe 与 osptd.exe 并排）
+std::wstring directoryOfSelf()
+{
+    wchar_t path[MAX_PATH] = {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+    {
+        return std::wstring();
+    }
+    std::wstring full(path, length);
+    const std::size_t slash = full.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring() : full.substr(0, slash + 1);
+}
+
+// ---------------------------------------------------------------- 运行部署
+
+bool MainFrame::startDeployment(std::string& error)
+{
+    if (deployRunner.running())
+    {
+        error = "上一次部署还在运行";
+        return false;
+    }
+
+    // 1) 用当前界面上的配置生成运行计划。页面上的编辑先落回 cfg，避免「界面改了没生效」
+    for (const Page& page : pages)
+    {
+        if (page.configPage)
+        {
+            applyTo(page, cfg);
+        }
+    }
+
+    const osp::runplan::PlanResult plan = osp::runplan::build(cfg, osp::runplan::enumerateLocalDrives());
+    if (!plan.ok)
+    {
+        error = plan.error.empty() ? std::string("运行计划生成失败") : plan.error;
+        return false;
+    }
+
+    // 运行目录放在系统临时目录下的固定名字：部署端要能读到它，路径里不能有中文变量
+    wchar_t tempPath[MAX_PATH] = {};
+    const DWORD tempLength = ::GetTempPathW(MAX_PATH, tempPath);
+    if (tempLength == 0)
+    {
+        error = "取不到临时目录";
+        return false;
+    }
+    const std::string runDir = osp::win7::toUtf8Path(std::wstring(tempPath) + L"ospt-run");
+    if (!osp::runplan::writePlanDirectory(plan, runDir, error))
+    {
+        return false;
+    }
+
+    // 2) 找同目录的 osptd.exe（发布包里两个 exe 并排）
+    const std::string osptdPath = osp::win7::toUtf8Path(directoryOfSelf() + L"\\osptd.exe");
+    if (!osp::win7::pathFromUtf8(osptdPath).has_filename() ||
+        !std::filesystem::exists(osp::win7::pathFromUtf8(osptdPath)))
+    {
+        error = "找不到 osptd.exe（应与 ospt.exe 同目录）：" + osptdPath;
+        return false;
+    }
+
+    // 3) 回调都在后台线程里，必须 PostMessage 回界面线程再碰控件
+    HWND self = m_hWnd;
+    deployRunner.setProgressCallback([self](const osp::deploy::ProgressEvent& event) {
+        ::PostMessageW(
+            self, kMsgDeployProgress, 0, reinterpret_cast<LPARAM>(new osp::deploy::ProgressEvent(event))
+        );
+    });
+    deployRunner.setFinishCallback([self](const DeployRunSummary& summary) {
+        ::PostMessageW(self, kMsgDeployFinish, 0, reinterpret_cast<LPARAM>(new DeployRunSummary(summary)));
+    });
+
+    if (!deployRunner.start(osptdPath, runDir, error))
+    {
+        return false;
+    }
+
+    deployStarted = true;
+    deploySucceeded = false;
+    deployError.clear();
+    deployFinishedTasks = 0;
+    deployTotalTasks = 0;
+    for (const auto& phase : plan.phases)
+    {
+        deployTotalTasks += static_cast<int>(phase.tasks.size());
+    }
+    shutdownIntentCount = 0;
+    restartIntentCount = 0;
+
+    showPage("run");
+    return true;
+}
+
+void MainFrame::showPage(const std::string& pageId)
+{
+    for (std::size_t i = 0; i < pages.size(); ++i)
+    {
+        if (pages[i].id != pageId)
+        {
+            continue;
+        }
+        const int index = static_cast<int>(i);
+        if (tab.m_hWnd != nullptr)
+        {
+            tab.SetCurSel(index);
+        }
+        if (panel != nullptr)
+        {
+            panel->setPage(index);
+        }
+        return;
+    }
+}
+
+void MainFrame::enterDonePage(bool success, const std::string& error)
+{
+    deploySucceeded = success;
+    deployError = error;
+
+    // 按结果二选一：成功图/成功文案 或 失败图/失败文案（图纸上它们占同一矩形）
+    if (const Page* done = findPage(pages, "done"))
+    {
+        for (Group& group : const_cast<Page*>(done)->groups)
+        {
+            for (Field& field : group.fields)
+            {
+                if (field.id == "PIC_Success" || field.id == "Lab_Complete")
+                {
+                    field.visible = success;
+                }
+                else if (field.id == "PIC_Error" || field.id == "Lab_CompleteErr")
+                {
+                    field.visible = !success;
+                }
+                else if (field.id == "Lab_Countdown")
+                {
+                    // 失败时不显示「N 秒后重启」—— 重试还是排查由用户决定
+                    field.visible = success;
+                }
+                else if (field.id == "Pro_End")
+                {
+                    field.progress = success ? 100 : 0;
+                }
+            }
+        }
+    }
+
+    showPage("done");
+
+    // 倒计时：成功了才起；秒数取图纸文案里的 10 秒
+    if (doneTimer != 0)
+    {
+        ::KillTimer(m_hWnd, kDoneTimer);
+        doneTimer = 0;
+    }
+    doneCountdown = success ? 10 : 0;
+    if (success)
+    {
+        doneTimer = ::SetTimer(m_hWnd, kDoneTimer, 1000, nullptr);
+    }
+    refreshStatus();
+}
+
+void MainFrame::requestPowerAction(bool reboot)
+{
+    if (reboot)
     {
         cfg.sysprep.afterAction = "reboot";
         ++restartIntentCount;
     }
-    (void)controlId;
+    else
+    {
+        cfg.sysprep.afterAction = "shutdown";
+        ++shutdownIntentCount;
+    }
+    ++powerActionRequests;
+
+    if (powerActionsDryRun)
+    {
+        refreshStatus();
+        return;
+    }
+
+    // 真执行：启用 SE_SHUTDOWN_NAME 后调 ExitWindowsEx。
+    // 失败要把原因说清楚，不能静默什么都不发生。
+    std::string error;
+    if (!osp::win7::requestSystemPowerAction(reboot, error))
+    {
+        const std::wstring message = toWide(error);
+        ::MessageBoxW(m_hWnd, message.c_str(), L"关机 / 重启失败", MB_OK | MB_ICONERROR);
+    }
+    refreshStatus();
 }
 
 LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
@@ -1058,6 +1493,9 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
 
         HMENU toolMenu = ::CreatePopupMenu();
         ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuScanNow, L"立即封装体检(&R)");
+        ::AppendMenuW(toolMenu, MF_SEPARATOR, 0, nullptr);
+        // 运行部署：与 SC 的「运行」页对应 —— 跑起来后进度进那一页
+        ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuRunDeploy, L"运行部署(&D)...");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(toolMenu), L"工具(&T)");
 
         ::SetMenu(m_hWnd, menu);
@@ -1240,6 +1678,15 @@ LRESULT MainFrame::OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
         case kIdcMenuExit:
             SendMessageW(WM_CLOSE, 0, 0);
             return 0;
+        case kIdcMenuRunDeploy: {
+            std::string error;
+            if (!startDeployment(error))
+            {
+                const std::wstring message = toWide(error);
+                ::MessageBoxW(m_hWnd, message.c_str(), L"无法开始部署", MB_OK | MB_ICONWARNING);
+            }
+            return 0;
+        }
         case kIdcMenuScanNow:
             handleAction("scan", "Btn_Scan");
             setStatus("已完成封装体检");

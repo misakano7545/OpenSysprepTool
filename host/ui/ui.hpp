@@ -87,6 +87,10 @@ struct Field
     int height = 0;
     // DFM 里的控件名（Label/Panel 这类容器名），用于走查与验收核对
     std::string dfmClass;
+    // 是否显示。图纸里 PIC_Success / PIC_Error、Lab_Complete / Lab_CompleteErr 占同一矩形，
+    // 靠 Visible 二选一（SC 在 OnShow / 结果回调里切换）。
+    bool visible = true;
+
     // 文本对齐：0 左（默认）/ 1 右（taRightJustify）/ 2 居中（taCenter）。
     // 图纸里 Lab_Total 是右对齐、Lab_Run 是居中，按自动左对齐摆会明显不对。
     int align = 0;

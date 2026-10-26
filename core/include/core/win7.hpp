@@ -178,4 +178,11 @@ std::filesystem::path pathFromUtf8(const std::string& utf8Text);
 // std::filesystem::path → UTF-8 字符串
 std::string toUtf8Path(const std::filesystem::path& path);
 
+// 关机 / 重启本机。reboot=true 重启，false 关机。
+//
+// 为什么要自己启用 SE_SHUTDOWN_NAME：管理员令牌里这项权限是「存在但禁用」的，
+// 不显式启用 ExitWindowsEx 会失败并返回 ERROR_ACCESS_DENIED，看起来像权限不够。
+// 失败时把 Win32 错误码与文字写进 error，界面要把原因显示出来而不是静默失败。
+bool requestSystemPowerAction(bool reboot, std::string& error);
+
 } // namespace osp::win7

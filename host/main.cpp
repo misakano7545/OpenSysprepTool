@@ -21,6 +21,8 @@
 #include "core/version.hpp"
 #include "core/win7.hpp"
 
+#include "ui/deploy_runner.hpp"
+#include "core/deploy_progress.hpp"
 #include "ui/ui.hpp"
 
 namespace osp::host {
@@ -234,6 +236,9 @@ void printUsage()
     std::printf("  ospt --rollback <journal.json> [--dry-run|--execute]  回滚封装前设置\n");
     std::printf("  ospt --prepare-selftest                          封装前设置自检（只写 HKCU）\n");
     std::printf("  ospt --ui-smoke-test [--visible] [--report <json>]        界面冒烟测试\n");
+    std::printf(
+        "  ospt --deploy-smoke-test --plan <run/>                    拉起 osptd 跑一次部署（进度通道验收）\n"
+    );
     std::printf("  ospt --version     版本与源码地址\n");
     std::printf("  ospt --help        本说明\n");
 }
@@ -1057,6 +1062,117 @@ int runUi(int argc, char** argv)
     return osp::ui::runApplication(configPath);
 }
 
+// --deploy-smoke-test <planDir>
+//
+// 端到端把「界面拉起 osptd 并读回进度」这条路走一遍（不依赖点界面上任何按钮）：
+// 用真正的 DeployRunner 起真正的 osptd，统计收到多少条进度事件、最终结论是什么。
+// 这是运行页那条链路的唯一可自动化验收方式 —— 界面本身在 CI 里点不了。
+int runDeploySmokeTest(int argc, char** argv)
+{
+    const char* planDir = nullptr;
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--deploy-smoke-test")
+        {
+            continue;
+        }
+        if (arg == "--plan" && i + 1 < argc)
+        {
+            planDir = argv[++i];
+            continue;
+        }
+    }
+    if (planDir == nullptr)
+    {
+        std::printf("--deploy-smoke-test requires --plan <run/>\n\n");
+        return 2;
+    }
+
+    // osptd 与本程序同目录（发布包布局）
+    wchar_t self[MAX_PATH] = {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, self, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+    {
+        std::printf("FAIL 取不到自身路径\n");
+        return 1;
+    }
+    std::wstring selfPath(self, length);
+    const std::size_t slash = selfPath.find_last_of(L"\\/");
+    const std::wstring osptdPath =
+        (slash == std::wstring::npos ? std::wstring() : selfPath.substr(0, slash + 1)) + L"osptd.exe";
+
+    osp::ui::DeployRunner runner;
+    int progressEvents = 0;
+    int taskStarts = 0;
+    int taskFinishes = 0;
+    int resultEvents = 0;
+    bool sawFinalResult = false;
+
+    runner.setProgressCallback([&](const osp::deploy::ProgressEvent& event) {
+        ++progressEvents;
+        if (event.event == "taskStart")
+        {
+            ++taskStarts;
+        }
+        else if (event.event == "taskFinish")
+        {
+            ++taskFinishes;
+        }
+        else if (event.event == "result")
+        {
+            ++resultEvents;
+            sawFinalResult = true;
+        }
+    });
+
+    osp::ui::DeployRunSummary summary;
+    bool finished = false;
+    runner.setFinishCallback([&](const osp::ui::DeployRunSummary& value) {
+        summary = value;
+        finished = true;
+    });
+
+    std::string error;
+    if (!runner.start(osp::win7::toUtf8Path(osptdPath), planDir, error))
+    {
+        std::printf("FAIL 启动 osptd 失败：%s\n", error.c_str());
+        return 1;
+    }
+    runner.wait(120000);
+
+    const bool started = summary.started;
+    std::printf(
+        "  started=%d exitCode=%d ok=%d events=%d\n",
+        started ? 1 : 0,
+        summary.exitCode,
+        summary.ok ? 1 : 0,
+        progressEvents
+    );
+    std::printf(
+        "  taskStart=%d taskFinish=%d result=%d 完成回调=%d\n",
+        taskStarts,
+        taskFinishes,
+        resultEvents,
+        finished ? 1 : 0
+    );
+
+    const bool pass = started && finished && sawFinalResult && taskStarts > 0 && taskFinishes == taskStarts &&
+        summary.ok && summary.exitCode == 0;
+    if (!pass)
+    {
+        std::printf("  失败原因：%s\n", summary.error.c_str());
+        if (!summary.tail.empty())
+        {
+            std::printf("  osptd 输出尾部：\n%s", summary.tail.c_str());
+        }
+        std::printf("RESULT: FAILED\n");
+        return 1;
+    }
+    std::printf("RESULT: SMOKE-OK（%d 个任务全部完成，%d 条进度事件）\n", summary.executed, progressEvents);
+    return 0;
+}
+
 int runUiSmokeTest(int argc, char** argv)
 {
     bool visible = false;
@@ -1272,6 +1388,11 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--prepare-selftest") == 0)
     {
         return osp::host::runPrepareSelfTest();
+    }
+
+    if (std::strcmp(arg, "--deploy-smoke-test") == 0)
+    {
+        return runDeploySmokeTest(argc, argv);
     }
 
     if (std::strcmp(arg, "--ui-smoke-test") == 0)

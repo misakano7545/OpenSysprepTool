@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/deploy.hpp"
+#include "core/runplan.hpp"
 #include "core/version.hpp"
 #include "core/win7.hpp"
 
@@ -342,6 +343,97 @@ int runPreviewPresentation(int argc, char** argv)
     return 0;
 }
 
+// 把 Sink 的四个回调写成一行一个 JSON，供 ospt 的「运行」页读。
+//
+// 为什么单独实现而不复用 consolePage：控制台页是给人看的、带 ASCII 进度条、
+// 还会随手加中文说明；界面需要的是稳定字段。两条通道各走各的，互不影响。
+class JsonLineSink : public osp::deploy::Sink
+{
+public:
+    explicit JsonLineSink(int totalTasks) : totalTasks_(totalTasks)
+    {}
+
+    void phaseStart(const osp::deploy::Phase& phase, int ordinal, int total) override
+    {
+        nlohmann::json line;
+        line["event"] = "phaseStart";
+        line["phase"] = phase.id;
+        line["phaseOrdinal"] = ordinal;
+        line["phaseTotal"] = total;
+        line["finished"] = finished_;
+        line["totalTasks"] = totalTasks_;
+        emit(line);
+    }
+
+    void
+    taskStart(const osp::deploy::Phase& phase, const osp::deploy::Task& task, int ordinal, int total) override
+    {
+        nlohmann::json line;
+        line["event"] = "taskStart";
+        line["phase"] = phase.id;
+        line["taskIndex"] = ordinal;
+        line["taskTotal"] = total;
+        line["finished"] = finished_;
+        line["totalTasks"] = totalTasks_;
+        line["title"] = task.commandLine;
+        emit(line);
+    }
+
+    void taskFinish(
+        const osp::deploy::Phase& phase,
+        const osp::deploy::Task& task,
+        const osp::deploy::TaskOutcome& outcome
+    ) override
+    {
+        (void)task;
+        ++finished_;
+        nlohmann::json line;
+        line["event"] = "taskFinish";
+        line["phase"] = phase.id;
+        line["ok"] = outcome.ok;
+        line["elapsedMs"] = outcome.elapsedMs;
+        line["finished"] = finished_;
+        line["totalTasks"] = totalTasks_;
+        emit(line);
+    }
+
+    void phaseFinish(const osp::deploy::Phase& phase, int okCount, int failedCount) override
+    {
+        nlohmann::json line;
+        line["event"] = "phaseFinish";
+        line["phase"] = phase.id;
+        line["ok"] = failedCount == 0;
+        line["failed"] = failedCount;
+        line["finished"] = finished_;
+        line["totalTasks"] = totalTasks_;
+        emit(line);
+    }
+
+    void emitResult(bool ok, int executed, int failed, std::uint64_t elapsedMs)
+    {
+        nlohmann::json line;
+        line["event"] = "result";
+        line["ok"] = ok;
+        line["executed"] = executed;
+        line["failed"] = failed;
+        line["elapsedMs"] = elapsedMs;
+        line["finished"] = finished_;
+        line["totalTasks"] = totalTasks_;
+        emit(line);
+    }
+
+private:
+    static void emit(const nlohmann::json& line)
+    {
+        // 一行一个对象，末尾必带换行：ospt 按行读，flush 保证不攒在缓冲区里
+        std::printf("%s\n", line.dump().c_str());
+        std::fflush(stdout);
+    }
+
+    int totalTasks_ = 0;
+    int finished_ = 0;
+};
+
 int runDeploy(int argc, char** argv, bool dryRun)
 {
     const char* planDir = nullptr;
@@ -349,6 +441,7 @@ int runDeploy(int argc, char** argv, bool dryRun)
     const char* reportPath = nullptr;
     bool continueOnError = false;
     bool noUi = false;
+    bool progressJson = false;
 
     // 从 argv[1] 开始解析：入口既可能是 --dry-run，也可能是 --plan <dir>，
     // 后者把目录放在 argv[2]，从 2 起会把目录当成未知选项。
@@ -384,6 +477,10 @@ int runDeploy(int argc, char** argv, bool dryRun)
         else if (std::strcmp(argv[i], "--continue-on-error") == 0)
         {
             continueOnError = true;
+        }
+        else if (std::strcmp(argv[i], "--progress-json") == 0)
+        {
+            progressJson = true;
         }
         else if (std::strcmp(argv[i], "--no-ui") == 0)
         {
@@ -569,6 +666,14 @@ int runDeploy(int argc, char** argv, bool dryRun)
         sink = consolePage.get();
     }
 
+    // --progress-json 时另挂一条结构化通道（与控制台/图形页并行，不互相顶掉）
+    std::unique_ptr<JsonLineSink> jsonSink;
+    if (progressJson)
+    {
+        jsonSink = std::make_unique<JsonLineSink>(plan.taskCount);
+        sink = jsonSink.get();
+    }
+
     osp::deploy::Options options;
     options.stopOnError = !continueOnError;
     options.logPath = logPath != nullptr ? std::string(logPath) : std::string();
@@ -584,6 +689,11 @@ int runDeploy(int argc, char** argv, bool dryRun)
             std::printf("%s\n", error.c_str());
             return 1;
         }
+    }
+
+    if (jsonSink != nullptr)
+    {
+        jsonSink->emitResult(result.ok, result.executedTasks, result.failedTasks, result.elapsedMs);
     }
 
     if (!result.error.empty())
@@ -783,6 +893,19 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--plan") == 0)
     {
         return runDeploy(argc, argv, false);
+    }
+
+    if (std::strcmp(arg, "--progress-json") == 0)
+    {
+        bool dryRunEntry = false;
+        for (int i = 2; i < argc; ++i)
+        {
+            if (std::strcmp(argv[i], "--dry-run") == 0)
+            {
+                dryRunEntry = true;
+            }
+        }
+        return runDeploy(argc, argv, dryRunEntry);
     }
 
     // --no-ui 是修饰性开关，可能出现在 --plan/--dry-run 之前，也可能之后。

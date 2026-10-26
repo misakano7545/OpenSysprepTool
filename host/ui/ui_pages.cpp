@@ -1232,6 +1232,7 @@ Page donePage()
     //           Lab_CompleteErr, Btn_Bugs, Btn_Shutdown, Btn_Restart
     // 成功图与失败图在图纸上占同一矩形（331,96 118x96），互斥显示。
     end.fields.push_back(makeImage("PIC_Success", "成功图示", 331, 96, 118, 96));
+    end.fields.back().visible = false; // 结果出来后才显示
     end.fields.back().note = "图纸矩形逐字；SC 的位图不搬，这里自绘对勾";
 
     Field complete;
@@ -1245,9 +1246,11 @@ Page donePage()
     complete.height = 19;
     complete.dfmClass = "TLabel";
     complete.note = "图纸 Caption 逐字";
+    complete.visible = false; // 与 Lab_CompleteErr 二选一
     end.fields.push_back(std::move(complete));
 
     end.fields.push_back(makeImage("PIC_Error", "失败图示", 331, 96, 118, 96));
+    end.fields.back().visible = false;
     end.fields.back().note = "图纸矩形逐字；与 PIC_Success 同位置，二选一显示";
 
     Field endProgress;
@@ -1288,6 +1291,7 @@ Page donePage()
     completeErr.height = 19;
     completeErr.dfmClass = "TLabel";
     completeErr.note = "图纸 Caption 逐字；与 Lab_Complete 同位置，二选一显示";
+    completeErr.visible = false;
     end.fields.push_back(std::move(completeErr));
 
     // Btn_Bugs 在图纸上存在（331,268 118x27，Caption 'Bug'），但它是「错误报告」，

@@ -13,6 +13,8 @@ add_library(osp_core STATIC
   win7/win7compat.cpp
   deploy/deploy.cpp
   deploy/preflight.cpp
+  # M10 新增：部署进度的结构化解析（osptd -> ospt 的进度行）
+  deploy/progress_line.cpp
   # M6 新增：驱动注入（两种模式）与 sysprep 编排
   dism/dism.cpp
   srsinject/srsinject.cpp

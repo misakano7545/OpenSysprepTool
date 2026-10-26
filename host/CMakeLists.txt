@@ -19,6 +19,8 @@ add_executable(ospt
   # M7a：主界面框架与配置页（原生控件 + WTL 薄封装）
   ui/ui_frame.cpp
   ui/ui_pages.cpp
+  # M10：在界面里拉起 osptd 并读回结构化进度（运行页 / 完成页）
+  ui/deploy_runner.cpp
 )
 
 target_link_options(ospt PRIVATE

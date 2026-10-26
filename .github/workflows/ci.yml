@@ -362,6 +362,26 @@ jobs:
             ForEach-Object { Write-Host "::notice::$($_.Line.Trim())" }
           exit 0
 
+      # M10 增量：运行页的进度通道。osptd 吐事件、ospt 侧 DeployRunner 读回来，
+      # 两头都验；界面点击在 CI 里做不了，--deploy-smoke-test 用的是同一份 runner。
+      - name: 部署进度通道验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'm10-progress.log'
+          python tests\integration\verify_deploy_progress.py `
+            '.\build\bin\Release\ospt.exe' '.\build\bin\Release\osptd.exe' *>&1 |
+            Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
+            if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
+            else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
+            exit $code
+          }
+          exit 0
+
       # M10 增量：部署前闸门（防篡改 MD5 / 禁止虚拟机 / 主控被劫持）。
       # 期望的 MD5 由 certutil 独立算，与 osptd 内部实现交叉验证。
       - name: 部署前闸门验收

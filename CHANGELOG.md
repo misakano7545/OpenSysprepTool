@@ -23,6 +23,19 @@
 
 ### Added
 
+- **运行页接上真实进度**：`ospt` 现在真的拉起 `osptd` 跑部署，两条进度条与说明文字
+  跟着走，结束后自动切到完成页
+  - `osptd --progress-json`：一行一个 JSON 事件（phaseStart / taskStart / taskFinish /
+    phaseFinish / result），与给人看的控制台输出并行、互不影响
+  - `core/deploy_progress`：进度行解析（坏行跳过并计数，不能让界面崩）
+  - `host/ui/deploy_runner`：`CreateProcess` + 管道 + 后台线程按行读，回调 PostMessage
+    回界面线程再碰控件（Win32 控件不是线程安全的）
+  - 完成页按结果二选一显示成功图/成功文案或失败图/失败文案（图纸上它们占同一矩形），
+    成功时起 10 秒倒计时
+  - **`关机(&T)` / `重启(&R)` 真的生效**：启用 `SE_SHUTDOWN_NAME` 后调 `ExitWindowsEx`；
+    失败把 Win32 错误码显示出来，不静默什么都不发生
+- `ospt --deploy-smoke-test --plan <run/>`：不点界面也能验整条进度链路（用的是同一份
+  `DeployRunner`），CI 里跑 `verify_deploy_progress.py` 21 项
 - `docs/SC窗体对照.md`：7 个 DFM 窗体逐项审计 —— 主窗体 11 个页签、5 个弹窗
   （`TSBOX` 静默重启/宽带、`TTLMF` 任务对话框、`TAPPMSGFORM` 提示框、`TSCUBOX`、`TMFFUN`）
   的状态与偏差，明确哪些还没按图纸做

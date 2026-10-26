@@ -1,10 +1,13 @@
 #include "core/runplan.hpp"
 
+#include "core/win7.hpp"
+
 #include <windows.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -969,6 +972,64 @@ std::string phaseScript(const PlanResult& plan, const PhasePlan& phase)
     }
 
     return text;
+}
+
+namespace {
+
+// 写 UTF-8 文本文件（core 里原本没有这个工具函数，host/main.cpp 有一份局部实现）。
+// 落盘失败必须把原因带出去：运行计划写不全，部署端会当作「任务丢了」。
+bool writeUtf8File(const std::string& utf8Path, const std::string& text, std::string& error)
+{
+    std::ofstream out(osp::win7::pathFromUtf8(utf8Path), std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+        error = "打不开文件写入：" + utf8Path;
+        return false;
+    }
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    if (!out)
+    {
+        error = "写入失败：" + utf8Path;
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool writePlanDirectory(const PlanResult& plan, const std::string& utf8Dir, std::string& error)
+{
+    if (!plan.ok)
+    {
+        error = plan.error.empty() ? std::string("计划无效，无法落盘") : plan.error;
+        return false;
+    }
+    const std::filesystem::path directory = osp::win7::pathFromUtf8(utf8Dir);
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    if (ec)
+    {
+        error = "建目录失败：" + utf8Dir + "（" + ec.message() + "）";
+        return false;
+    }
+
+    std::string writeError;
+    if (!writeUtf8File(osp::win7::toUtf8Path(directory / "runplan.json"), toJson(plan), writeError))
+    {
+        error = writeError;
+        return false;
+    }
+    for (const PhasePlan& phase : plan.phases)
+    {
+        if (!writeUtf8File(
+                osp::win7::toUtf8Path(directory / phase.scriptName), phaseScript(plan, phase), writeError
+            ))
+        {
+            error = writeError;
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace osp::runplan
