@@ -339,7 +339,7 @@ def main(argv: list[str]) -> int:
         "Mkb_Ceounion",
         "Cb_Saveiehp",
         "Cb_SaveieFavorites",
-        "Cb_Locktaskbar",
+        # 任务栏固定机制已在 B9 实现（只接受用户列出的文件），不再属于「不做」
         "Rb_Sysprep_Type2",
         "Rb_Sysprep_Type3",
         "Btn_Bugs",

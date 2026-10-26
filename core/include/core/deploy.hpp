@@ -89,6 +89,10 @@ struct PreflightResult
 // 纯只读，不改目标机。
 PreflightResult preflight(const Plan& plan);
 
+// 当前进程有没有可用的交互桌面（窗口站是否可见）。
+// 用来决定「能不能弹提示框」：CI / 计划任务里没有可见窗口站，弹框会永久阻塞。
+bool interactiveDesktopAvailable();
+
 // 从运行计划目录读 run/runplan.json（UTF-8 路径）
 Plan load(const std::string& utf8Directory);
 

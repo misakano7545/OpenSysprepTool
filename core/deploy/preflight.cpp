@@ -64,6 +64,23 @@ bool runningInVirtualMachine(std::string& vendor)
 
 } // namespace
 
+bool interactiveDesktopAvailable()
+{
+    const HWINSTA station = ::GetProcessWindowStation();
+    if (station == nullptr)
+    {
+        return false;
+    }
+    USEROBJECTFLAGS flags = {};
+    DWORD needed = 0;
+    if (!::GetUserObjectInformationW(station, UOI_FLAGS, &flags, sizeof(flags), &needed))
+    {
+        return false;
+    }
+    // WSF_VISIBLE 清掉说明跑在服务/CI 这类不可见窗口站里，弹框没人点
+    return (flags.dwFlags & WSF_VISIBLE) != 0;
+}
+
 PreflightResult preflight(const Plan& plan)
 {
     PreflightResult result;

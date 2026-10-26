@@ -348,6 +348,7 @@ int runDeploy(int argc, char** argv, bool dryRun)
     const char* logPath = nullptr;
     const char* reportPath = nullptr;
     bool continueOnError = false;
+    bool noUi = false;
 
     // 从 argv[1] 开始解析：入口既可能是 --dry-run，也可能是 --plan <dir>，
     // 后者把目录放在 argv[2]，从 2 起会把目录当成未知选项。
@@ -383,6 +384,12 @@ int runDeploy(int argc, char** argv, bool dryRun)
         else if (std::strcmp(argv[i], "--continue-on-error") == 0)
         {
             continueOnError = true;
+        }
+        else if (std::strcmp(argv[i], "--no-ui") == 0)
+        {
+            // 无人值守运行：一律不弹任何窗口（包括被劫持提示），只写控制台。
+            // CI 和计划任务应该显式带上它，不要依赖「窗口站是否可见」这种环境推断。
+            noUi = true;
         }
         else if (std::strcmp(argv[i], "--dry-run") == 0)
         {
@@ -508,7 +515,10 @@ int runDeploy(int argc, char** argv, bool dryRun)
         }
         std::printf("  [拒绝] %s\n", preflight.reason.c_str());
         // SC 的 SA_Lab_ShowTip：被劫持时把提示弹给用户
-        if (preflight.controllerHijacked && !preflight.tip.empty())
+        // 只在有交互桌面时弹框：CI / 计划任务里没有可见窗口站，
+        // MessageBox 会一直等不到人点，把整个部署挂死（CI 上实测过）。
+        if (preflight.controllerHijacked && !preflight.tip.empty() && !noUi &&
+            osp::deploy::interactiveDesktopAvailable())
         {
             // SC 的 SA_Lab_ShowTip：被劫持时把提示弹给用户（GUI 子系统可弹窗）
             const int wideLen = ::MultiByteToWideChar(CP_UTF8, 0, preflight.tip.c_str(), -1, nullptr, 0);
@@ -773,6 +783,22 @@ int main(int argc, char** argv)
     if (std::strcmp(arg, "--plan") == 0)
     {
         return runDeploy(argc, argv, false);
+    }
+
+    // --no-ui 是修饰性开关，可能出现在 --plan/--dry-run 之前，也可能之后。
+    // 入口分发只看第一个参数，所以这里把「首个参数是 --no-ui」单独接住：
+    // 真正决定跑什么的仍是它后面的那个参数。
+    if (std::strcmp(arg, "--no-ui") == 0)
+    {
+        bool dryRunEntry = false;
+        for (int i = 2; i < argc; ++i)
+        {
+            if (std::strcmp(argv[i], "--dry-run") == 0)
+            {
+                dryRunEntry = true;
+            }
+        }
+        return runDeploy(argc, argv, dryRunEntry);
     }
 
     std::printf("unknown option: %s\n\n", arg);

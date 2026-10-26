@@ -128,7 +128,7 @@ def main() -> int:
         code, output = run([osptd, "--dry-run", "--plan", bad_dir])
         check("MD5 不一致时点出被篡改的文件", "被篡改" in output and "payload.txt" in output, output[-300:])
         # 干跑只报告，真实执行才拦
-        code, output = run([osptd, "--plan", bad_dir])
+        code, output = run([osptd, "--no-ui", "--plan", bad_dir])
         check("MD5 不一致时真实执行中止（退出码非 0）", code != 0, f"exit={code}\n{output[-300:]}")
         check("中止时说明未执行任何任务", "未执行任何任务" in output, output[-300:])
 
@@ -151,13 +151,13 @@ def main() -> int:
         section("部署主控被劫持（SA_Rb_hijack_*）")
         term_dir = write_plan(os.path.join(work, "p-term"), verify=False, md5=None,
                               hijack="terminate", tip="部署主程序已被替换，已停止", controller="deadbeef" * 4)
-        code, output = run([osptd, "--plan", term_dir])
+        code, output = run([osptd, "--no-ui", "--plan", term_dir])
         check("terminate 模式下中止部署", code != 0, f"exit={code}\n{output[-300:]}")
         check("提示文案原样给出（SA_Lab_ShowTip）", "部署主程序已被替换" in output, output[-300:])
 
         cont_dir = write_plan(os.path.join(work, "p-cont"), verify=False, md5=None,
                               hijack="continue", tip="部署主程序已被替换，按设置继续", controller="deadbeef" * 4)
-        code, output = run([osptd, "--dry-run", "--plan", cont_dir])
+        code, output = run([osptd, "--no-ui", "--dry-run", "--plan", cont_dir])
         check("continue 模式下只告警不中止", code == 0 and "告警" in output, f"exit={code}\n{output[-300:]}")
 
         # 摘要正确时不该误报
