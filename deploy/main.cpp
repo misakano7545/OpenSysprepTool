@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -51,7 +52,7 @@ void printUsage()
 
 bool writeTextFile(const std::string& utf8Path, const std::string& text, std::string& error)
 {
-    std::ofstream out(std::filesystem::path(utf8Path), std::ios::binary | std::ios::trunc);
+    std::ofstream out(osp::win7::pathFromUtf8(utf8Path), std::ios::binary | std::ios::trunc);
     if (!out)
     {
         error = "cannot open for writing: " + utf8Path;
@@ -649,6 +650,21 @@ static int relaunchElevatedAndWait(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    // Windows 的 argv 是 ANSI 编码：中文路径在非中文代码页的系统上会变成 '?'。
+    // 换成从 GetCommandLineW 取的 UTF-8 版本。
+    std::vector<std::string> utf8Args = osp::win7::utf8CommandLineArguments();
+    std::vector<char*> utf8Argv;
+    utf8Argv.reserve(utf8Args.size());
+    for (std::string& item : utf8Args)
+    {
+        utf8Argv.push_back(item.data());
+    }
+    if (!utf8Argv.empty())
+    {
+        argc = static_cast<int>(utf8Argv.size());
+        argv = utf8Argv.data();
+    }
+
     // 只读开关不自动提权：--version / --help / --win7-compat / --dry-run 这些不需要管理员。
     // 只有真正需要管理员的操作（--plan 不带 --dry-run）才提权。
     const bool needsAdmin = argc >= 2 && std::strcmp(argv[1], "--plan") == 0;

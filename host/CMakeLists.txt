@@ -27,7 +27,7 @@ target_link_options(ospt PRIVATE
   "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 
-target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32)
+target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32 shell32)
 
 # WTL 10 头文件库（MS-PL，见 third_party/WTL/MANIFEST.json 与 third_party/LICENSES.md）。
 # 依赖 ATL：VS 装了 Microsoft.VisualStudio.Component.VC.ATL 之后，ATL 的头与库

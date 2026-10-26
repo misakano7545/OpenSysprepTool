@@ -228,7 +228,7 @@ Plan load(const std::string& utf8Directory)
         return plan;
     }
 
-    const std::filesystem::path directory = std::filesystem::path(utf8Directory);
+    const std::filesystem::path directory = osp::win7::pathFromUtf8(utf8Directory);
     const std::filesystem::path file = directory / "runplan.json";
     plan.planFile = toUtf8(file);
 

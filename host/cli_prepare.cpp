@@ -1,5 +1,6 @@
 #include "core/config.hpp"
 #include "core/prepare.hpp"
+#include "core/win7.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -14,7 +15,7 @@ namespace {
 
 bool readText(const std::string& path, std::string& text, std::string& error)
 {
-    std::ifstream in(std::filesystem::path(path), std::ios::binary);
+    std::ifstream in(osp::win7::pathFromUtf8(path), std::ios::binary);
     if (!in)
     {
         error = "打不开文件：" + path;

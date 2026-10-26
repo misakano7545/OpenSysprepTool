@@ -1,6 +1,7 @@
 #include "core/win7.hpp"
 
 #include <windows.h>
+#include <shellapi.h>
 
 #include <winreg.h>
 
@@ -435,6 +436,93 @@ NativeFileInfo probeFileNative(const std::wstring& path)
     info.sizeBytes = (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32) |
         static_cast<std::uint64_t>(attributes.nFileSizeLow);
     return info;
+}
+
+std::vector<std::string> utf8CommandLineArguments()
+{
+    // Windows 的 main(argc, argv) 给的是 **ANSI** 编码：中文系统上是 GBK，英文系统上是 CP1252，
+    // 都是随代码页漂移的。本工具要处理 D:\迅雷下载\... 这类路径，所以统一从
+    // GetCommandLineW 取宽字符命令行，再转成 UTF-8 交给内部逻辑。
+    //
+    // 注意：CommandLineToArgvW 的第二个参数**不能传 nullptr** —— 传了会返回 NULL 并置
+    // ERROR_INVALID_PARAMETER(87)，调用方拿到空数组还以为「命令行是空的」，
+    // 于是悄悄退回 ANSI argv。必须在栈上收个数。
+    std::vector<std::string> arguments;
+    int count = 0;
+    LPWSTR* wide = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (wide == nullptr || count <= 0)
+    {
+        if (wide != nullptr)
+        {
+            LocalFree(wide);
+        }
+        return arguments;
+    }
+    arguments.reserve(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i)
+    {
+        arguments.push_back(fromWide(std::wstring(wide[i])));
+    }
+    LocalFree(wide);
+    return arguments;
+}
+
+std::filesystem::path pathFromUtf8(const std::string& utf8Text)
+{
+    // 必须走 u8string：path(std::string) 会按 ANSI 代码页解释，中文路径就废了。
+    //
+    // 但 path(u8string) 在 MSVC 上遇到**非法 UTF-8** 会抛 filesystem_error，
+    // 而这类输入是真实存在的（GBK 编码的批处理、旧 INI、第三方工具拼出来的路径）。
+    // 抛出去没人接就是 abort()。所以这里先严格校验 UTF-8，不合规就按 ANSI 代码页解释，
+    // 再不行才退回原字节。宁可路径对不上让调用方报「打不开文件」，也不能整个进程倒掉。
+    if (!utf8Text.empty())
+    {
+        const int wideLen = MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, utf8Text.c_str(), static_cast<int>(utf8Text.size()), nullptr, 0
+        );
+        if (wideLen <= 0)
+        {
+            // 不是合法 UTF-8：按当前 ANSI 代码页解释（GBK 系统上正好是用户本意）
+            const int ansiLen = MultiByteToWideChar(
+                CP_ACP, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), nullptr, 0
+            );
+            if (ansiLen > 0)
+            {
+                std::wstring wide(static_cast<std::size_t>(ansiLen), L'\0');
+                MultiByteToWideChar(
+                    CP_ACP, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), wide.data(), ansiLen
+                );
+                return std::filesystem::path(wide);
+            }
+        }
+    }
+
+    const std::u8string u8(reinterpret_cast<const char8_t*>(utf8Text.data()), utf8Text.size());
+    try
+    {
+        return std::filesystem::path(u8);
+    }
+    catch (const std::exception&)
+    {
+        // 最后兜底：按 ANSI 走一遍，失败就返回空路径，由调用方按「打开失败」处理
+        const int ansiLen =
+            MultiByteToWideChar(CP_ACP, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), nullptr, 0);
+        if (ansiLen > 0)
+        {
+            std::wstring wide(static_cast<std::size_t>(ansiLen), L'\0');
+            MultiByteToWideChar(
+                CP_ACP, 0, utf8Text.c_str(), static_cast<int>(utf8Text.size()), wide.data(), ansiLen
+            );
+            return std::filesystem::path(wide);
+        }
+        return std::filesystem::path();
+    }
+}
+
+std::string toUtf8Path(const std::filesystem::path& path)
+{
+    const std::u8string u8 = path.u8string();
+    return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
 }
 
 } // namespace osp::win7

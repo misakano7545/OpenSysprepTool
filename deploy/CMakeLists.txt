@@ -17,7 +17,7 @@ target_link_options(osptd PRIVATE
 )
 
 # user32 / gdi32：图形进度页；gdiplus 不链接，运行时 LoadLibrary
-target_link_libraries(osptd PRIVATE osp::core user32 gdi32)
+target_link_libraries(osptd PRIVATE osp::core user32 gdi32 shell32)
 
 # --dry-run 的机器可读报告与 --win7-compat 用 nlohmann/json（MIT，见 third_party/LICENSES.md）
 target_include_directories(osptd PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

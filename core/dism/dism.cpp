@@ -68,7 +68,7 @@ std::vector<DriverPackage> scan(const std::string& utf8Dir, std::string& error)
         return packages;
     }
 
-    const std::filesystem::path root = std::filesystem::path(utf8Dir);
+    const std::filesystem::path root = osp::win7::pathFromUtf8(utf8Dir);
     std::error_code ec;
     if (!std::filesystem::is_directory(root, ec))
     {
@@ -387,6 +387,12 @@ bool runCommand(const std::string& commandLine, std::uint32_t& exitCode, std::st
     startup.wShowWindow = SW_HIDE;
 
     PROCESS_INFORMATION process = {};
+    // 32 位进程直接写 C:\Windows\System32\<tool>.exe 会被 WOW64 静默重定向到
+    // SysWOW64，而 bcdedit / dism / powercfg / net / sfc / wevtutil / vssadmin /
+    // taskkill / bitsadmin / fsutil 都是 64 位专有工具，那里根本没有 ——
+    // CreateProcess 报 ERROR_FILE_NOT_FOUND(2)。这个 bug 只在 x86 产物上出现，
+    // x64 产物没有重定向，所以必须在调用点统一处理，不能靠各调用方自己记得。
+    win7::ScopedWow64FsRedirection redirect;
     if (CreateProcessW(
             nullptr,
             mutableCommandLine.data(),
@@ -454,6 +460,8 @@ bool runCommandCaptured(
     mutableCommandLine.push_back(L'\0');
 
     PROCESS_INFORMATION process = {};
+    // 同 runCommand：32 位进程必须关掉 WOW64 重定向才能找到 System32 下的 64 位工具
+    win7::ScopedWow64FsRedirection redirect;
     const BOOL created = CreateProcessW(
         nullptr,
         mutableCommandLine.data(),

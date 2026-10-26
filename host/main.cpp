@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <windows.h>
 #include <shellapi.h>
@@ -17,6 +18,7 @@
 #include "core/sysprep.hpp"
 #include "core/unattend.hpp"
 #include "core/version.hpp"
+#include "core/win7.hpp"
 
 #include "ui/ui.hpp"
 
@@ -297,7 +299,7 @@ std::string toUtf8(const std::filesystem::path& path)
 
 bool writeTextFile(const std::string& utf8Path, const std::string& text, std::string& error)
 {
-    const std::filesystem::path path(utf8Path);
+    const std::filesystem::path path = osp::win7::pathFromUtf8(utf8Path);
     // 父目录不存在时先建出来：--report build/m6/x.json 这类调用很常见，
     // 让调用方自己 mkdir 是没必要的摩擦。
     if (path.has_parent_path())
@@ -407,7 +409,7 @@ int runCheckup(int argc, char** argv)
     if (jsonPath != nullptr)
     {
         const std::string text = osp::sysinfo::toJson(report);
-        std::ofstream out(std::filesystem::path(jsonPath), std::ios::binary | std::ios::trunc);
+        std::ofstream out(osp::win7::pathFromUtf8(jsonPath), std::ios::binary | std::ios::trunc);
         if (!out)
         {
             std::printf("cannot open for writing: %s\n", jsonPath);
@@ -468,7 +470,7 @@ int runGenUnattend(int argc, char** argv)
         return 2;
     }
 
-    std::ifstream in(std::filesystem::path(configPath), std::ios::binary);
+    std::ifstream in(osp::win7::pathFromUtf8(configPath), std::ios::binary);
     if (!in)
     {
         std::printf("cannot open config: %s\n", configPath);
@@ -553,7 +555,7 @@ int runGenRunplan(int argc, char** argv)
         return 2;
     }
 
-    std::ifstream in(std::filesystem::path(planPath), std::ios::binary);
+    std::ifstream in(osp::win7::pathFromUtf8(planPath), std::ios::binary);
     if (!in)
     {
         std::printf("cannot open plan: %s\n", planPath);
@@ -572,7 +574,7 @@ int runGenRunplan(int argc, char** argv)
     osp::runplan::DriveTable drives;
     if (drivesPath != nullptr)
     {
-        std::ifstream drivesIn(std::filesystem::path(drivesPath), std::ios::binary);
+        std::ifstream drivesIn(osp::win7::pathFromUtf8(drivesPath), std::ios::binary);
         if (!drivesIn)
         {
             std::printf("cannot open drives table: %s\n", drivesPath);
@@ -617,7 +619,7 @@ int runGenRunplan(int argc, char** argv)
     }
 
     std::error_code ec;
-    const std::filesystem::path directory = std::filesystem::path(outDir);
+    const std::filesystem::path directory = osp::win7::pathFromUtf8(outDir);
     std::filesystem::create_directories(directory, ec);
     if (ec)
     {
@@ -1074,6 +1076,22 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    // Windows 的 argv 是 ANSI 编码：中文路径在非中文代码页的系统上会变成 '?'。
+    // 换成从 GetCommandLineW 取的 UTF-8 版本，后面所有逻辑（含提权重启时的参数重建）
+    // 都按 UTF-8 处理。
+    std::vector<std::string> utf8Args = osp::win7::utf8CommandLineArguments();
+    std::vector<char*> utf8Argv;
+    utf8Argv.reserve(utf8Args.size());
+    for (std::string& item : utf8Args)
+    {
+        utf8Argv.push_back(item.data());
+    }
+    if (!utf8Argv.empty())
+    {
+        argc = static_cast<int>(utf8Argv.size());
+        argv = utf8Argv.data();
+    }
+
     // 无参数 / --ui：只显示界面；--console：显式要求保留命令行窗口。
     const bool wantsConsole = argc >= 2 && std::strcmp(argv[1], "--console") == 0;
     const bool wantsUi = argc < 2 || std::strcmp(argv[1], "--ui") == 0 ||

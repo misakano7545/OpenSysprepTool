@@ -211,7 +211,7 @@ std::string unescape(const std::string& text)
 
 bool readAllBytes(const std::string& utf8Path, std::vector<std::uint8_t>& out, std::string& error)
 {
-    std::ifstream in(std::filesystem::path(utf8Path), std::ios::binary);
+    std::ifstream in(osp::win7::pathFromUtf8(utf8Path), std::ios::binary);
     if (!in)
     {
         error = "读不到文件: " + utf8Path;
@@ -543,7 +543,7 @@ std::vector<PackageDir> findPackages(const std::string& utf8Dir, std::string& er
         return found;
     }
 
-    const std::filesystem::path root = std::filesystem::path(utf8Dir);
+    const std::filesystem::path root = osp::win7::pathFromUtf8(utf8Dir);
     std::error_code ec;
     if (!std::filesystem::is_directory(root, ec))
     {
@@ -684,13 +684,13 @@ bool hasValue(const std::vector<RegValue>& values, const char* name)
 
 std::string baseNameNoExt(const std::string& path)
 {
-    const std::filesystem::path p(path);
+    const std::filesystem::path p = osp::win7::pathFromUtf8(path);
     return toUtf8(p.stem());
 }
 
 std::string baseNameUtf8(const std::string& path)
 {
-    return toUtf8(std::filesystem::path(path).filename());
+    return toUtf8(osp::win7::pathFromUtf8(path).filename());
 }
 
 } // namespace

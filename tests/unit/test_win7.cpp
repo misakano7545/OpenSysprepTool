@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <string>
 
+#include <windows.h>
+
 #include "core/win7.hpp"
 
 using namespace osp;
@@ -189,4 +191,39 @@ TEST_CASE("GetSystemTimePreciseAsFileTime 是动态解析来的，且登记在�
     {
         CHECK_FALSE(sawPrecise);
     }
+}
+
+TEST_CASE("命令行按 UTF-8 取出，不再吃 ANSI 代码页的亏")
+{
+    // 回归背景：中文系统上 CRT 的 argv 是 GBK 字节。曾经这里误把 GBK 当 UTF-8
+    // 交给 path(u8string)，MSVC 对非法 UTF-8 直接抛异常，没人接就 abort()，
+    // 表现成「带中文路径调用 ospt 无输出、退出码 0xC0000409」。
+    const std::vector<std::string> args = win7::utf8CommandLineArguments();
+    REQUIRE(!args.empty());
+    // 第一个必然是程序自身路径，且是合法 UTF-8
+    CHECK(!args[0].empty());
+    CHECK(win7::pathFromUtf8(args[0]).filename().string().find("osp_unit_tests") != std::string::npos);
+}
+
+TEST_CASE("UTF-8 路径构造：合法 UTF-8、GBK 字节、空串都不抛异常")
+{
+    const std::filesystem::path cn = win7::pathFromUtf8("D:/临时目录/配置.json");
+    CHECK(win7::toUtf8Path(cn).find("配置.json") != std::string::npos);
+    const std::string cnName = win7::toUtf8Path(cn.filename());
+    // 注意不能用 path::string()：那给的是 ANSI 编码，中文系统上是 GBK 字节，
+    // 跟 UTF-8 字面量比较必然不等 —— 这正是全项目一律走 toUtf8Path 的原因
+    CHECK(cnName == "配置.json");
+
+    // GBK 编码的「中文」（D6 D0 CE C4）：不是合法 UTF-8，必须降级而不是抛
+    const std::string gbk("\xD6\xD0\xCE\xC4", 4);
+    const std::filesystem::path fromGbk = win7::pathFromUtf8(gbk);
+    CHECK_FALSE(fromGbk.empty());
+    // 中文系统上按 CP_ACP（936）解释正好得到「中文」；英文系统上可能被替换，
+    // 但**绝不能抛异常**——这条断言的重点就是不抛。
+    if (GetACP() == 936)
+    {
+        CHECK(win7::toUtf8Path(fromGbk) == "中文");
+    }
+
+    CHECK(win7::pathFromUtf8("").empty());
 }

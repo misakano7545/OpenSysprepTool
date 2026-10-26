@@ -14,6 +14,7 @@
 // verify_win7_compat.py 读 PE 核对，并与本模块输出的自述值交叉比对。
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -161,5 +162,20 @@ struct NativeFileInfo
 
 // 在关掉 WOW64 重定向的前提下探测文件。调用方不必自己关心重定向。
 NativeFileInfo probeFileNative(const std::wstring& path);
+
+// 从 GetCommandLineW + CommandLineToArgvW 取命令行，逐项转成 UTF-8。
+// 为什么不直接用 main 的 argv：Windows 的 argv 是 ANSI 编码，中文路径在非中文代码页的
+// 系统上会变成 '?'，在中文系统上则随当前代码页漂移。本项目要处理 D:\迅雷下载\... 这类路径，
+// 所以两个 exe 的 main() 都用它替换 argv。
+std::vector<std::string> utf8CommandLineArguments();
+
+// UTF-8 字符串 → std::filesystem::path。
+// **不要**直接写 std::filesystem::path(utf8String)：那会把字符串当成 ANSI 编码解释，
+// 中文路径在 CP1252 系统上直接变成乱码，在 CP936 系统上又随代码页漂移。
+// 内部一律用这个函数构造路径。
+std::filesystem::path pathFromUtf8(const std::string& utf8Text);
+
+// std::filesystem::path → UTF-8 字符串
+std::string toUtf8Path(const std::filesystem::path& path);
 
 } // namespace osp::win7

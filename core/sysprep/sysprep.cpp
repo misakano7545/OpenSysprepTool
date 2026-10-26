@@ -103,7 +103,7 @@ PeVersion readPeOsVersion(const std::string& utf8Path)
 {
     PeVersion result;
 
-    std::ifstream in(std::filesystem::path(utf8Path), std::ios::binary);
+    std::ifstream in(osp::win7::pathFromUtf8(utf8Path), std::ios::binary);
     if (!in)
     {
         result.error = "读不到文件";

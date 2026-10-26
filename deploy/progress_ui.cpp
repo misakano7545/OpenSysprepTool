@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include "core/win7.hpp"
 
 namespace osp::deploy {
 namespace {
@@ -691,7 +692,7 @@ bool GraphProgressPage::saveToBmp(const std::string& utf8Path, std::string& erro
     put16(28, 24);
     put32(34, static_cast<std::uint32_t>(imageBytes));
 
-    std::ofstream out(std::filesystem::path(utf8Path), std::ios::binary | std::ios::trunc);
+    std::ofstream out(osp::win7::pathFromUtf8(utf8Path), std::ios::binary | std::ios::trunc);
     if (!out)
     {
         error = "打不开写入目标：" + utf8Path;
