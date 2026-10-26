@@ -10,7 +10,8 @@ add_executable(osptd
 
 target_link_options(osptd PRIVATE
   "/SUBSYSTEM:CONSOLE,6.01"
-  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+  # 同 ospt.exe：清单保持 asInvoker，启动时自检 + runas 重启提权
+  "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 
 target_link_libraries(osptd PRIVATE osp::core)

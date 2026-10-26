@@ -5,6 +5,7 @@
 #include <string>
 
 #include <windows.h>
+#include <shellapi.h>
 
 #include "core/config.hpp"
 #include "core/dism.hpp"
@@ -22,6 +23,92 @@ namespace {
 
 constexpr const char* kRepoUrl = "https://github.com/misakano7545/OpenSysprepTool";
 
+// 当前进程是否已提权（管理员令牌）。
+static bool isElevated()
+{
+    HANDLE token = nullptr;
+    if (::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token) == 0)
+    {
+        return false;
+    }
+    TOKEN_ELEVATION elevation = {};
+    DWORD returned = 0;
+    const BOOL ok = ::GetTokenInformation(
+        token, TokenElevation, &elevation, sizeof(elevation), &returned);
+    ::CloseHandle(token);
+    return ok != 0 && elevation.TokenIsElevated != 0;
+}
+
+// 未提权时用 runas 重新启动自己（带原参数），然后退出。返回 true 表示已重启。
+static bool relaunchElevated(int argc, char** argv)
+{
+    if (isElevated())
+    {
+        return false;
+    }
+
+    // 拼出原命令行
+    std::wstring args;
+    for (int i = 1; i < argc; ++i)
+    {
+        if (i > 1)
+        {
+            args += L" ";
+        }
+        // 宽字符化
+        const char* a = argv[i];
+        const int wlen = ::MultiByteToWideChar(CP_UTF8, 0, a, -1, nullptr, 0);
+        std::wstring wa(static_cast<size_t>(wlen - 1), L'\0');
+        ::MultiByteToWideChar(CP_UTF8, 0, a, -1, wa.data(), wlen);
+        // 含空格或引号时包起来
+        if (wa.find(L' ') != std::wstring::npos || wa.find(L'"') != std::wstring::npos)
+        {
+            std::wstring escaped;
+            escaped += L'"';
+            for (wchar_t c : wa)
+            {
+                if (c == L'"')
+                {
+                    escaped += L"\\\"";
+                }
+                else
+                {
+                    escaped += c;
+                }
+            }
+            escaped += L'"';
+            wa = std::move(escaped);
+        }
+        args += wa;
+    }
+
+    wchar_t exePath[MAX_PATH] = {};
+    ::GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.hwnd = nullptr;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exePath;
+    sei.lpParameters = args.empty() ? nullptr : args.c_str();
+    sei.lpDirectory = nullptr;
+    sei.nShow = SW_SHOWNORMAL;
+
+    if (::ShellExecuteExW(&sei) == 0)
+    {
+        // 用户拒绝了 UAC，或者系统不允许提权
+        return false;
+    }
+
+    // 新进程已启动，本进程退出
+    if (sei.hProcess != nullptr)
+    {
+        ::CloseHandle(sei.hProcess);
+    }
+    return true;
+}
+
 // ospt.exe 现在是 GUI 子系统：正常启动不再出现命令行窗口（宪章 §10 记的「M7 若改 GUI
 // 子系统要按 target 区分」）。代价是它不再自动获得控制台 —— 命令行开关的输出在
 // cmd.exe 这种「有控制台但没把句柄交下来」的场景会整段消失。
@@ -31,8 +118,8 @@ constexpr const char* kRepoUrl = "https://github.com/misakano7545/OpenSysprepToo
 void attachParentConsoleIfNeeded()
 {
     const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
-    const bool usable =
-        out != nullptr && out != INVALID_HANDLE_VALUE && ::GetFileType(out) != FILE_TYPE_UNKNOWN;
+    const bool usable = out != nullptr && out != INVALID_HANDLE_VALUE &&
+        ::GetFileType(out) != FILE_TYPE_UNKNOWN;
     if (usable)
     {
         return; // 管道 / 文件 / 已挂上控制台，一律不动
@@ -940,6 +1027,12 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    // 要求管理员权限：未提权时用 runas 重新启动自己，然后退出
+    if (relaunchElevated(argc, argv))
+    {
+        return 0;
+    }
+
     // GUI 子系统下没有控制台：命令行开关要输出就自己挂回父控制台
     attachParentConsoleIfNeeded();
 

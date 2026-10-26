@@ -7,9 +7,10 @@
 
 ### Added
 
-- `tests/integration/verify_elevation.py`：管理员权限闸门 —— 断言两个产品的嵌入清单声明
-  `requireAdministrator`、测试产物声明 `asInvoker`；`ospt.exe` 是 WINDOWS 子系统、
-  `osptd.exe` 是 CONSOLE，子系统版本仍为 6.1；**未提权会话启动必须失败并报 `740`**
+- `tests/integration/verify_elevation.py`：自动提权闸门 —— 断言两个产品的嵌入清单声明
+  `asInvoker`（启动时自检 + runas 重启提权）、`ospt.exe` 是 WINDOWS 子系统、
+  `osptd.exe` 是 CONSOLE，子系统版本仍为 6.1；**未提权时产物正常退出（启动了提权副本）**，
+  已提权时直接跑通并自述 `elevated=true`
 - `tests/tools/run_acceptance_elevated.ps1`：本机验收统一入口，自己拉一个提权会话把全部闸门
   跑一遍（未提权时用 runas 自我重启，只需提权一次）
 - `tests/integration/peinfo.py`：闸门共用的极小 PE 读取工具（机器类型、子系统类型与版本、
@@ -20,8 +21,10 @@
 - **`ospt.exe` 改成 GUI 子系统**（`/SUBSYSTEM:WINDOWS,6.01` + `/ENTRY:mainCRTStartup`）：
   正常启动只出现配置界面，不再附带命令行窗口。CLI 与冒烟测试的输出改为在 stdout
   不可用时回落到父控制台（`AttachConsole`），重定向与管道场景一律不碰
-- **`ospt.exe` 与 `osptd.exe` 的嵌入清单声明 `requireAdministrator`**：启动由 Windows
-  请求提权；未提权的会话会被系统在装载阶段拒绝（`740`）。单元测试产物显式钉 `asInvoker`
+- **`ospt.exe` 与 `osptd.exe` 启动时自动提权**：清单保持 `asInvoker`，`main()` 开头自检
+  是否提权，未提权时用 `ShellExecuteEx` + `runas` 重新启动自己（带原参数），新进程以管理员
+  运行，原进程退出。清单不能写 `requireAdministrator`，否则 `CreateProcess` 在未提权时直接
+  拒绝（740），自动提权逻辑没机会跑
 - `verify_win7_compat.py` 增加了子系统**类型**断言（此前只看版本 6.1，改成 GUI 子系统不会被发现）
 - `verify_ui.py` / `verify_drivers.py` / `verify_deploy_exec.py` 增加提权前置检查：
   未提权时打印明确原因并以退出码 3 结束，避免看起来像产品坏了

@@ -52,47 +52,10 @@ jobs:
           exit 0
 
       - name: Selftest
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-          if ($elev) {
-            .\build\bin\Release\ospt.exe --selftest
-          } else {
-            $done = Join-Path $env:TEMP 'osp-selftest.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            Start-Process powershell.exe -ArgumentList @(
-              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-              "Set-Location '$PWD'; .\build\bin\Release\ospt.exe --selftest; Set-Content '$done' `$LASTEXITCODE"
-            ) -Verb RunAs -Wait
-            if (Test-Path $done) { exit [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-          }
-          exit $LASTEXITCODE
+        run: .\build\bin\Release\ospt.exe --selftest
 
       - name: Version
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          if ($elev) {
-            .\build\bin\Release\ospt.exe --version
-          } else {
-            $done = Join-Path $env:TEMP 'osp-version.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            Start-Process powershell.exe -ArgumentList @(
-              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-              "Set-Location '$PWD'; .\build\bin\Release\ospt.exe --version; Set-Content '$done' `$LASTEXITCODE"
-            ) -Verb RunAs -Wait
-            if (Test-Path $done) { exit [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-          }
-          exit $LASTEXITCODE
+        run: .\build\bin\Release\ospt.exe --version
 
       # M3 增量（宪章 §9.7）：用固定 fixture 生成 unattend.xml，再按离线参考校验。
       # 失败时把校验脚本的 FAIL 行打成 annotation，匿名访问也能定位。
@@ -101,37 +64,17 @@ jobs:
       - name: Unattend 校验
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = 'Stop'
           $work = 'build\m3'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m3_cfg.json' (Join-Path $work 'cfg.json') -Force
 
           Write-Host "python: $(python --version)"
 
-          # ospt.exe 要求管理员权限：未提权时用 runas 抬进提权子会话
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          $cfg = Join-Path $work 'cfg.json'
-          $out = Join-Path $work 'unattend.xml'
-          if ($elev) {
-            & '.\build\bin\Release\ospt.exe' --gen-unattend $cfg --out $out
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-unattend.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            Start-Process powershell.exe -ArgumentList @(
-              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-              "Set-Location '$PWD'; .\build\bin\Release\ospt.exe --gen-unattend '$cfg' --out '$out'; Set-Content '$done' `$LASTEXITCODE"
-            ) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
-          }
-          if ($code -ne 0) {
-            Write-Host "::error::--gen-unattend 退出码 $code"
-            exit $code
+          & '.\build\bin\Release\ospt.exe' --gen-unattend (Join-Path $work 'cfg.json') --out (Join-Path $work 'unattend.xml')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::--gen-unattend 退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
           }
 
           $xml = Join-Path $work 'unattend.xml'
@@ -152,52 +95,24 @@ jobs:
       - name: Runplan 校验
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = 'Stop'
           $work = 'build\m4'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m4_plan.json' (Join-Path $work 'plan.json') -Force
 
-          $elev = (New-Object Security.Principal.WindowsPrincipal(
-            [Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-          Write-Host "runner 已提权: $elev"
-
-          $plan = Join-Path $work 'plan.json'
-          $out1 = Join-Path $work 'run'
-          $out2 = Join-Path $work 'run-drives'
-
-          # 第一条：计划内嵌驱动器表
-          if ($elev) {
-            & '.\build\bin\Release\ospt.exe' --gen-runplan $plan --out $out1
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-runplan1.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            Start-Process powershell.exe -ArgumentList @(
-              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-              "Set-Location '$PWD'; .\build\bin\Release\ospt.exe --gen-runplan '$plan' --out '$out1'; Set-Content '$done' `$LASTEXITCODE"
-            ) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
+          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run')
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::--gen-runplan 退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
           }
-          if ($code -ne 0) { Write-Host "::error::--gen-runplan 退出码 $code"; exit $code }
 
-          # 第二条：--drives 显式覆盖
-          if ($elev) {
-            & '.\build\bin\Release\ospt.exe' --gen-runplan $plan --out $out2 --drives 'tests\integration\fixtures\m4_drives.json'
-            $code = $LASTEXITCODE
-          } else {
-            $done = Join-Path $env:TEMP 'osp-runplan2.exit'
-            if (Test-Path $done) { Remove-Item $done -Force }
-            Start-Process powershell.exe -ArgumentList @(
-              '-NoProfile','-ExecutionPolicy','Bypass','-Command',
-              "Set-Location '$PWD'; .\build\bin\Release\ospt.exe --gen-runplan '$plan' --out '$out2' --drives 'tests\integration\fixtures\m4_drives.json'; Set-Content '$done' `$LASTEXITCODE"
-            ) -Verb RunAs -Wait
-            if (Test-Path $done) { $code = [int](Get-Content $done) } else { Write-Host '::error::提权子会话没产出退出码'; exit 1 }
+          & '.\build\bin\Release\ospt.exe' --gen-runplan (Join-Path $work 'plan.json') --out (Join-Path $work 'run-drives') --drives 'tests\integration\fixtures\m4_drives.json'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::--gen-runplan --drives 退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
           }
-          if ($code -ne 0) { Write-Host "::error::--gen-runplan --drives 退出码 $code"; exit $code }
 
-          python tests\integration\verify_runplan.py tests\integration\fixtures\m4_plan.json $out1 |
+          python tests\integration\verify_runplan.py tests\integration\fixtures\m4_plan.json (Join-Path $work 'run') |
             Tee-Object -FilePath runplan-verify.log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
@@ -206,7 +121,7 @@ jobs:
             exit $code
           }
 
-          python tests\integration\verify_runplan.py tests\integration\fixtures\m4_plan.json $out2 |
+          python tests\integration\verify_runplan.py tests\integration\fixtures\m4_plan.json (Join-Path $work 'run-drives') |
             Tee-Object -FilePath runplan-verify2.log
           $code = $LASTEXITCODE
           if ($code -ne 0) {

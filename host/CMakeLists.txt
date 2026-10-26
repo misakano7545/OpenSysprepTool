@@ -18,7 +18,10 @@ add_executable(ospt
 target_link_options(ospt PRIVATE
   "/SUBSYSTEM:WINDOWS,6.01"
   "/ENTRY:mainCRTStartup"
-  "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+  # 清单保持 asInvoker：requireAdministrator 会让 CreateProcess 在未提权时直接拒绝
+  # （740），代码里的自动提权逻辑就没机会跑。改成 asInvoker + 启动时自检 + runas 重启，
+  # 这样 PowerShell / bash / CI 的 & 调用都能正常进入 main()，再由代码提权。
+  "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
 )
 
 target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32)

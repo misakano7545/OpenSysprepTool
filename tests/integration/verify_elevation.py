@@ -7,17 +7,18 @@
                                                  build/bin/Release/osp_unit_tests.exe
 
 断言：
-  1. 两个产品产物（ospt.exe / osptd.exe）的嵌入清单声明 requireAdministrator
+  1. 两个产品产物（ospt.exe / osptd.exe）的嵌入清单声明 asInvoker
+     （启动时自检 + runas 重启提权，manifest 不能是 requireAdministrator，
+      否则 CreateProcess 直接拒绝、代码没机会跑）
   2. 单元测试产物声明 asInvoker —— 测试要能在任何会话（含 CI 的非提权步骤）里直接跑
   3. ospt.exe 是 WINDOWS 子系统（2）—— 装载器因此不分配控制台，
      正常启动只出现界面窗口，不会有命令行窗口
   4. osptd.exe 与控制台产物仍是 CONSOLE 子系统（3）—— 部署要看单页进度
   5. 三者的子系统版本都还是 6.1（Win7 SP1 那道闸没被这次改动破掉）
-  6. **强制生效**：当前会话未提权时，启动 ospt.exe 必须失败（CreateProcess 740），
-     也就是「必须要求管理员权限」不是写在文件里的声明，而是系统真的拦。
-     已提权时这一条没法构造未提权调用者，显式打印跳过原因。
-  7. 已提权时反向验证：产物真的能跑，且自述 elevated=true
-  8. README 写明管理员权限要求
+  6. **自动提权**：未提权会话启动 ospt.exe 时，它应该用 runas 重新启动自己；
+     已提权时直接跑。本闸门在两种会话里都验证：未提权时产物进程应该退出
+     （启动了提权副本），已提权时直接跑通并自述 elevated=true
+  7. README 写明管理员权限要求
 
 退出码：0 全过；1 有失败；2 用法错。
 """
@@ -34,8 +35,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import peinfo  # noqa: E402
 
 EXPECTED_LEVEL = {
-    "ospt.exe": "requireAdministrator",
-    "osptd.exe": "requireAdministrator",
+    "ospt.exe": "asInvoker",
+    "osptd.exe": "asInvoker",
     "osp_unit_tests.exe": "asInvoker",
 }
 EXPECTED_SUBSYSTEM = {
@@ -114,16 +115,13 @@ def verify_products(paths: list[str]) -> None:
 
 
 def verify_enforcement(product: str) -> None:
-    """未提权时必须被系统拦下；已提权时反向验证能跑。"""
-    section("强制生效")
+    """自动提权：未提权时产物应该重启自己（退出码 0），已提权时直接跑。"""
+    section("自动提权")
     elevated = is_elevated()
     _say(f"  当前会话已提权: {elevated}")
 
     if elevated:
-        skip(
-            "未提权启动必须失败",
-            "当前会话已提权，构造不出未提权调用者（UAC 关掉时机器上不存在受限令牌）",
-        )
+        # 已提权：直接跑，应该成功且自述 elevated=true
         result = peinfo.run_text([product, "--version"], timeout=60)
         text = (result.stdout or "") + (result.stderr or "")
         check("已提权时产物能运行", result.returncode == 0 and "ospt" in text, f"exit={result.returncode}")
@@ -137,20 +135,21 @@ def verify_enforcement(product: str) -> None:
         except Exception:
             elevated_flag = None
         check("产物自述 elevated=true", elevated_flag is True, f"实测 {elevated_flag}")
-        return
-
-    try:
-        subprocess.run([product, "--version"], capture_output=True, timeout=60)
-        check("未提权启动必须失败", False, "居然跑起来了 —— requireAdministrator 没生效")
-    except OSError as exc:
-        winerror = getattr(exc, "winerror", None)
-        check(
-            "未提权启动必须失败（CreateProcess 报 740 ERROR_ELEVATION_REQUIRED）",
-            winerror == ERROR_ELEVATION_REQUIRED,
-            f"winerror={winerror} {exc}",
+    else:
+        # 未提权：产物应该用 runas 重启自己，然后退出（退出码 0）
+        # 注意：ShellExecuteEx 会弹 UAC 或静默提权（取决于系统设置），
+        # 启动后原进程退出。这里只验证「进程确实启动了且退出了」，
+        # 不验证新进程是否存活（那会弹 UAC 阻塞）。
+        result = subprocess.run(
+            [product, "--version"], capture_output=True, timeout=60
         )
-
-    skip("已提权时产物能运行", "当前会话未提权，产物被系统拒绝启动；提权分支由 CI 覆盖")
+        # 未提权时产物应该正常退出（0），因为它启动了提权副本
+        check(
+            "未提权时产物正常退出（启动了提权副本）",
+            result.returncode == 0,
+            f"exit={result.returncode}",
+        )
+        skip("已提权时产物能运行", "当前会话未提权；提权分支由 CI 或手动验证")
 
 
 def verify_docs(readme: str) -> None:

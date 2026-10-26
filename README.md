@@ -100,16 +100,15 @@ osptd --version                                         版本与源码地址
 
 #### 需要管理员权限
 
-`ospt.exe` 与 `osptd.exe` 的嵌入清单声明 **`requireAdministrator`**（装驱动、写离线注册表、
-跑 sysprep 都要管理员），所以：
+`ospt.exe` 与 `osptd.exe` 需要**管理员权限**（装驱动、写离线注册表、跑 sysprep 都要管理员）：
 
-- 启动时由 Windows 请求提权（UAC）。把 UAC 设成「从不通知」的机器不会弹窗，直接以管理员运行。
-- **未提权的会话根本启动不了它**：`CreateProcess` 直接返回
-  `740 ERROR_ELEVATION_REQUIRED`，进程不会跑起来（bash 里表现为 `Permission denied` / 退出码 126，
-  PowerShell 里是「请求的操作需要提升」）。这不是缺陷，是系统在装载阶段拦下的。
-- 因此**命令行开关也要求提权**（清单是整只 exe 的属性，无法只对界面生效）：请在
-  已提权的终端里跑 `ospt --checkup` 之类，或双击用界面。
-- 单元测试产物 `osp_unit_tests.exe` 保持 `asInvoker`，任何会话里都能直接跑。
+- 启动时自动提权：未提权的会话里启动它，会用 `runas` 重新启动自己（UAC 可能弹一次），
+  新进程以管理员身份运行，原进程退出。
+- 命令行开关也一样：在 PowerShell / cmd / bash 里直接跑 `ospt --checkup` 即可，
+  它会自己提权，不需要你先开管理员终端。
+- 清单保持 `asInvoker`：如果写成 `requireAdministrator`，`CreateProcess` 会在未提权时
+  直接拒绝（740），自动提权逻辑就没机会跑。提权是在 `main()` 开头做的。
+- 单元测试产物 `osp_unit_tests.exe` 保持 `asInvoker` 且**不自动提权**，任何会话都能直接跑。
 - 本机跑验收请用 `tests/tools/run_acceptance_elevated.ps1`：它自己拉一个提权会话把全部闸门
   跑一遍，只需提权一次。
 
