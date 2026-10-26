@@ -76,6 +76,22 @@ bool equalsIgnoreCase(const std::string& a, const char* b)
 
 // ---------------------------------------------------------------- 路径小工具
 
+bool isHexColor(const std::string& text)
+{
+    if (text.size() != 7 || text[0] != '#')
+    {
+        return false;
+    }
+    for (std::size_t i = 1; i < text.size(); ++i)
+    {
+        if (std::isxdigit(static_cast<unsigned char>(text[i])) == 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool hasDrivePrefix(const std::string& path)
 {
     return path.size() >= 2 && std::isalpha(static_cast<unsigned char>(path[0])) != 0 && path[1] == ':';
@@ -593,6 +609,46 @@ PlanResult build(const osp::config::Config& cfg, const DriveTable& drives)
     PlanResult plan;
     plan.driveTable = drives;
 
+    // 呈现设置：模块与背景取值来自《功能规格》§四，非法值直接拒绝而不是静默退回默认
+    const auto& deploy = cfg.deploy;
+    plan.presentation.module = deploy.module.empty() ? "grid" : deploy.module;
+    if (plan.presentation.module != "grid" && plan.presentation.module != "trueTrans" &&
+        plan.presentation.module != "colorBar" && plan.presentation.module != "image")
+    {
+        plan.error = "未知部署模块: \"" + deploy.module + "\"（允许: grid/trueTrans/colorBar/image）";
+        return plan;
+    }
+    plan.presentation.background = deploy.background.empty() ? "systemDefault" : deploy.background;
+    if (plan.presentation.background != "single" && plan.presentation.background != "multi" &&
+        plan.presentation.background != "systemDefault")
+    {
+        plan.error = "未知部署背景: \"" + deploy.background + "\"（允许: single/multi/systemDefault）";
+        return plan;
+    }
+    plan.presentation.titleText = deploy.titleText;
+    plan.presentation.backgroundImage = deploy.backgroundImage;
+    plan.presentation.imageSwitchSeconds = deploy.imageSwitchSeconds > 0 ? deploy.imageSwitchSeconds : 10;
+    plan.presentation.resolutionX = deploy.deployResolutionX;
+    plan.presentation.resolutionY = deploy.deployResolutionY;
+    plan.presentation.fontColor = deploy.fontColor;
+    if (!plan.presentation.fontColor.empty() && !isHexColor(plan.presentation.fontColor))
+    {
+        plan.error = "部署文字颜色必须是 #RRGGBB，当前为 \"" + deploy.fontColor + "\"";
+        return plan;
+    }
+    if ((plan.presentation.resolutionX > 0) != (plan.presentation.resolutionY > 0))
+    {
+        plan.error = "部署分辨率必须同时给出宽和高，当前为 " + std::to_string(plan.presentation.resolutionX) +
+            "x" + std::to_string(plan.presentation.resolutionY);
+        return plan;
+    }
+    if (plan.presentation.background != "systemDefault" && plan.presentation.backgroundImage.empty())
+    {
+        plan.warnings.push_back(
+            "部署背景选了 " + plan.presentation.background + "，但没有给图片路径；运行时按系统默认处理"
+        );
+    }
+
     for (Phase phase : phaseTable())
     {
         PhasePlan phasePlan;
@@ -763,6 +819,16 @@ std::string toJson(const PlanResult& plan)
         drives.push_back(std::move(item));
     }
     table["drives"] = std::move(drives);
+
+    json& presentation = root["presentation"];
+    presentation["module"] = plan.presentation.module;
+    presentation["background"] = plan.presentation.background;
+    presentation["titleText"] = plan.presentation.titleText;
+    presentation["backgroundImage"] = plan.presentation.backgroundImage;
+    presentation["imageSwitchSeconds"] = plan.presentation.imageSwitchSeconds;
+    presentation["resolutionX"] = plan.presentation.resolutionX;
+    presentation["resolutionY"] = plan.presentation.resolutionY;
+    presentation["fontColor"] = plan.presentation.fontColor;
 
     json phases = json::array();
     int total = 0;

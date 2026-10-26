@@ -217,6 +217,144 @@ std::string nowText()
     return win7::formatFileTime(win7::fileTimeNow());
 }
 
+// ---------------------------------------------------------------- 读命令输出
+
+// 需要「先读旧值再改」的场合（bcdedit 的启动菜单超时）：runCommand 不捕获 stdout，
+// 这里补一个带管道的版本。只用 CreateProcess，不用 system()。
+struct Captured
+{
+    bool ok = false;
+    std::uint32_t exitCode = 0;
+    std::string output;
+    std::string error;
+};
+
+Captured runCaptured(const std::string& commandLine)
+{
+    Captured result;
+
+    const std::wstring wide = toWide(commandLine);
+    if (wide.empty())
+    {
+        result.error = "命令行无法转换为 UTF-16";
+        return result;
+    }
+
+    SECURITY_ATTRIBUTES attributes = {};
+    attributes.nLength = sizeof(attributes);
+    attributes.bInheritHandle = TRUE;
+
+    HANDLE readEnd = nullptr;
+    HANDLE writeEnd = nullptr;
+    if (CreatePipe(&readEnd, &writeEnd, &attributes, 0) == 0)
+    {
+        result.error = "CreatePipe 失败，GetLastError=" + std::to_string(GetLastError());
+        return result;
+    }
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW startup = {};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = writeEnd;
+    startup.hStdError = writeEnd;
+    startup.hStdInput = nullptr;
+
+    std::vector<wchar_t> mutableCommandLine(wide.begin(), wide.end());
+    mutableCommandLine.push_back(L'\0');
+
+    PROCESS_INFORMATION process = {};
+    const BOOL created = CreateProcessW(
+        nullptr,
+        mutableCommandLine.data(),
+        nullptr,
+        nullptr,
+        TRUE,
+        CREATE_NO_WINDOW,
+        nullptr,
+        nullptr,
+        &startup,
+        &process
+    );
+    CloseHandle(writeEnd); // 子进程已持有自己的副本，父进程必须关掉才能读到 EOF
+
+    if (created == 0)
+    {
+        CloseHandle(readEnd);
+        result.error = "CreateProcess 失败，GetLastError=" + std::to_string(GetLastError());
+        return result;
+    }
+
+    std::string bytes;
+    char buffer[4096] = {};
+    DWORD read = 0;
+    while (ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) != 0 && read > 0)
+    {
+        bytes.append(buffer, read);
+    }
+    CloseHandle(readEnd);
+
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+
+    // bcdedit 在中文系统上输出 GBK，在英文系统上输出 ANSI；统一按 UTF-8 收，
+    // 解析只认 ASCII 关键字与数字，所以编码不影响判定。
+    result.ok = true;
+    result.exitCode = code;
+    result.output = std::move(bytes);
+    return result;
+}
+
+// bcdedit /enum {bootmgr} 里的启动菜单超时。中文系统写作「超时」，英文写作 timeout。
+bool parseBcdTimeout(const std::string& text, int& seconds)
+{
+    const char* keys[] = {"timeout", "Timeout", "TIMEOUT", "超时"};
+    std::size_t begin = 0;
+    while (begin <= text.size())
+    {
+        std::size_t end = text.find('\n', begin);
+        if (end == std::string::npos)
+        {
+            end = text.size();
+        }
+        const std::string line = trim(text.substr(begin, end - begin));
+        begin = end + 1;
+
+        for (const char* key : keys)
+        {
+            const std::size_t keyLength = std::strlen(key);
+            if (line.size() <= keyLength || line.compare(0, keyLength, key) != 0)
+            {
+                continue;
+            }
+            const std::string rest = trim(line.substr(keyLength));
+            if (rest.empty())
+            {
+                continue;
+            }
+            bool numeric = true;
+            for (char ch : rest)
+            {
+                if (std::isdigit(static_cast<unsigned char>(ch)) == 0)
+                {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (numeric)
+            {
+                seconds = std::atoi(rest.c_str());
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- 动作辅助
 
 std::string actionValueText(const Action& action)
@@ -412,6 +550,15 @@ bool runCommand(const Action& action, ExecResult& result, std::string& error)
     {
         error = "命令退出码非 0（" + std::to_string(code) + "）：" + commandLine;
         return false;
+    }
+
+    if (!action.undoCommand.empty())
+    {
+        JournalEntry entry;
+        entry.actionId = action.id;
+        entry.kind = "command";
+        entry.undoCommand = action.undoCommand;
+        result.journal.entries.push_back(entry);
     }
     return true;
 }
@@ -711,6 +858,49 @@ bool deleteTreeContents(const Action& action, ExecResult& result, std::string& e
     return true;
 }
 
+bool bcdTimeoutSet(const Action& action, ExecResult& result, std::string& error)
+{
+    if (action.program.empty())
+    {
+        error = "没有 bcdedit.exe 的路径";
+        return false;
+    }
+
+    const std::string bcd = quoteIfNeeded(action.program);
+    const Captured before = runCaptured(bcd + " /enum {bootmgr}");
+    int oldSeconds = -1;
+    const bool haveOld = before.ok && parseBcdTimeout(before.output, oldSeconds);
+
+    std::uint32_t code = 0;
+    const std::string commandLine = bcd + " /set {bootmgr} timeout " + std::to_string(action.dword);
+    if (!dism::runCommand(commandLine, code, error))
+    {
+        return false;
+    }
+    result.log.push_back("执行  " + commandLine + "  → 退出码 " + std::to_string(code));
+    if (code != 0)
+    {
+        error = "bcdedit 退出码非 0（" + std::to_string(code) + "）：" + commandLine;
+        return false;
+    }
+
+    if (haveOld)
+    {
+        JournalEntry entry;
+        entry.actionId = action.id;
+        entry.kind = "command";
+        entry.undoCommand = bcd + " /set {bootmgr} timeout " + std::to_string(oldSeconds);
+        result.journal.entries.push_back(entry);
+        result.log.push_back("原启动菜单超时 = " + std::to_string(oldSeconds) + " 秒，已记入回滚日志");
+    }
+    else
+    {
+        result.warnings.push_back("读不到原来的启动菜单超时（bcdedit /enum 解析失败），回滚需要手工执行 "
+                                  "bcdedit /set {bootmgr} timeout <原值>");
+    }
+    return true;
+}
+
 bool executeOne(const Action& action, ExecResult& result, std::string& error)
 {
     switch (action.kind)
@@ -729,6 +919,8 @@ bool executeOne(const Action& action, ExecResult& result, std::string& error)
         return moveTree(action, result, error);
     case ActionKind::DeleteTree:
         return deleteTreeContents(action, result, error);
+    case ActionKind::BcdTimeout:
+        return bcdTimeoutSet(action, result, error);
     }
     error = "未知的动作类型";
     return false;
@@ -791,6 +983,31 @@ bool rollbackOne(const JournalEntry& entry, bool dryRun, ExecResult& result, std
             result.log.push_back(
                 "删除注册表值  " + entry.hive + "\\" + entry.key + "  \"" + entry.valueName + "\""
             );
+        }
+        return true;
+    }
+
+    if (entry.kind == "command")
+    {
+        if (entry.undoCommand.empty())
+        {
+            result.warnings.push_back("回滚条目没有撤销命令：" + entry.actionId);
+            return true;
+        }
+        if (dryRun)
+        {
+            result.log.push_back("将执行撤销命令  " + entry.undoCommand);
+            return true;
+        }
+        std::uint32_t code = 0;
+        if (!dism::runCommand(entry.undoCommand, code, error))
+        {
+            return false;
+        }
+        result.log.push_back("撤销命令  " + entry.undoCommand + "  → 退出码 " + std::to_string(code));
+        if (code != 0)
+        {
+            result.warnings.push_back("撤销命令退出码非 0：" + entry.undoCommand);
         }
         return true;
     }
@@ -879,6 +1096,8 @@ const char* actionKindId(ActionKind kind)
         return "moveTree";
     case ActionKind::DeleteTree:
         return "deleteTree";
+    case ActionKind::BcdTimeout:
+        return "bcdTimeout";
     }
     return "unknown";
 }
@@ -947,6 +1166,31 @@ Plan build(const config::Config& cfg, const Options& options)
         plan.deferred.push_back(std::move(item));
     };
 
+    // ------------------------------------------------------------ 系统信息
+    // 启动菜单等待时间是 BCD 的 {bootmgr} timeout，不是 unattend 元素 ——
+    // 早期版本只把它存进 cfg.json，界面上填了也不生效。0 = 不修改。
+    if (cfg.systemInfo.bootMenuTimeoutSec > 0)
+    {
+        if (opt.windowsDir.empty())
+        {
+            plan.warnings.push_back("无法确定 %SystemRoot%，已跳过设置启动菜单时间");
+        }
+        else
+        {
+            Action action;
+            action.kind = ActionKind::BcdTimeout;
+            action.id = "systemInfo.bootMenuTimeoutSec";
+            action.group = "系统信息";
+            action.title = "设置启动菜单等待时间（BCD {bootmgr} timeout）";
+            action.sourceField = "systemInfo.bootMenuTimeoutSec";
+            action.program = joinPath(opt.windowsDir, "System32\\bcdedit.exe");
+            action.dword = static_cast<std::uint32_t>(cfg.systemInfo.bootMenuTimeoutSec);
+            action.requiresReboot = true;
+            action.note = "改的是引导菜单的等待秒数；执行时先读原值，回滚能写回去";
+            plan.actions.push_back(std::move(action));
+        }
+    }
+
     // ------------------------------------------------------------ 系统优化
     if (cfg.optimization.closeNumLock)
     {
@@ -982,7 +1226,9 @@ Plan build(const config::Config& cfg, const Options& options)
             action.sourceField = "optimization.enableHibernate";
             action.program = joinPath(opt.windowsDir, "System32\\powercfg.exe");
             action.arguments = "/hibernate on";
-            action.note = "开启后会创建 hiberfil.sys；不需要时可在系统里再关掉";
+            action.undoCommand =
+                quoteIfNeeded(joinPath(opt.windowsDir, "System32\\powercfg.exe")) + " /hibernate off";
+            action.note = "开启后会创建 hiberfil.sys；不需要时可在系统里再关掉（回滚会替你关）";
             plan.actions.push_back(std::move(action));
         }
     }
@@ -1232,6 +1478,45 @@ Plan build(const config::Config& cfg, const Options& options)
         }
     }
 
+    // ------------------------------------------------------------ 防流氓清理
+    // 对标产品的「防流氓封装方式」：把我们逆向出来的推广残留清掉。
+    // 只清有确凿证据的落地物（见 ES5P 报告 §9 的产物清单），不猜别的路径。
+    if (cfg.sysprep.mode == "antiRogue")
+    {
+        Action softInst;
+        softInst.kind = ActionKind::DeleteTree;
+        softInst.id = "sysprep.antiRogue.softInst";
+        softInst.group = "防流氓清理";
+        softInst.title = "清空 SoftInst 推广载荷目录";
+        softInst.sourceField = "sysprep.mode";
+        softInst.path = joinPath(opt.systemDrive, "SoftInst");
+        softInst.irreversible = true;
+        softInst.note = "ES5P 用它放 wget/inst.cmd/inst.vbs 静默装推广软件；不存在时跳过";
+        plan.actions.push_back(std::move(softInst));
+
+        for (const char* hive : {"HKLM", "HKCU"})
+        {
+            Action runOnce = makeRegistryAction(
+                ActionKind::RegistryDelete,
+                std::string("sysprep.antiRogue.runOnce.") + (std::string(hive) == "HKLM" ? "hklm" : "hkcu"),
+                "防流氓清理",
+                std::string("删除 RunOnce 里的推广启动项（") + hive + "）",
+                "sysprep.mode",
+                hive,
+                "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+                "inst.vbs",
+                "sz"
+            );
+            runOnce.note = "ES5P 在 Deploy 阶段无条件注册它，SSP 开关关掉也会跑一次";
+            plan.actions.push_back(std::move(runOnce));
+        }
+    }
+    else if (cfg.sysprep.mode == "volume")
+    {
+        plan.warnings.push_back("封装方式 volume（大客户高级）：反编译里只找到它与「每服务器授权」同现，"
+                                "sysprep 参数与 classic 相同，本次按 classic 执行");
+    }
+
     if (cfg.sysprep.uninstallDrivers)
     {
         defer("sysprep.uninstallDrivers", "需要枚举第三方 OEM 驱动并避开存储控制器，归入 M10 的驱动卸载");
@@ -1302,6 +1587,10 @@ std::string dryRunReport(const Plan& plan)
             break;
         case ActionKind::DeleteTree:
             out += "    清空目录  " + action.path + "\n";
+            break;
+        case ActionKind::BcdTimeout:
+            out += "    执行  " + quoteIfNeeded(action.program) + " /set {bootmgr} timeout " +
+                std::to_string(action.dword) + "（执行时读取原值写入回滚日志）\n";
             break;
         }
 
@@ -1398,6 +1687,10 @@ std::string toJson(const Plan& plan)
             item["path"] = action.path;
             item["destination"] = action.destination;
             break;
+        case ActionKind::BcdTimeout:
+            item["program"] = action.program;
+            item["seconds"] = action.dword;
+            break;
         }
         actions.push_back(std::move(item));
     }
@@ -1463,6 +1756,10 @@ std::string journalToJson(const Journal& journal)
         {
             item["from"] = entry.from;
             item["to"] = entry.to;
+        }
+        else if (entry.kind == "command")
+        {
+            item["undoCommand"] = entry.undoCommand;
         }
         else
         {
@@ -1541,6 +1838,10 @@ bool journalFromJson(const std::string& text, Journal& journal, std::string& err
             {
                 entry.from = item.value("from", std::string());
                 entry.to = item.value("to", std::string());
+            }
+            else if (entry.kind == "command")
+            {
+                entry.undoCommand = item.value("undoCommand", std::string());
             }
             else
             {

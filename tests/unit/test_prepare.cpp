@@ -43,14 +43,28 @@ bool hasDeferred(const osp::prepare::Plan& plan, const std::string& field)
 
 } // namespace
 
-TEST_CASE("prepare: default config has no actions and no deferred items")
+TEST_CASE("prepare: default config only sets the boot menu timeout")
 {
     osp::config::Config cfg;
     const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
     CHECK(plan.ok);
-    CHECK(plan.actions.empty());
+    // 默认配置里的启动菜单时间不再是死字段：它会生成一个 BCD 动作
+    REQUIRE(plan.actions.size() == 1);
+    CHECK(plan.actions[0].id == "systemInfo.bootMenuTimeoutSec");
+    CHECK(plan.actions[0].kind == osp::prepare::ActionKind::BcdTimeout);
+    CHECK(plan.actions[0].dword == 30);
     CHECK(plan.deferred.empty());
     CHECK(plan.blockers.empty());
+    CHECK(plan.warnings.empty());
+}
+
+TEST_CASE("prepare: boot menu timeout 0 means do not touch")
+{
+    osp::config::Config cfg;
+    cfg.systemInfo.bootMenuTimeoutSec = 0;
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    CHECK(plan.ok);
+    CHECK(plan.actions.empty());
     CHECK(plan.warnings.size() == 1);
 }
 
@@ -290,6 +304,54 @@ TEST_CASE("prepare: execute stops at the first failure and keeps the journal")
     CHECK(result.failed == 1);
     CHECK(result.applied == 0);
     CHECK_FALSE(result.error.empty());
+}
+
+TEST_CASE("prepare: anti-rogue mode cleans the promotion payloads")
+{
+    osp::config::Config cfg;
+    cfg.sysprep.mode = "antiRogue";
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    REQUIRE(plan.ok);
+
+    const osp::prepare::Action* softInst = findAction(plan, "sysprep.antiRogue.softInst");
+    REQUIRE(softInst != nullptr);
+    CHECK(softInst->kind == osp::prepare::ActionKind::DeleteTree);
+    CHECK(softInst->path == "C:\\SoftInst");
+    CHECK(softInst->irreversible);
+
+    const osp::prepare::Action* hklm = findAction(plan, "sysprep.antiRogue.runOnce.hklm");
+    REQUIRE(hklm != nullptr);
+    CHECK(hklm->kind == osp::prepare::ActionKind::RegistryDelete);
+    CHECK(hklm->valueName == "inst.vbs");
+    REQUIRE(findAction(plan, "sysprep.antiRogue.runOnce.hkcu") != nullptr);
+
+    // classic 不产生任何清理动作
+    osp::config::Config classic;
+    classic.sysprep.mode = "classic";
+    const osp::prepare::Plan plain = osp::prepare::build(classic, testOptions());
+    CHECK(findAction(plain, "sysprep.antiRogue.softInst") == nullptr);
+}
+
+TEST_CASE("prepare: volume mode warns that it behaves like classic")
+{
+    osp::config::Config cfg;
+    cfg.sysprep.mode = "volume";
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    REQUIRE(plan.ok);
+    const bool warned = std::any_of(plan.warnings.begin(), plan.warnings.end(), [](const std::string& text) {
+        return text.find("大客户高级") != std::string::npos;
+    });
+    CHECK(warned);
+}
+
+TEST_CASE("prepare: hibernate carries an undo command")
+{
+    osp::config::Config cfg;
+    cfg.optimization.enableHibernate = true;
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    const osp::prepare::Action* hibernate = findAction(plan, "optimization.enableHibernate");
+    REQUIRE(hibernate != nullptr);
+    CHECK(hibernate->undoCommand.find("/hibernate off") != std::string::npos);
 }
 
 TEST_CASE("prepare: self-test writes and restores HKCU values")

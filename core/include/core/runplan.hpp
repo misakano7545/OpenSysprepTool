@@ -165,12 +165,27 @@ struct PhasePlan
     std::vector<ResolvedTask> tasks;
 };
 
+// 部署过程的呈现设置：osptd 用它在目标机上画进度页。
+// 放在计划文件里，是为了让 osptd 仍然只消费 runplan.json 这一份事实来源。
+struct Presentation
+{
+    std::string module;     // grid / trueTrans / colorBar / image
+    std::string background; // single / multi / systemDefault
+    std::string titleText;
+    std::string backgroundImage; // 单图/多图时的图片路径或目录
+    int imageSwitchSeconds = 10;
+    int resolutionX = 0; // 0 = 不改分辨率
+    int resolutionY = 0;
+    std::string fontColor; // "#RRGGBB"，空 = 默认色
+};
+
 struct PlanResult
 {
     bool ok = false;
     std::string error;
     DriveTable driveTable;
     std::vector<PhasePlan> phases; // 固定 5 个，按 Phase 顺序
+    Presentation presentation;
     std::vector<std::string> warnings;
 };
 

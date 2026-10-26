@@ -31,6 +31,8 @@ enum class ActionKind
     CopyTree,
     MoveTree,
     DeleteTree,
+    // BCD 的启动菜单超时：执行时先读原值再写，原值进回滚日志
+    BcdTimeout,
 };
 
 const char* actionKindId(ActionKind kind);
@@ -64,6 +66,9 @@ struct Action
 
     bool requiresReboot = false;
     bool irreversible = false;
+    // 命令类动作的撤销命令（如 bcdedit /set ... 写回原值）。
+    // 非空时执行后会写进 journal，--rollback 逆序跑它。
+    std::string undoCommand;
     std::string note;
 };
 
@@ -122,6 +127,7 @@ struct JournalEntry
     std::string from;
     std::string to;
     std::string path;
+    std::string undoCommand;
 };
 
 struct Journal

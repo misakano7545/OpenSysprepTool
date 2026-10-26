@@ -52,6 +52,15 @@ struct Plan
     std::string planFile;  // run/runplan.json
     int taskCount = 0;
     std::vector<Phase> phases;
+    // 部署过程的呈现设置（由 --gen-runplan 从配置写进计划文件）
+    std::string presentationModule; // grid / trueTrans / colorBar / image
+    std::string presentationBackground;
+    std::string presentationTitle;
+    std::string presentationImage;
+    int presentationSwitchSeconds = 10;
+    int presentationResolutionX = 0;
+    int presentationResolutionY = 0;
+    std::string presentationFontColor; // "#RRGGBB"，空 = 默认
     std::vector<std::string> warnings;
 };
 

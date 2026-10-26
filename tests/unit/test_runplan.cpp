@@ -537,3 +537,51 @@ TEST_CASE("drive table parsing accepts an array or an object with drives")
     CHECK_FALSE(parseDriveTable(R"({"drives":[{"root":"Z:\\"}]})", table, error));
     CHECK(error.find("driveType") != std::string::npos);
 }
+
+TEST_CASE("runplan: presentation settings flow into runplan.json")
+{
+    osp::config::Config cfg;
+    cfg.deploy.module = "trueTrans";
+    cfg.deploy.background = "single";
+    cfg.deploy.titleText = "正在部署，请稍候";
+    cfg.deploy.backgroundImage = "D:\bg\a.jpg";
+    cfg.deploy.imageSwitchSeconds = 7;
+    cfg.deploy.deployResolutionX = 1920;
+    cfg.deploy.deployResolutionY = 1080;
+    cfg.deploy.fontColor = "#F0F0F0";
+
+    const auto plan = osp::runplan::build(cfg, sampleDrives());
+    REQUIRE(plan.ok);
+    CHECK(plan.presentation.module == "trueTrans");
+    CHECK(plan.presentation.imageSwitchSeconds == 7);
+
+    const std::string text = osp::runplan::toJson(plan);
+    const auto root = nlohmann::json::parse(text);
+    REQUIRE(root.contains("presentation"));
+    CHECK(root["presentation"]["module"] == "trueTrans");
+    CHECK(root["presentation"]["backgroundImage"] == "D:\bg\a.jpg");
+    CHECK(root["presentation"]["resolutionX"] == 1920);
+    CHECK(root["presentation"]["fontColor"] == "#F0F0F0");
+}
+
+TEST_CASE("runplan: presentation rejects unknown values instead of silently defaulting")
+{
+    osp::config::Config cfg;
+
+    cfg.deploy.module = "fancy";
+    CHECK_FALSE(osp::runplan::build(cfg, sampleDrives()).ok);
+    CHECK(osp::runplan::build(cfg, sampleDrives()).error.find("部署模块") != std::string::npos);
+
+    cfg.deploy.module = "grid";
+    cfg.deploy.background = "video";
+    CHECK_FALSE(osp::runplan::build(cfg, sampleDrives()).ok);
+
+    cfg.deploy.background = "systemDefault";
+    cfg.deploy.fontColor = "red";
+    CHECK_FALSE(osp::runplan::build(cfg, sampleDrives()).ok);
+
+    cfg.deploy.fontColor = "";
+    cfg.deploy.deployResolutionX = 1920; // 只有宽没有高
+    CHECK_FALSE(osp::runplan::build(cfg, sampleDrives()).ok);
+    CHECK(osp::runplan::build(cfg, sampleDrives()).error.find("分辨率") != std::string::npos);
+}

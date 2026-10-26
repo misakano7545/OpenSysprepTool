@@ -258,6 +258,20 @@ Plan load(const std::string& utf8Directory)
         return plan;
     }
 
+    // 呈现设置是可选段：老计划文件没有它时按默认值跑控制台进度页
+    if (root.contains("presentation") && root["presentation"].is_object())
+    {
+        const auto& presentation = root["presentation"];
+        plan.presentationModule = presentation.value("module", std::string("grid"));
+        plan.presentationBackground = presentation.value("background", std::string("systemDefault"));
+        plan.presentationTitle = presentation.value("titleText", std::string());
+        plan.presentationImage = presentation.value("backgroundImage", std::string());
+        plan.presentationSwitchSeconds = presentation.value("imageSwitchSeconds", 10);
+        plan.presentationResolutionX = presentation.value("resolutionX", 0);
+        plan.presentationResolutionY = presentation.value("resolutionY", 0);
+        plan.presentationFontColor = presentation.value("fontColor", std::string());
+    }
+
     for (const auto& item : root["phases"])
     {
         Phase phase;
