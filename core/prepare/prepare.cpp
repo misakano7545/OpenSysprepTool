@@ -1,5 +1,6 @@
 #include "core/prepare.hpp"
 
+#include "core/ini.hpp"
 #include "core/netcfg.hpp"
 #include "core/tweaks.hpp"
 
@@ -515,6 +516,151 @@ std::uint32_t currentAdapterAddress(const std::string& adapterName)
     return 0;
 }
 
+// 取路径末段（兼容 / 与 \）
+std::string baseName(const std::string& utf8Path)
+{
+    const std::size_t pos = utf8Path.find_last_of("\\/");
+    return pos == std::string::npos ? utf8Path : utf8Path.substr(pos + 1);
+}
+
+// oem2.inf 排在 oem10.inf 前面（纯字典序会把 oem10 放到 oem2 之前，读起来很乱）
+bool naturalLess(const std::string& left, const std::string& right)
+{
+    std::size_t i = 0;
+    std::size_t j = 0;
+    while (i < left.size() && j < right.size())
+    {
+        if (std::isdigit(static_cast<unsigned char>(left[i])) &&
+            std::isdigit(static_cast<unsigned char>(right[j])))
+        {
+            std::size_t iEnd = i;
+            std::size_t jEnd = j;
+            while (iEnd < left.size() && std::isdigit(static_cast<unsigned char>(left[iEnd])))
+            {
+                ++iEnd;
+            }
+            while (jEnd < right.size() && std::isdigit(static_cast<unsigned char>(right[jEnd])))
+            {
+                ++jEnd;
+            }
+            const long long a = std::stoll(left.substr(i, iEnd - i));
+            const long long b = std::stoll(right.substr(j, jEnd - j));
+            if (a != b)
+            {
+                return a < b;
+            }
+            i = iEnd;
+            j = jEnd;
+            continue;
+        }
+        if (left[i] != right[j])
+        {
+            return left[i] < right[j];
+        }
+        ++i;
+        ++j;
+    }
+    return left.size() < right.size();
+}
+
+// 第三方驱动包（pnputil 的「发布名称」就是 %SystemRoot%\INF\oem*.inf）
+struct DriverPackage
+{
+    std::string publishedName; // oem12.inf
+    std::string originalName;  // 原始 inf 名（未知时为空）
+    std::string provider;
+    std::string className;
+    std::string version;
+};
+
+// 枚举非微软的第三方驱动包。
+//
+// 为什么解析 INF 而不解析 `pnputil /enum-drivers` 的输出：那个输出是**本地化**的，
+// 中文系统写着「发布名称:」、英文系统写着 "Published Name:"，CI 机器是 1252 的
+// 英文系统，靠标签匹配必然在某一侧失灵。oemNN.inf 的文件名与 [Version] 段里的
+// Provider/Class/DriverVer 是语言无关的，而且我们已经有 INI 解析器。
+std::vector<DriverPackage> enumerateThirdPartyDrivers(std::vector<std::string>& skipped)
+{
+    std::vector<DriverPackage> packages;
+    const std::string infDir =
+        joinPath(env("SystemRoot").empty() ? std::string("C:\\Windows") : env("SystemRoot"), "INF");
+
+    WIN32_FIND_DATAW data = {};
+    const std::wstring pattern = osp::win7::pathFromUtf8(joinPath(infDir, "oem*.inf")).wstring();
+    HANDLE handle = ::FindFirstFileW(pattern.c_str(), &data);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        return packages;
+    }
+    do
+    {
+        const std::string name = toUtf8(std::wstring(data.cFileName));
+        const osp::ini::Document document = osp::ini::loadFile(joinPath(infDir, name));
+        if (!document.ok)
+        {
+            continue; // INF 解析不出来就跳过，不阻断整份计划
+        }
+        // INF 里的 Provider 常写成 %ManufacturerName%，真名在 [Strings] 段里。
+        // 不展开的话微软自家包也会显示成 %ManufacturerName%，靠它过滤 Microsoft 会失灵。
+        const auto expand = [&document](std::string text) {
+            const std::string::size_type begin = text.find('%');
+            const std::string::size_type end = text.rfind('%');
+            if (begin == std::string::npos || end == begin || end - begin < 2)
+            {
+                return text;
+            }
+            const std::string key = text.substr(begin + 1, end - begin - 1);
+            const std::string resolved = document.get("Strings", key);
+            return resolved.empty() ? text : resolved;
+        };
+
+        DriverPackage package;
+        package.publishedName = name;
+        package.provider = expand(document.get("Version", "Provider"));
+        package.className = document.get("Version", "Class");
+        package.version = document.get("Version", "DriverVer");
+        // 微软自带的（in-box）包不卸：卸了会把系统驱动弄坏
+        if (package.provider.find("Microsoft") != std::string::npos)
+        {
+            continue;
+        }
+        // 存储控制器/磁盘类绝不能卸：删掉之后目标机直接起不来（0x7B 蓝屏）。
+        // 这一类必须留给 sysprep 的 PnP 重新识别，不能为了「干净」把引导搭进去。
+        static const char* const kNeverUninstall[] = {
+            "SCSIAdapter",
+            "HDC",
+            "Volume",
+            "DiskDrive",
+            "CDROM",
+            "FloppyDisk",
+            "StorageVolume",
+        };
+        bool storageClass = false;
+        for (const char* blocked : kNeverUninstall)
+        {
+            if (package.className == blocked)
+            {
+                storageClass = true;
+                break;
+            }
+        }
+        if (storageClass)
+        {
+            skipped.push_back(
+                package.publishedName + "（" + package.className + "，存储类，卸载会导致无法引导）"
+            );
+            continue;
+        }
+        packages.push_back(std::move(package));
+    } while (::FindNextFileW(handle, &data));
+    ::FindClose(handle);
+
+    std::sort(packages.begin(), packages.end(), [](const DriverPackage& a, const DriverPackage& b) {
+        return naturalLess(a.publishedName, b.publishedName);
+    });
+    return packages;
+}
+
 // 文件是否存在。用 GetFileAttributesW 而不是 std::filesystem::exists：
 // 后者在权限不足时返回 false，会把「读不到」说成「不存在」。
 bool fileExists(const std::string& utf8Path)
@@ -948,6 +1094,42 @@ bool moveTree(const Action& action, ExecResult& result, std::string& error)
     return true;
 }
 
+// 单个文件复制（任务栏固定的快捷方式走这条）
+bool copyOneFile(const Action& action, ExecResult& result, std::string& error)
+{
+    const std::filesystem::path source = osp::win7::pathFromUtf8(action.path);
+    const std::filesystem::path target = osp::win7::pathFromUtf8(action.destination);
+    std::error_code ec;
+    std::filesystem::create_directories(target.parent_path(), ec);
+    std::filesystem::copy_file(source, target, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec)
+    {
+        error = "复制失败：" + action.path + " → " + action.destination + "（" + ec.message() + "）";
+        return false;
+    }
+    result.log.push_back(action.id + "：完成");
+    return true;
+}
+
+// 单个文件删除。文件本来就不在算成功——「取消固定」的目标就是它不在。
+bool deleteOneFile(const Action& action, ExecResult& result, std::string& error)
+{
+    const std::filesystem::path target = osp::win7::pathFromUtf8(action.path);
+    if (::GetFileAttributesW(target.wstring().c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return true;
+    }
+    std::error_code ec;
+    if (!std::filesystem::remove(target, ec))
+    {
+        error = "删除失败：" + action.path + (ec ? "（" + ec.message() + "）" : "");
+        return false;
+    }
+    result.log.push_back(action.id + "：完成");
+    return true;
+}
+
+// 单个文件复制（任务栏固定的快捷方式走这条）
 bool deleteTreeContents(const Action& action, ExecResult& result, std::string& error)
 {
     const fs::path root = pathFromUtf8(action.path);
@@ -1223,6 +1405,10 @@ bool executeOne(const Action& action, ExecResult& result, std::string& error)
         return bcdTimeoutSet(action, result, error);
     case ActionKind::RegistryDeleteKey:
         return registryDeleteKey(action, result, error);
+    case ActionKind::FileCopy:
+        return copyOneFile(action, result, error);
+    case ActionKind::FileDelete:
+        return deleteOneFile(action, result, error);
     case ActionKind::HiveSet:
         return hiveSet(action, result, error);
     }
@@ -1406,6 +1592,10 @@ const char* actionKindId(ActionKind kind)
         return "registryDeleteKey";
     case ActionKind::HiveSet:
         return "hiveSet";
+    case ActionKind::FileCopy:
+        return "fileCopy";
+    case ActionKind::FileDelete:
+        return "fileDelete";
     }
     return "unknown";
 }
@@ -2079,6 +2269,91 @@ Plan build(const config::Config& cfg, const Options& options)
     {
         defer("deploy.blockVirtualMachine", "由部署运行时 osptd 在目标机上判定，封装前不适用");
     }
+    // ---------------------------------------------------------- 任务栏固定 / 取消固定（SC 的 Cb_Locktaskbar）
+    // 落点是「默认用户」的 User Pinned\TaskBar：新用户建配置目录时由系统复制过去。
+    // 只写用户自己列出来的文件，绝不预置任何推广快捷方式（宪章 §7）。
+    const std::string pinnedDir = joinPath(
+        options.defaultUserProfile,
+        "AppData\\Roaming\\Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar"
+    );
+    for (const std::string& file : cfg.optimization.lockTaskbarFiles)
+    {
+        const std::string name = baseName(file);
+        if (file.empty() || name.empty())
+        {
+            plan.warnings.push_back("任务栏固定：条目为空，已跳过");
+            continue;
+        }
+        if (!fileExists(file))
+        {
+            plan.warnings.push_back("任务栏固定：源文件不存在，已跳过：" + file);
+            continue;
+        }
+        Action action;
+        action.kind = ActionKind::FileCopy;
+        action.id = "optimization.lockTaskbar." + name;
+        action.group = "系统优化";
+        action.title = "固定到任务栏";
+        action.sourceField = "optimization.lockTaskbarFiles";
+        action.path = file;
+        action.destination = joinPath(pinnedDir, name);
+        action.note = "写入默认用户的任务栏固定目录，新用户登录即可见";
+        plan.actions.push_back(std::move(action));
+    }
+    for (const std::string& file : cfg.optimization.unlockTaskbarFiles)
+    {
+        const std::string name = baseName(file);
+        if (name.empty())
+        {
+            plan.warnings.push_back("任务栏取消固定：条目为空，已跳过");
+            continue;
+        }
+        Action action;
+        action.kind = ActionKind::FileDelete;
+        action.id = "optimization.unlockTaskbar." + name;
+        action.group = "系统优化";
+        action.title = "从任务栏取消固定";
+        action.sourceField = "optimization.unlockTaskbarFiles";
+        action.path = joinPath(pinnedDir, name);
+        action.note = "只删默认用户里的同名快捷方式，本机其他用户不受影响";
+        plan.actions.push_back(std::move(action));
+    }
+
+    // ---------------------------------------------------------- 卸载本机设备驱动（SC 的 Cb_Uninstalldriver）
+    // 目的：把「参考机」上装过的第三方驱动从映像里清掉，避免带到别的机器。
+    // 只列非微软的第三方驱动包，微软自带的一律不碰。
+    if (cfg.sysprep.uninstallDrivers)
+    {
+        std::vector<std::string> skippedDrivers;
+        std::vector<DriverPackage> packages = enumerateThirdPartyDrivers(skippedDrivers);
+        for (const std::string& skipped : skippedDrivers)
+        {
+            plan.warnings.push_back("卸载本机设备驱动：跳过 " + skipped);
+        }
+        if (packages.empty())
+        {
+            plan.warnings.push_back("卸载本机设备驱动：没有枚举出第三方驱动包（可能 pnputil 不可用）");
+        }
+        for (const DriverPackage& package : packages)
+        {
+            if (package.publishedName.empty())
+            {
+                continue;
+            }
+            Action action;
+            action.kind = ActionKind::RunCommand;
+            action.id = "sysprep.uninstallDriver." + package.publishedName;
+            action.group = "封装清理";
+            action.title = "卸载第三方驱动包";
+            action.sourceField = "sysprep.uninstallDrivers";
+            action.program = "pnputil";
+            action.arguments = "/delete-driver " + package.publishedName + " /uninstall /force";
+            action.note = package.provider + " / " + package.className + " / " + package.version;
+            action.irreversible = true; // 驱动包删掉就回不来了
+            plan.actions.push_back(std::move(action));
+        }
+    }
+
     if (cfg.deploy.verifyIntegrity && cfg.deploy.tamperFiles.empty())
     {
         // 防篡改本身在部署端（osptd 的部署前闸门）执行，封装前不适用；
@@ -2223,10 +2498,6 @@ Plan build(const config::Config& cfg, const Options& options)
         return action;
     };
 
-    if (cfg.sysprep.uninstallDrivers)
-    {
-        defer("sysprep.uninstallDrivers", "需要枚举第三方 OEM 驱动并避开存储控制器，归入 M10 的驱动卸载");
-    }
     if (cfg.sysprep.loadSrsDrivers)
     {
         defer("sysprep.loadSrsDrivers", "由 --inject-drivers --srs 处理（M6 已实现），不在封装前设置里重复");
@@ -2293,6 +2564,12 @@ std::string dryRunReport(const Plan& plan)
             break;
         case ActionKind::DeleteTree:
             out += "    删除路径  " + action.path + "（文件直接删，目录清空内容）\n";
+            break;
+        case ActionKind::FileCopy:
+            out += "    复制文件  " + action.path + " → " + action.destination + "\n";
+            break;
+        case ActionKind::FileDelete:
+            out += "    删除文件  " + action.path + "（不存在算成功）\n";
             break;
         case ActionKind::BcdTimeout:
             out += "    执行  " + quoteIfNeeded(action.program) + " /set {bootmgr} timeout " +
@@ -2398,6 +2675,13 @@ std::string toJson(const Plan& plan)
             break;
         case ActionKind::MakeDirectory:
         case ActionKind::DeleteTree:
+            item["path"] = action.path;
+            break;
+        case ActionKind::FileCopy:
+            item["path"] = action.path;
+            item["destination"] = action.destination;
+            break;
+        case ActionKind::FileDelete:
             item["path"] = action.path;
             break;
         case ActionKind::CopyTree:

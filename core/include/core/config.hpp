@@ -46,6 +46,11 @@ struct Optimization
     bool favoritesSmart = true;
     std::string favoritesTarget;
     // 同步封装前 IE 主页（SC 的 Cb_Saveiehp）；ieHomePage 空则取当前用户的主页
+    // 任务栏固定 / 取消固定（SC 的 Cb_Locktaskbar / Cb_Unlocktaskbar）。
+    // 只接受用户自己填的文件清单 —— SC 用这两个开关推自家推广快捷方式，
+    // 那是宪章 §7 明令禁止的，我们不预置任何条目。
+    std::vector<std::string> lockTaskbarFiles;
+    std::vector<std::string> unlockTaskbarFiles;
     bool saveIeHomePage = false;
     std::string ieHomePage;
     // 默认用户配置单元（NTUSER.DAT）的路径。空 = <系统盘>\Users\Default\NTUSER.DAT。
@@ -106,12 +111,12 @@ struct DeploySettings
     bool blockVirtualMachine = false;
     // M7b 新增（可选，默认值不变）：部署过程页的「部署设置」组。
     // 只承载配置，图形化部署画面按宪章「Direct2D 自绘与换肤后置」不做。
-    std::string backgroundImage;      // 部署背景图路径（Ed_PicPath）
-    int imageSwitchSeconds = 10;      // 多图切换速度，秒（Ed_PicSpeed，图纸默认 10）
-    int deployResolutionX = 0;        // 部署分辨率宽，0 = 不设置（Ed_DeployResolution_Width）
-    int deployResolutionY = 0;        // 部署分辨率高，0 = 不设置（Ed_DeployResolution_Height）
-    std::string fontColor;            // 部署文字颜色（Ed_DeployFontcolour）
-    bool verifyIntegrity = false;     // 校验文件防篡改，用户态校验（Cb_Tampering）
+    std::string backgroundImage;  // 部署背景图路径（Ed_PicPath）
+    int imageSwitchSeconds = 10;  // 多图切换速度，秒（Ed_PicSpeed，图纸默认 10）
+    int deployResolutionX = 0;    // 部署分辨率宽，0 = 不设置（Ed_DeployResolution_Width）
+    int deployResolutionY = 0;    // 部署分辨率高，0 = 不设置（Ed_DeployResolution_Height）
+    std::string fontColor;        // 部署文字颜色（Ed_DeployFontcolour）
+    bool verifyIntegrity = false; // 校验文件防篡改，用户态校验（Cb_Tampering）
     // 防篡改清单（SC 的 Items_Tampering / Items_FileMd5）：部署时逐个校验 MD5。
     // MD5 在生成运行计划时算好写进去，部署端只比对，不再信任现场文件。
     struct TamperEntry
@@ -122,7 +127,7 @@ struct DeploySettings
     std::vector<TamperEntry> tamperFiles;
     // 被劫持策略（SC 的 SA_Rb_hijack_type1/type2）：continue / terminate
     std::string hijackMode = "terminate";
-    std::string hijackTip; // 被劫持时弹给用户的提示（SA_Lab_ShowTip）
+    std::string hijackTip;            // 被劫持时弹给用户的提示（SA_Lab_ShowTip）
     bool enableAdministrator = false; // 开启 administrator（Cb_Admin）
 };
 

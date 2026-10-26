@@ -237,14 +237,90 @@ def main() -> int:
     check("自动设置 IP 不再是推迟项", "optimization.autoSetIp" not in deferred)
     # 防篡改在部署端（osptd 闸门）执行，封装前不该再列为推迟项
     check("文件防篡改不再是推迟项", "deploy.verifyIntegrity" not in deferred)
+    # 卸载本机驱动在 B9 落地（pnputil 动作），也不该再出现在推迟清单
+    check("卸载本机驱动不再是推迟项", "sysprep.uninstallDrivers" not in deferred)
     for field in (
         "firstLogon.syncIeHomepage",
-        "sysprep.uninstallDrivers",
         "sysprep.loadSrsDrivers",
     ):
         check(f"推迟项写明原因: {field}", field in deferred)
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
+
+    # ------------------------------------------------------------ 任务栏固定 / 取消固定（B9）
+    section("任务栏固定与取消固定")
+    shortcut = os.path.join(work, "我的工具.lnk")
+    with open(shortcut, "wb") as handle:
+        handle.write(b"shortcut bytes")
+
+    tb_cfg = full_config()
+    tb_cfg["optimization"] = dict(tb_cfg.get("optimization") or {})
+    tb_cfg["optimization"].update({
+        "lockTaskbarFiles": [shortcut, os.path.join(work, "不存在.lnk")],
+        "unlockTaskbarFiles": ["old-tool.lnk"],
+    })
+    tb_path = os.path.join(work, "cfg-taskbar.json")
+    tb_report = os.path.join(work, "plan-taskbar.json")
+    write_json(tb_path, tb_cfg)
+    code, output = run([ospt, "--prepare", tb_path, "--dry-run", "--report", tb_report])
+    check("任务栏计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    tb_plan = {}
+    if os.path.isfile(tb_report):
+        with open(tb_report, "r", encoding="utf-8") as handle:
+            tb_plan = json.load(handle)
+    tb_actions = tb_plan.get("actions", [])
+    pin = [a for a in tb_actions if a.get("kind") == "fileCopy" and a.get("sourceField") == "optimization.lockTaskbarFiles"]
+    unpin = [a for a in tb_actions if a.get("kind") == "fileDelete" and
+             a.get("sourceField") == "optimization.unlockTaskbarFiles"]
+    check("只给存在的文件生成固定动作", len(pin) == 1, f"{len(pin)} 个")
+    if pin:
+        dest = str(pin[0].get("destination", ""))
+        # 落点必须是默认用户的 User Pinned\TaskBar
+        check("固定动作写到 User Pinned", "User Pinned" in dest, dest)
+        check("固定动作写到 TaskBar 目录", "TaskBar" in dest, dest)
+        check("固定动作保留原文件名", dest.endswith("我的工具.lnk"), dest)
+    check("取消固定生成删除动作", len(unpin) == 1, f"{len(unpin)} 个")
+    if unpin:
+        check("取消固定删的是同名的快捷方式", str(unpin[0].get("path", "")).endswith("old-tool.lnk"),
+              str(unpin[0].get("path", "")))
+    check("源文件不存在时告警", "源文件不存在" in output, output[-200:])
+
+    # ------------------------------------------------------------ 卸载本机设备驱动（B9）
+    section("卸载本机设备驱动")
+    drv_cfg = full_config()
+    drv_cfg["sysprep"] = dict(drv_cfg.get("sysprep") or {})
+    drv_cfg["sysprep"]["uninstallDrivers"] = True
+    drv_path = os.path.join(work, "cfg-drivers.json")
+    drv_report = os.path.join(work, "plan-drivers.json")
+    write_json(drv_path, drv_cfg)
+    code, output = run([ospt, "--prepare", drv_path, "--dry-run", "--report", drv_report])
+    check("卸载驱动计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    check("卸载驱动不再是推迟项", "sysprep.uninstallDrivers ——" not in output, output[-300:])
+    drv_plan = {}
+    if os.path.isfile(drv_report):
+        with open(drv_report, "r", encoding="utf-8") as handle:
+            drv_plan = json.load(handle)
+    drv_actions = [a for a in drv_plan.get("actions", [])
+                   if a.get("kind") == "runCommand" and a.get("sourceField") == "sysprep.uninstallDrivers"]
+    check("生成了 pnputil 卸载动作（或本机无第三方驱动）",
+          bool(drv_actions) or "没有枚举出第三方驱动包" in output,
+          f"{len(drv_actions)} 个动作")
+    for action in drv_actions:
+        args = str(action.get("arguments", ""))
+        if not args.startswith("/delete-driver oem"):
+            check(f"卸载命令形状正确（{action.get('id')}）", False, args)
+            break
+    else:
+        if drv_actions:
+            check("卸载命令全部是 /delete-driver oemNN.inf", True)
+    # 存储类必须避开：删了会 0x7B 蓝屏
+    for action in drv_actions:
+        note = str(action.get("note", ""))
+        if "SCSIAdapter" in note or "HDC" in note or "DiskDrive" in note:
+            check("存储类驱动不得进入卸载清单", False, note)
+            break
+    else:
+        check("存储类驱动已被排除", True)
 
     # ------------------------------------------------------------ 自动设置 IP（B5）
     section("自动设置 IP：三种模式")

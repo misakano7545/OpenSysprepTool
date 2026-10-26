@@ -130,7 +130,8 @@ TEST_CASE("prepare: unimplemented fields are reported with reasons")
     // 文件防篡改已在 B7 落地（osptd 的部署前闸门），不再是推迟项
     CHECK_FALSE(hasDeferred(plan, "deploy.verifyIntegrity"));
     CHECK(hasDeferred(plan, "deploy.blockVirtualMachine"));
-    CHECK(hasDeferred(plan, "sysprep.uninstallDrivers"));
+    // 卸载本机驱动已在 B9 落地（pnputil 动作），不再是推迟项
+    CHECK_FALSE(hasDeferred(plan, "sysprep.uninstallDrivers"));
     CHECK(hasDeferred(plan, "sysprep.loadSrsDrivers"));
     CHECK(hasDeferred(plan, "sysprep.perServerLicensing"));
 

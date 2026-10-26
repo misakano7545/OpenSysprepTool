@@ -208,6 +208,8 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.moveFavorites = op.value("moveFavorites", false);
             cfg.optimization.favoritesSmart = op.value("favoritesSmart", true);
             cfg.optimization.favoritesTarget = op.value("favoritesTarget", std::string{});
+            cfg.optimization.lockTaskbarFiles = op.value("lockTaskbarFiles", std::vector<std::string>{});
+            cfg.optimization.unlockTaskbarFiles = op.value("unlockTaskbarFiles", std::vector<std::string>{});
             cfg.optimization.saveIeHomePage = op.value("saveIeHomePage", false);
             cfg.optimization.ieHomePage = op.value("ieHomePage", std::string{});
             cfg.optimization.defaultUserHive = op.value("defaultUserHive", std::string{});

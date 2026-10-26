@@ -38,6 +38,12 @@ enum class ActionKind
     // 写进「离线加载的用户 hive」（Users\Default\NTUSER.DAT）：
     // 用于让新用户继承 我的文档/收藏夹 位置与 IE 主页。执行时临时 RegLoadKey，写完即卸。
     HiveSet,
+    // 单个文件复制（path → destination）：任务栏固定的 .lnk 要落到
+    // 「默认用户」的 User Pinned\TaskBar 下，CopyTree 会连目录层级一起搬，
+    // 目标文件名也定不下来，所以单独一种。
+    FileCopy,
+    // 删单个文件（path）。文件不存在时算成功，不算失败。
+    FileDelete,
 };
 
 const char* actionKindId(ActionKind kind);

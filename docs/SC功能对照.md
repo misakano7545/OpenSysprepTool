@@ -123,7 +123,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 询问是否创建宽带连接（静默 / 倒计时） | `Cb_CreateConnection` + `Rb_Silence_nc` / `Rb_Show_nc` | ⬜ |
 | 自动设置网络位置 | `Cb_SetNetWork` | ✅ |
 | 关闭系统重启对话框 | `Cb_CloseRestartbox` | ✅ |
-| **将文件固定到任务栏 / 取消固定**（含文件清单） | `Cb_Locktaskbar` / `Cb_Unlocktaskbar` / `Items_Lockfile` / `Items_UnLockfile` | ⬜ |
+| **将文件固定到任务栏 / 取消固定**（含文件清单） | `Cb_Locktaskbar` / `Cb_Unlocktaskbar` / `Items_Lockfile` / `Items_UnLockfile` | ✅（只做机制：写默认用户的 `User Pinned\TaskBar`，清单必须由用户填；SC 用它推推广快捷方式，那部分不做） |
 | **智能转移我的文档**（智能 / 指定目录） | `Cb_MoveDocuments` + `Rb_SmartMoveDocuments` / `Rb_DiyMoveDocuments` | ✅ |
 | **智能转移 IE 收藏夹**（智能 / 指定目录） | `Cb_MoveFavorites` + `Rb_SmartMoveFavorites` / `Rb_DiyMoveFavorites` | ✅ |
 | 智能转移虚拟内存（智能 / 指定盘） | `Cb_MovePageFile` + `Rb_SmartMovePageFile` / `Rb_DiyMovePageFile` | ✅ |
@@ -170,7 +170,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 |---|---|---|
 | 封装方式：传统 / 防流氓 / 大客户高级 | `Rb_Sysprep_Type1..3` | ✅ 传统、✅ 防流氓、⬜ 大客户高级 |
 | 生成新 SID | `Cb_Createnewsid` | ✅ |
-| **卸载本机设备驱动** | `Cb_Uninstalldriver` | ⬜ |
+| **卸载本机设备驱动** | `Cb_Uninstalldriver` | ✅（解析 `INF\oem*.inf` 找第三方包 → `pnputil /delete-driver`；存储类强制跳过，删了会 0x7B） |
 | 加载 SRS 磁盘控制器驱动 | `Cb_LoadSrsDrv` | ✅ |
 | 转移桌面文件到所有用户 | `Cb_Cutdesktopfile` | ✅ |
 | 封装后清理系统垃圾文件 / 清理 DLLcache | `Cb_Cleanjunkfiles` / `Cb_Dllcache` | ✅ |

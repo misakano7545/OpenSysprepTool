@@ -1812,9 +1812,9 @@ std::vector<std::string> excludedControlIds()
         // 宪章 §7 红线：改写浏览器主页 / 预置收藏夹
         "Cb_Saveiehp",
         "Cb_SaveieFavorites",
-        // 宪章 §7 红线：预置任务栏推广快捷方式
-        "Cb_Locktaskbar",
-        "Cb_Unlocktaskbar",
+        // 任务栏固定/取消固定在 B9 已实现，但**只接受用户自己列出的文件**：
+        // 这里仍然排除的是 SC 那套「预置推广快捷方式」的用法，不是机制本身。
+        // 机制见 optimization.lockTaskbarFiles / unlockTaskbarFiles（空 = 什么都不做）。
         // 宪章 §7：防流氓 / 大客户高级方式都依赖联盟授权与内核驱动
         "Rb_Sysprep_Type2",
         "Rb_Sysprep_Type3",
@@ -1831,8 +1831,6 @@ std::vector<std::string> excludedControlIds()
         "Page_Nodelreg",
         // 尚未实现，按 docs/SC功能对照.md 排期（不是永久不做）
         "Cb_CreateConnection",
-        "Btn_OsRepair",
-        "Btn_Repairend",
         "Btn_Execute",
         // 内部图片暂存页与工具栏容器，不是配置控件
         "Pan_temp",

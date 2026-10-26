@@ -7,6 +7,21 @@
 
 ### Added
 
+- **M10 任务栏固定 / 取消固定**（`optimization.lockTaskbarFiles` / `unlockTaskbarFiles`）：新增
+  `ActionKind::FileCopy` / `FileDelete`，把用户列出的快捷方式写进**默认用户**的
+  `User Pinned\TaskBar`，新用户建配置目录时由系统带过去；取消固定只删同名项
+  - **只做机制，不做推广**：SC 用这两个开关推自家快捷方式，属宪章 §7 红线。本实现不预置
+    任何条目，清单为空就等于什么都不做，测试里专门钉住「清单只有一个文件 → 计划里也只有一个动作」
+- **M10 卸载本机设备驱动**（`sysprep.uninstallDrivers`）：解析 `%SystemRoot%\INF\oem*.inf`
+  的 `[Version]` 段找第三方驱动包，生成 `pnputil /delete-driver <inf> /uninstall /force`
+  - 为什么不解析 `pnputil /enum-drivers`：那个输出是本地化的（中文「发布名称:」/英文
+    "Published Name:"），CI 是 1252 英文系统，靠标签匹配必然在某一侧失灵；`oemNN.inf`
+    文件名与 INF 内容语言无关
+  - INF 里 `Provider=%ManufacturerName%` 会经 `[Strings]` 展开，否则微软自带包也显示成
+    `%ManufacturerName%`，靠它过滤 Microsoft 会失灵
+  - **存储类（SCSIAdapter / HDC / Volume / DiskDrive / CDROM / FloppyDisk）强制跳过并告警**：
+    删掉之后目标机 0x7B 蓝屏起不来，不能为了「干净」把引导搭进去
+  - 驱动包删除标记为不可回滚（删了回不来）
 - **M10 部署前闸门**（`core/deploy/preflight.cpp` + `core/crypto/md5.cpp`）：把 SC 部署设置里
   三项「部署时才生效」的开关落到 `osptd`，且一律在**执行任何任务之前**判定
   - 校验文件防篡改（`Cb_Tampering`）：运行计划里带锁定文件清单 + MD5，部署时逐个比对；
