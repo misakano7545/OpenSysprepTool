@@ -78,4 +78,12 @@ std::string toJson(const Plan& plan);
 // 返回 false 表示启动失败；启动成功则 exitCode 是子进程退出码。
 bool runCommand(const std::string& commandLine, std::uint32_t& exitCode, std::string& error);
 
+// 同上，但把子进程的 stdout+stderr 一起收回来。
+// 用于「先读旧值再改」的场合（bcdedit 的启动菜单超时）与需要解析工具输出的检查
+// （fsutil dirty query）。输出按原始字节返回，不做编码转换 —— 调用方只解析
+// ASCII 关键字与数字，所以中文系统的 GBK 输出不影响判定。
+bool runCommandCaptured(
+    const std::string& commandLine, std::uint32_t& exitCode, std::string& output, std::string& error
+);
+
 } // namespace osp::dism

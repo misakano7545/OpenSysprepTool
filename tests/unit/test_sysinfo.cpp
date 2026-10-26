@@ -128,3 +128,97 @@ TEST_CASE("summary text mentions every section header")
     CHECK(text.find("[杀软]") != std::string::npos);
     CHECK(text.find("[启动项]") != std::string::npos);
 }
+
+TEST_CASE("sysinfo: blockingChecks only returns detected critical items")
+{
+    osp::sysinfo::CheckupReport report;
+
+    osp::sysinfo::Check criticalHit;
+    criticalHit.id = "pendingServicing";
+    criticalHit.severity = "critical";
+    criticalHit.detected = true;
+    report.checks.push_back(criticalHit);
+
+    osp::sysinfo::Check criticalClean;
+    criticalClean.id = "bitlocker";
+    criticalClean.severity = "critical";
+    criticalClean.detected = false;
+    report.checks.push_back(criticalClean);
+
+    osp::sysinfo::Check warningHit;
+    warningHit.id = "domainJoin";
+    warningHit.severity = "warning";
+    warningHit.detected = true;
+    report.checks.push_back(warningHit);
+
+    osp::sysinfo::Check infoHit;
+    infoHit.id = "pendingFileRename";
+    infoHit.severity = "info";
+    infoHit.detected = true;
+    report.checks.push_back(infoHit);
+
+    const auto blocking = osp::sysinfo::blockingChecks(report);
+    REQUIRE(blocking.size() == 1);
+    CHECK(blocking.front()->id == "pendingServicing");
+}
+
+TEST_CASE("sysinfo: pending file rename is info, never blocking")
+{
+    // 这条来自上游实测：PFRO 在大量健康机器上存在，sysprep 不会因此失败。
+    osp::sysinfo::CheckupReport report;
+    const auto collected = osp::sysinfo::collect();
+    for (const auto& check : collected.checks)
+    {
+        if (check.id == "pendingFileRename")
+        {
+            CHECK(check.severity == "info");
+        }
+        if (check.severity == "critical")
+        {
+            // critical 项只能是这两条
+            CHECK((check.id == "pendingServicing" || check.id == "bitlocker"));
+        }
+    }
+    CHECK(osp::sysinfo::blockingChecks(report).empty());
+}
+
+TEST_CASE("sysinfo: collect evaluates every check with a known severity")
+{
+    const auto report = osp::sysinfo::collect();
+    REQUIRE(report.checks.size() >= 8);
+
+    const std::vector<std::string> expected{
+        "pendingServicing",
+        "pendingFileRename",
+        "bitlocker",
+        "domainJoin",
+        "inPlaceUpgrade",
+        "unattendResidue",
+        "dirtyBit",
+        "appxPackages",
+    };
+    for (const std::string& id : expected)
+    {
+        bool found = false;
+        for (const auto& check : report.checks)
+        {
+            if (check.id == id)
+            {
+                found = true;
+                CHECK_FALSE(check.title.empty());
+                CHECK_FALSE(check.message.empty());
+                CHECK_FALSE(check.resolution.empty());
+                CHECK(
+                    (check.severity == "critical" || check.severity == "warning" || check.severity == "info")
+                );
+            }
+        }
+        CHECK(found);
+    }
+
+    // JSON 里必须有 checks 与 blocking 两段
+    const std::string json = osp::sysinfo::toJson(report);
+    CHECK(json.find("\"checks\"") != std::string::npos);
+    CHECK(json.find("\"blocking\"") != std::string::npos);
+    CHECK(json.find("pendingServicing") != std::string::npos);
+}

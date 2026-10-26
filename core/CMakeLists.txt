@@ -31,4 +31,5 @@ target_compile_features(osp_core PUBLIC cxx_std_20)
 
 # 杀软状态走 WMI（root\SecurityCenter2），需要 COM 与 WMI 的运行库
 # advapi32：《ProductName》要从注册表读（RegGetValueW，Vista+）
-target_link_libraries(osp_core PRIVATE wbemuuid ole32 oleaut32 advapi32)
+# netapi32：NetGetJoinInformation（体检的域加入检查）
+target_link_libraries(osp_core PRIVATE wbemuuid ole32 oleaut32 advapi32 netapi32)

@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "core/sysinfo.hpp"
+
 namespace osp::sysprep {
 
 struct Options
@@ -48,6 +50,7 @@ struct Report
     std::vector<std::string> steps;
     std::vector<std::string> parameters; // 命令行里的每个参数，便于逐条核对
     Sha2Check sha2;
+    std::vector<sysinfo::Check> checks; // 本机体检项（离线映像时不查）
     std::vector<std::string> warnings;
     std::vector<std::string> blockers; // 非空 = 真实执行前必须先解决
 };
@@ -65,6 +68,11 @@ std::string buildCommandLine(const Options& options, const std::string& program)
 Sha2Check checkSha2Support(const std::string& image);
 
 Report plan(const Options& options);
+
+// 用给定的体检结果代替本机采集。空 vector = 照常采集本机状态。
+// 存在的意义是让「critical 项真的进 blockers」这条能被单测证明，
+// 而不是只能在恰好有挂起更新的机器上验证。
+Report plan(const Options& options, const std::vector<sysinfo::Check>& checks);
 
 std::string dryRunReport(const Report& report);
 std::string toJson(const Report& report);

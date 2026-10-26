@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/sysinfo.hpp"
 #include "core/win7.hpp"
 
 namespace osp::sysprep {
@@ -305,6 +306,11 @@ Sha2Check checkSha2Support(const std::string& image)
 
 Report plan(const Options& options)
 {
+    return plan(options, {});
+}
+
+Report plan(const Options& options, const std::vector<sysinfo::Check>& injectedChecks)
+{
     Report report;
     report.program = sysprepPath();
 
@@ -366,6 +372,33 @@ Report plan(const Options& options)
     if (report.sha2.checked && !report.sha2.ok)
     {
         report.blockers.push_back(report.sha2.note);
+    }
+
+    // 体检的 critical 项直接当阻塞项：不再让 --sysprep 和 --checkup 各写一套判断。
+    // 只有本机（非离线映像）才查 —— 查的是当前系统的状态。
+    if (!injectedChecks.empty())
+    {
+        report.checks = injectedChecks;
+        for (const sysinfo::Check& check : injectedChecks)
+        {
+            if (check.severity == "critical" && check.detected)
+            {
+                report.blockers.push_back(
+                    check.title + "：" + check.message + "（处理：" + check.resolution + "）"
+                );
+            }
+        }
+    }
+    else if (options.image.empty())
+    {
+        const sysinfo::CheckupReport checkup = sysinfo::collect();
+        for (const sysinfo::Check* check : sysinfo::blockingChecks(checkup))
+        {
+            report.blockers.push_back(
+                check->title + "：" + check->message + "（处理：" + check->resolution + "）"
+            );
+        }
+        report.checks = checkup.checks;
     }
 
     report.steps.push_back("1. 前置检查      sysprep.exe 存在、目标系统具备 SHA-2 签名支持");
@@ -501,6 +534,22 @@ std::string toJson(const Report& report)
     root["sha2"] = std::move(sha2);
 
     root["blockers"] = report.blockers;
+
+    json checks = json::array();
+    for (const sysinfo::Check& check : report.checks)
+    {
+        checks.push_back({
+            {"id", check.id},
+            {"severity", check.severity},
+            {"title", check.title},
+            {"detected", check.detected},
+            {"evaluated", check.evaluated},
+            {"message", check.message},
+            {"resolution", check.resolution},
+            {"evidence", check.evidence},
+        });
+    }
+    root["checks"] = std::move(checks);
     root["warnings"] = report.warnings;
     return root.dump(2) + "\n";
 }

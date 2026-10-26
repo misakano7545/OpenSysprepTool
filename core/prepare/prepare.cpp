@@ -219,95 +219,8 @@ std::string nowText()
 
 // ---------------------------------------------------------------- 读命令输出
 
-// 需要「先读旧值再改」的场合（bcdedit 的启动菜单超时）：runCommand 不捕获 stdout，
-// 这里补一个带管道的版本。只用 CreateProcess，不用 system()。
-struct Captured
-{
-    bool ok = false;
-    std::uint32_t exitCode = 0;
-    std::string output;
-    std::string error;
-};
-
-Captured runCaptured(const std::string& commandLine)
-{
-    Captured result;
-
-    const std::wstring wide = toWide(commandLine);
-    if (wide.empty())
-    {
-        result.error = "命令行无法转换为 UTF-16";
-        return result;
-    }
-
-    SECURITY_ATTRIBUTES attributes = {};
-    attributes.nLength = sizeof(attributes);
-    attributes.bInheritHandle = TRUE;
-
-    HANDLE readEnd = nullptr;
-    HANDLE writeEnd = nullptr;
-    if (CreatePipe(&readEnd, &writeEnd, &attributes, 0) == 0)
-    {
-        result.error = "CreatePipe 失败，GetLastError=" + std::to_string(GetLastError());
-        return result;
-    }
-    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
-
-    STARTUPINFOW startup = {};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    startup.hStdOutput = writeEnd;
-    startup.hStdError = writeEnd;
-    startup.hStdInput = nullptr;
-
-    std::vector<wchar_t> mutableCommandLine(wide.begin(), wide.end());
-    mutableCommandLine.push_back(L'\0');
-
-    PROCESS_INFORMATION process = {};
-    const BOOL created = CreateProcessW(
-        nullptr,
-        mutableCommandLine.data(),
-        nullptr,
-        nullptr,
-        TRUE,
-        CREATE_NO_WINDOW,
-        nullptr,
-        nullptr,
-        &startup,
-        &process
-    );
-    CloseHandle(writeEnd); // 子进程已持有自己的副本，父进程必须关掉才能读到 EOF
-
-    if (created == 0)
-    {
-        CloseHandle(readEnd);
-        result.error = "CreateProcess 失败，GetLastError=" + std::to_string(GetLastError());
-        return result;
-    }
-
-    std::string bytes;
-    char buffer[4096] = {};
-    DWORD read = 0;
-    while (ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) != 0 && read > 0)
-    {
-        bytes.append(buffer, read);
-    }
-    CloseHandle(readEnd);
-
-    WaitForSingleObject(process.hProcess, INFINITE);
-    DWORD code = 0;
-    GetExitCodeProcess(process.hProcess, &code);
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-
-    // bcdedit 在中文系统上输出 GBK，在英文系统上输出 ANSI；统一按 UTF-8 收，
-    // 解析只认 ASCII 关键字与数字，所以编码不影响判定。
-    result.ok = true;
-    result.exitCode = code;
-    result.output = std::move(bytes);
-    return result;
-}
+// 「先读旧值再改」的场合（bcdedit 的启动菜单超时）需要捕获 stdout，
+// 统一走 core/dism 的 runCommandCaptured，避免两处各写一份 CreateProcess + 管道。
 
 // bcdedit /enum {bootmgr} 里的启动菜单超时。中文系统写作「超时」，英文写作 timeout。
 bool parseBcdTimeout(const std::string& text, int& seconds)
@@ -882,9 +795,12 @@ bool bcdTimeoutSet(const Action& action, ExecResult& result, std::string& error)
     }
 
     const std::string bcd = quoteIfNeeded(action.program);
-    const Captured before = runCaptured(bcd + " /enum {bootmgr}");
+    std::uint32_t enumCode = 0;
+    std::string enumOutput;
+    std::string enumError;
+    const bool enumOk = dism::runCommandCaptured(bcd + " /enum {bootmgr}", enumCode, enumOutput, enumError);
     int oldSeconds = -1;
-    const bool haveOld = before.ok && parseBcdTimeout(before.output, oldSeconds);
+    const bool haveOld = enumOk && parseBcdTimeout(enumOutput, oldSeconds);
 
     std::uint32_t code = 0;
     const std::string commandLine = bcd + " /set {bootmgr} timeout " + std::to_string(action.dword);

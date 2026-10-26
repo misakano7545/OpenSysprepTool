@@ -215,3 +215,62 @@ TEST_CASE("映像未挂载时不瞎猜")
     CHECK_FALSE(sha2.ok);
     CHECK(sha2.note.find("找不到") != std::string::npos);
 }
+
+TEST_CASE("sysprep: critical checkup items become blockers")
+{
+    osp::sysprep::Options options;
+    options.afterAction = "quit";
+
+    osp::sysinfo::Check pending;
+    pending.id = "pendingServicing";
+    pending.severity = "critical";
+    pending.detected = true;
+    pending.title = "待处理的服务操作";
+    pending.message = "系统里有挂起的更新";
+    pending.resolution = "先重启";
+
+    osp::sysinfo::Check clean;
+    clean.id = "bitlocker";
+    clean.severity = "critical";
+    clean.detected = false;
+    clean.title = "BitLocker 加密状态";
+
+    osp::sysinfo::Check warning;
+    warning.id = "domainJoin";
+    warning.severity = "warning";
+    warning.detected = true;
+    warning.title = "已加入域";
+
+    const auto report = osp::sysprep::plan(options, {pending, clean, warning});
+    REQUIRE(report.blockers.size() == 1);
+    CHECK(report.blockers.front().find("待处理的服务操作") != std::string::npos);
+    CHECK(report.blockers.front().find("先重启") != std::string::npos);
+    CHECK(report.checks.size() == 3);
+
+    // 干净机器上没有 critical 命中，就不该有阻塞项
+    const auto cleanReport = osp::sysprep::plan(options, {clean, warning});
+    CHECK(cleanReport.blockers.empty());
+}
+
+TEST_CASE("sysprep: dry-run report prints blockers when present")
+{
+    osp::sysprep::Options options;
+    options.afterAction = "quit";
+
+    osp::sysinfo::Check pending;
+    pending.id = "pendingServicing";
+    pending.severity = "critical";
+    pending.detected = true;
+    pending.title = "待处理的服务操作";
+    pending.message = "系统里有挂起的更新";
+    pending.resolution = "先重启";
+
+    const auto report = osp::sysprep::plan(options, {pending});
+    const std::string text = osp::sysprep::dryRunReport(report);
+    CHECK(text.find("阻塞项（真实执行前必须先解决）") != std::string::npos);
+    CHECK(text.find("待处理的服务操作") != std::string::npos);
+
+    const std::string json = osp::sysprep::toJson(report);
+    CHECK(json.find("\"checks\"") != std::string::npos);
+    CHECK(json.find("pendingServicing") != std::string::npos);
+}

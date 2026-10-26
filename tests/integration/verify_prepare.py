@@ -174,6 +174,8 @@ def main() -> int:
     plan_path = os.path.join(work, "plan.json")
     journal_path = os.path.join(work, "journal.json")
     report_path = os.path.join(work, "report.json")
+    checkup_path = os.path.join(work, "checkup.json")
+    sysprep_report_path = os.path.join(work, "sysprep-report.json")
     bad_cfg_path = os.path.join(work, "bad.json")
 
     for stale in (plan_path, journal_path, report_path):
@@ -241,7 +243,62 @@ def main() -> int:
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
 
-    # ------------------------------------------------------------ 未加 --execute
+    # ------------------------------------------------------------ 体检项（M10）
+    section("体检项与阻断判定")
+    code, output = run([ospt, "--checkup", "--json", checkup_path])
+    check("--checkup --json 退出码 0", code == 0, f"exit={code}")
+    checkup = {}
+    if os.path.isfile(checkup_path):
+        with open(checkup_path, "r", encoding="utf-8") as handle:
+            checkup = json.load(handle)
+
+    checks = {item.get("id"): item for item in checkup.get("checks", [])}
+    for expected in (
+        "pendingServicing",
+        "pendingFileRename",
+        "bitlocker",
+        "domainJoin",
+        "inPlaceUpgrade",
+        "unattendResidue",
+        "dirtyBit",
+        "appxPackages",
+    ):
+        check(f"体检项存在: {expected}", expected in checks)
+
+    for item in checks.values():
+        check(f"体检项 {item.get('id')} 有严重级别", item.get("severity") in ("critical", "warning", "info"))
+        check(f"体检项 {item.get('id')} 有处理建议", bool(item.get("resolution")))
+
+    # PFRO 实测不阻断，必须是 info
+    if "pendingFileRename" in checks:
+        check("待重命名文件是 info（不阻断）", checks["pendingFileRename"].get("severity") == "info")
+
+    blocking = checkup.get("blocking", [])
+    check("blocking 是数组", isinstance(blocking, list))
+    critical_detected = [
+        item["id"] for item in checks.values()
+        if item.get("severity") == "critical" and item.get("detected")
+    ]
+    check("blocking 与 critical 命中项一致", sorted(blocking) == sorted(critical_detected),
+          f"blocking={blocking} critical={critical_detected}")
+
+    # --sysprep --dry-run 的 JSON 必须带同一份体检结果
+    code, output = run([ospt, "--sysprep", "--dry-run", "--report", sysprep_report_path])
+    check("--sysprep --dry-run 退出码 0", code == 0, f"exit={code}\n{output[-400:]}")
+    sysprep_report = {}
+    if os.path.isfile(sysprep_report_path):
+        with open(sysprep_report_path, "r", encoding="utf-8") as handle:
+            sysprep_report = json.load(handle)
+    sysprep_checks = {item.get("id") for item in sysprep_report.get("checks", [])}
+    check("sysprep 报告带体检项", len(sysprep_checks) >= 8, str(sorted(sysprep_checks)))
+    sysprep_blockers = sysprep_report.get("blockers", [])
+    check(
+        "sysprep 的阻塞项与体检 critical 项一致",
+        len(sysprep_blockers) == len(critical_detected),
+        f"blockers={sysprep_blockers} critical={critical_detected}",
+    )
+
+    # ------------------------------------------------------------ 拒绝执行
     section("拒绝执行")
     code, output = run([ospt, "--prepare", cfg_path])
     check("不带 --execute 退出码 2", code == 2, f"exit={code}\n{output}")

@@ -415,4 +415,83 @@ bool runCommand(const std::string& commandLine, std::uint32_t& exitCode, std::st
     return true;
 }
 
+bool runCommandCaptured(
+    const std::string& commandLine, std::uint32_t& exitCode, std::string& output, std::string& error
+)
+{
+    exitCode = 0;
+    output.clear();
+    error.clear();
+
+    std::wstring wide = toWide(commandLine);
+    if (wide.empty())
+    {
+        error = "命令行无法转换为 UTF-16（空串或编码错误）";
+        return false;
+    }
+
+    SECURITY_ATTRIBUTES attributes = {};
+    attributes.nLength = sizeof(attributes);
+    attributes.bInheritHandle = TRUE;
+
+    HANDLE readEnd = nullptr;
+    HANDLE writeEnd = nullptr;
+    if (CreatePipe(&readEnd, &writeEnd, &attributes, 0) == 0)
+    {
+        error = "CreatePipe 失败，GetLastError=" + std::to_string(GetLastError());
+        return false;
+    }
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW startup = {};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = writeEnd;
+    startup.hStdError = writeEnd;
+
+    std::vector<wchar_t> mutableCommandLine(wide.begin(), wide.end());
+    mutableCommandLine.push_back(L'\0');
+
+    PROCESS_INFORMATION process = {};
+    const BOOL created = CreateProcessW(
+        nullptr,
+        mutableCommandLine.data(),
+        nullptr,
+        nullptr,
+        TRUE,
+        CREATE_NO_WINDOW,
+        nullptr,
+        nullptr,
+        &startup,
+        &process
+    );
+    // 子进程已持有自己的写端副本，父进程必须关掉才能读到 EOF
+    CloseHandle(writeEnd);
+
+    if (created == 0)
+    {
+        CloseHandle(readEnd);
+        error = "CreateProcess 失败，GetLastError=" + std::to_string(GetLastError());
+        return false;
+    }
+
+    char buffer[4096] = {};
+    DWORD read = 0;
+    while (ReadFile(readEnd, buffer, sizeof(buffer), &read, nullptr) != 0 && read > 0)
+    {
+        output.append(buffer, read);
+    }
+    CloseHandle(readEnd);
+
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+
+    exitCode = code;
+    return true;
+}
+
 } // namespace osp::dism

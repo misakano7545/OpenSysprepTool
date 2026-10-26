@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <winternl.h>
 #include <comdef.h>
+#include <lm.h>
 #include <wbemidl.h>
 
 #include <algorithm>
@@ -13,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/dism.hpp"
 #include "core/win7.hpp"
 
 namespace osp::sysinfo {
@@ -863,7 +865,514 @@ std::string formatBytes(std::uint64_t bytes)
 
 // ---------------------------------------------------------------- 采集
 
-CheckupReport collect()
+// ---------------------------------------------------------------- 体检项（M10）
+
+// 这些检查来自 docs/开源参考调研.md §2.1：SysprepPreparator 把检查做成
+// CCP（Compatibility Checker Provider），每项返回 Compatible + Severity + Resolution。
+// 严重级别和修复建议本身就是产物 —— --sysprep 直接消费 critical 项当 blockers。
+
+namespace {
+
+bool fileExists(const std::wstring& path)
+{
+    return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+Check makeCheck(
+    const char* id,
+    const char* severity,
+    const char* title,
+    bool detected,
+    std::string message,
+    std::string resolution,
+    std::string evidence
+)
+{
+    Check check;
+    check.id = id;
+    check.severity = severity;
+    check.title = title;
+    check.detected = detected;
+    check.message = std::move(message);
+    check.resolution = std::move(resolution);
+    check.evidence = std::move(evidence);
+    return check;
+}
+
+// 待处理的服务操作：CBS 或 Windows Update 挂起的更新会让 generalize 失败。
+void checkPendingServicing(std::vector<Check>& checks)
+{
+    const std::wstring win = winDir();
+
+    std::vector<std::string> hits;
+
+    const std::wstring pendingXml = win + L"\\WinSxS\\pending.xml";
+    if (fileExists(pendingXml))
+    {
+        hits.push_back("%WINDIR%\\WinSxS\\pending.xml");
+    }
+
+    std::uint32_t value = 0;
+    if (readRegDword(
+            HKEY_LOCAL_MACHINE,
+            L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending",
+            L"",
+            value
+        ))
+    {
+        hits.push_back("CBS\\RebootPending");
+    }
+    if (readRegDword(
+            HKEY_LOCAL_MACHINE,
+            L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired",
+            L"",
+            value
+        ))
+    {
+        hits.push_back("WindowsUpdate\\RebootRequired");
+    }
+
+    std::string evidence;
+    for (const std::string& hit : hits)
+    {
+        if (!evidence.empty())
+        {
+            evidence += "；";
+        }
+        evidence += hit;
+    }
+
+    checks.push_back(makeCheck(
+        "pendingServicing",
+        "critical",
+        "待处理的服务操作",
+        !hits.empty(),
+        "系统里有挂起的更新/组件操作，generalize 会失败",
+        "先重启让挂起的操作完成，再重新体检；必要时 dism /online /cleanup-image /startcomponentcleanup",
+        evidence
+    ));
+}
+
+// 待重命名文件：实测在大量健康机器上存在，sysprep 不会因此失败 —— 只记录，不阻断。
+void checkPendingFileRename(std::vector<Check>& checks)
+{
+    std::wstring value;
+    const bool found = readRegString(
+        HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Control\\Session Manager",
+        L"PendingFileRenameOperations",
+        value
+    );
+    checks.push_back(makeCheck(
+        "pendingFileRename",
+        "info",
+        "待重命名文件",
+        found && !value.empty(),
+        "存在待重启后重命名的文件（健康机器上也很常见）",
+        "不阻断封装；如需清空请重启一次",
+        found ? "PendingFileRenameOperations 非空" : ""
+    ));
+}
+
+// BitLocker：必须是「完全解密」，挂起不够 —— 加密卷上 sysprep 可能让数据不可恢复。
+void checkBitLocker(std::vector<Check>& checks)
+{
+    Check check = makeCheck(
+        "bitlocker",
+        "critical",
+        "BitLocker 加密状态",
+        false,
+        "系统卷仍处于加密或加密挂起状态",
+        "先 manage-bde -off C: 并等完全解密（manage-bde -status 显示 Fully Decrypted）再封装",
+        ""
+    );
+
+    CoInitScope com;
+    if (!com.ok())
+    {
+        check.evaluated = false;
+        check.evidence = "COM 初始化失败，未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+    CoInitializeSecurity(
+        nullptr,
+        -1,
+        nullptr,
+        nullptr,
+        RPC_C_AUTHN_LEVEL_DEFAULT,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        nullptr,
+        EOAC_NONE,
+        nullptr
+    );
+
+    ComPtr<IWbemLocator> locator;
+    if (FAILED(CoCreateInstance(
+            CLSID_WbemLocator,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_IWbemLocator,
+            reinterpret_cast<void**>(locator.put())
+        )))
+    {
+        check.evaluated = false;
+        check.evidence = "WbemLocator 创建失败，未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    ComPtr<IWbemServices> service;
+    if (FAILED(locator->ConnectServer(
+            _bstr_t(L"ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption"),
+            nullptr,
+            nullptr,
+            nullptr,
+            0,
+            nullptr,
+            nullptr,
+            service.put()
+        )))
+    {
+        // 没有这个命名空间的系统（部分精简版/Win7 家庭版）视为未加密
+        check.evaluated = true;
+        check.evidence = "ROOT\\CIMV2\\Security\\MicrosoftVolumeEncryption 不可用，按未加密处理";
+        checks.push_back(std::move(check));
+        return;
+    }
+    CoSetProxyBlanket(
+        service.get(),
+        RPC_C_AUTHN_WINNT,
+        RPC_C_AUTHZ_NONE,
+        nullptr,
+        RPC_C_AUTHN_LEVEL_CALL,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        nullptr,
+        EOAC_NONE
+    );
+
+    ComPtr<IEnumWbemClassObject> enumerator;
+    if (FAILED(service->ExecQuery(
+            _bstr_t(L"WQL"),
+            _bstr_t(L"SELECT DriveLetter, ConversionStatus, ProtectionStatus FROM Win32_EncryptableVolume"),
+            WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
+            nullptr,
+            enumerator.put()
+        )))
+    {
+        check.evaluated = false;
+        check.evidence = "Win32_EncryptableVolume 查询失败，未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    std::string evidence;
+    for (;;)
+    {
+        ULONG returned = 0;
+        ComPtr<IWbemClassObject> object;
+        if (FAILED(enumerator->Next(WBEM_INFINITE, 1, object.put(), &returned)) || returned == 0)
+        {
+            break;
+        }
+
+        _variant_t conversion;
+        _variant_t protection;
+        _variant_t letter;
+        const long conversionValue =
+            SUCCEEDED(object->Get(L"ConversionStatus", 0, &conversion, nullptr, nullptr)) ? conversion.lVal
+                                                                                          : 0;
+        const long protectionValue =
+            SUCCEEDED(object->Get(L"ProtectionStatus", 0, &protection, nullptr, nullptr)) ? protection.lVal
+                                                                                          : 0;
+        std::string name = "系统卷";
+        if (SUCCEEDED(object->Get(L"DriveLetter", 0, &letter, nullptr, nullptr)) && letter.vt == VT_BSTR)
+        {
+            name = toUtf8(letter.bstrVal);
+        }
+
+        // ConversionStatus：0 = FullyDecrypted，1 = FullyEncrypted，2 = EncryptionInProgress，
+        // 3 = DecryptionInProgress，4 = EncryptionPaused，5 = DecryptionPaused
+        const bool encrypted = conversionValue != 0;
+        if (encrypted || protectionValue != 0)
+        {
+            if (!evidence.empty())
+            {
+                evidence += "；";
+            }
+            evidence += name + " ConversionStatus=" + std::to_string(conversionValue) +
+                " ProtectionStatus=" + std::to_string(protectionValue);
+        }
+    }
+
+    check.detected = !evidence.empty();
+    check.evidence = evidence;
+    checks.push_back(std::move(check));
+}
+
+// 域加入：generalize 会破坏域信任。
+void checkDomainJoin(std::vector<Check>& checks)
+{
+    Check check = makeCheck(
+        "domainJoin",
+        "warning",
+        "已加入域",
+        false,
+        "本机已加入域，封装后目标机需要重新加域，原信任关系会失效",
+        "确认目标机加域方式（unattend 的 UnattendedJoin 或部署后手工），并准备域账号",
+        ""
+    );
+
+    LPWSTR name = nullptr;
+    NETSETUP_JOIN_STATUS status = NetSetupUnknownStatus;
+    const DWORD rc = NetGetJoinInformation(nullptr, &name, &status);
+    if (rc == NERR_Success)
+    {
+        if (status == NetSetupDomainName)
+        {
+            check.detected = true;
+            check.evidence = "NetGetJoinInformation: " + toUtf8(name);
+        }
+        else
+        {
+            check.evidence = "NetGetJoinInformation: 工作组";
+        }
+        if (name != nullptr)
+        {
+            NetApiBufferFree(name);
+        }
+    }
+    else
+    {
+        check.evaluated = false;
+        check.evidence = "NetGetJoinInformation 失败，错误码 " + std::to_string(rc);
+    }
+    checks.push_back(std::move(check));
+}
+
+// 就地升级痕迹：会随镜像带进目标机。
+void checkInPlaceUpgrade(std::vector<Check>& checks)
+{
+    const std::wstring win = winDir();
+    std::string evidence;
+
+    const std::wstring windowsOld = win.substr(0, win.find_last_of(L'\\')) + L"\\Windows.old";
+    if (fileExists(windowsOld))
+    {
+        evidence = "存在 Windows.old";
+    }
+
+    HKEY setup = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\Setup", 0, KEY_READ, &setup) == ERROR_SUCCESS)
+    {
+        wchar_t name[256] = {};
+        DWORD index = 0;
+        for (;;)
+        {
+            DWORD length = static_cast<DWORD>(std::size(name));
+            if (RegEnumKeyExW(setup, index, name, &length, nullptr, nullptr, nullptr, nullptr) !=
+                ERROR_SUCCESS)
+            {
+                break;
+            }
+            ++index;
+            if (std::wstring(name).rfind(L"Source OS", 0) == 0)
+            {
+                if (!evidence.empty())
+                {
+                    evidence += "；";
+                }
+                evidence += "HKLM\\SYSTEM\\Setup\\" + toUtf8(std::wstring(name, length));
+            }
+        }
+        RegCloseKey(setup);
+    }
+
+    checks.push_back(makeCheck(
+        "inPlaceUpgrade",
+        "warning",
+        "就地升级痕迹",
+        !evidence.empty(),
+        "镜像来自就地升级，会带上旧系统残留（体积与兼容性都有影响）",
+        "确认是否需要清理；Windows.old 可在封装前删除以减小镜像",
+        evidence
+    ));
+}
+
+// 无人值守残留：下次 Setup 可能重跑这份应答文件。
+void checkUnattendResidue(std::vector<Check>& checks)
+{
+    const std::wstring win = winDir();
+    const std::wstring systemDrive = win.substr(0, 2) + L"\\";
+
+    const std::pair<const wchar_t*, const char*> candidates[] = {
+        {(win + L"\\Panther\\unattend.xml").c_str(), "%WINDIR%\\Panther\\unattend.xml"},
+        {(win + L"\\System32\\Sysprep\\unattend.xml").c_str(), "%WINDIR%\\System32\\Sysprep\\unattend.xml"},
+        {(systemDrive + L"unattend.xml").c_str(), "系统盘根目录 unattend.xml"},
+    };
+
+    std::string evidence;
+    for (const auto& candidate : candidates)
+    {
+        if (fileExists(candidate.first))
+        {
+            if (!evidence.empty())
+            {
+                evidence += "；";
+            }
+            evidence += candidate.second;
+        }
+    }
+
+    checks.push_back(makeCheck(
+        "unattendResidue",
+        "warning",
+        "无人值守文件残留",
+        !evidence.empty(),
+        "系统里还有旧的应答文件，下一次 Setup 可能重跑它",
+        "封装前确认这些文件是否该保留；本工具生成的 unattend 由 --sysprep 指定路径",
+        evidence
+    ));
+}
+
+// 系统卷脏位：建议先 chkdsk。fsutil 需要管理员，未提权时标记为未检查。
+void checkDirtyBit(std::vector<Check>& checks)
+{
+    Check check = makeCheck(
+        "dirtyBit",
+        "warning",
+        "系统卷脏位",
+        false,
+        "系统卷被标记为脏，建议先跑 chkdsk",
+        "chkdsk C: /f 后重启",
+        ""
+    );
+
+    wchar_t systemDir[MAX_PATH] = {};
+    if (GetSystemDirectoryW(systemDir, static_cast<UINT>(std::size(systemDir))) == 0)
+    {
+        check.evaluated = false;
+        check.evidence = "取不到 System32 路径，未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+    const std::string fsutil = toUtf8(std::wstring(systemDir)) + "\\fsutil.exe";
+    const std::string drive =
+        std::string(1, static_cast<char>(toupper(static_cast<unsigned char>(systemDir[0]))));
+
+    std::uint32_t code = 0;
+    std::string output;
+    std::string error;
+    if (!dism::runCommandCaptured("\"" + fsutil + "\" dirty query " + drive + ":", code, output, error))
+    {
+        check.evaluated = false;
+        check.evidence = "无法运行 fsutil：" + error;
+        checks.push_back(std::move(check));
+        return;
+    }
+    if (code != 0)
+    {
+        check.evaluated = false;
+        check.evidence = "fsutil 退出码 " + std::to_string(code) + "（通常是没有管理员权限）";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    // 英文输出 "Volume - C: is Dirty"，中文输出「卷 - C: 是脏的」。
+    // 只认 ASCII 关键字，避免编码问题。
+    const bool dirty =
+        output.find("is Dirty") != std::string::npos || output.find("Dirty") != std::string::npos;
+    check.detected = dirty;
+    check.evidence = dirty ? "fsutil dirty query 报告脏位已置" : "fsutil dirty query 报告干净";
+    checks.push_back(std::move(check));
+}
+
+// 已安装但未 provision 给所有用户的 AppX 会让 generalize 报 0x80073cf2。
+// 精确判定要靠 Get-AppxPackage -AllUsers（PowerShell），这里只报「存在已注册的
+// AppX 包」并明确写成只读提示 —— 不对 Win10/11 每台机器都刷一条 warning。
+void checkStagedAppx(std::vector<Check>& checks)
+{
+    Check check = makeCheck(
+        "appxPackages",
+        "info",
+        "AppX 包（只读提示）",
+        false,
+        "系统里有已注册的 AppX 包；若有包只装给了某个用户而未 provision 给所有用户，"
+        "generalize 会报 0x80073cf2",
+        "在目标机上用 Get-AppxPackage -AllUsers 核对，或先移除这些包再封装",
+        ""
+    );
+
+    HKEY packages = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Appx\\AppxAllUserStore\\Applications",
+            0,
+            KEY_READ,
+            &packages
+        ) != ERROR_SUCCESS)
+    {
+        check.evaluated = false;
+        check.evidence = "AppxAllUserStore\\Applications 不存在（Win7 或无 Store 的系统），未检查";
+        checks.push_back(std::move(check));
+        return;
+    }
+
+    std::size_t packageCount = 0;
+    wchar_t name[512] = {};
+    DWORD index = 0;
+    for (;;)
+    {
+        DWORD length = static_cast<DWORD>(std::size(name));
+        if (RegEnumKeyExW(packages, index, name, &length, nullptr, nullptr, nullptr, nullptr) !=
+            ERROR_SUCCESS)
+        {
+            break;
+        }
+        ++index;
+        // 只数形如 <name>_<version>_<arch>__<publisherId> 的包键，跳过 <SID> 子键
+        if (std::wstring(name, length).find(L'_') != std::wstring::npos)
+        {
+            ++packageCount;
+        }
+    }
+    RegCloseKey(packages);
+
+    check.detected = packageCount > 0;
+    check.evidence = "AppxAllUserStore\\Applications 下 " + std::to_string(packageCount) + " 个包";
+    checks.push_back(std::move(check));
+}
+
+void fillChecks(CheckupReport& report)
+{
+    checkPendingServicing(report.checks);
+    checkPendingFileRename(report.checks);
+    checkBitLocker(report.checks);
+    checkDomainJoin(report.checks);
+    checkInPlaceUpgrade(report.checks);
+    checkUnattendResidue(report.checks);
+    checkDirtyBit(report.checks);
+    checkStagedAppx(report.checks);
+}
+
+} // namespace
+
+std::vector<const Check*> blockingChecks(const CheckupReport& report)
+{
+    std::vector<const Check*> blocking;
+    for (const Check& check : report.checks)
+    {
+        if (check.severity == "critical" && check.detected)
+        {
+            blocking.push_back(&check);
+        }
+    }
+    return blocking;
+}
+
+namespace {
+
+CheckupReport collectImpl()
 {
     CheckupReport report;
     report.generatedAtUtc = nowUtcIso();
@@ -886,8 +1395,16 @@ CheckupReport collect()
     fillCloneIndicators(report.cloneIndicators, report.isLikelyClone, report.sysprep, report.warnings);
     fillAntivirusInfo(report.antivirus, report.warnings);
     fillStartupItems(report.startupItems);
+    fillChecks(report);
 
     return report;
+}
+
+} // namespace
+
+CheckupReport collect()
+{
+    return collectImpl();
 }
 
 // ---------------------------------------------------------------- JSON
@@ -992,6 +1509,29 @@ std::string toJson(const CheckupReport& report)
     }
     root["startupItems"] = std::move(startup);
 
+    json checks = json::array();
+    for (const Check& check : report.checks)
+    {
+        json item;
+        item["id"] = check.id;
+        item["severity"] = check.severity;
+        item["title"] = check.title;
+        item["detected"] = check.detected;
+        item["evaluated"] = check.evaluated;
+        item["message"] = check.message;
+        item["resolution"] = check.resolution;
+        item["evidence"] = check.evidence;
+        checks.push_back(std::move(item));
+    }
+    root["checks"] = std::move(checks);
+
+    json blocking = json::array();
+    for (const Check* check : blockingChecks(report))
+    {
+        blocking.push_back(check->id);
+    }
+    root["blocking"] = std::move(blocking);
+
     root["warnings"] = report.warnings;
 
     return root.dump(2);
@@ -1077,6 +1617,58 @@ std::string toSummaryText(const CheckupReport& report)
     for (const StartupItem& s : report.startupItems)
     {
         line("  " + s.scope + "  " + s.name + " = " + s.command);
+    }
+
+    // 体检项按 severity 排序输出：critical 在最前，其次是 warning，info 最后。
+    // 阻断项单独点名，因为它们决定 --sysprep 能不能跑。
+    if (!report.checks.empty())
+    {
+        line("");
+        line("[体检项]");
+        const char* order[] = {"critical", "warning", "info"};
+        for (const char* severity : order)
+        {
+            for (const Check& check : report.checks)
+            {
+                if (check.severity != severity)
+                {
+                    continue;
+                }
+                std::string mark = "[未查] ";
+                if (check.evaluated)
+                {
+                    mark = check.detected ? "[命中] " : "[正常] ";
+                }
+                line("  " + mark + check.title + "  (" + check.severity + ")");
+                if (check.detected && !check.message.empty())
+                {
+                    line("        " + check.message);
+                }
+                if (check.detected && !check.resolution.empty())
+                {
+                    line("        处理: " + check.resolution);
+                }
+                if (!check.evidence.empty())
+                {
+                    line("        依据: " + check.evidence);
+                }
+            }
+        }
+
+        const std::vector<const Check*> blocking = blockingChecks(report);
+        line("");
+        if (blocking.empty())
+        {
+            line("阻断项: 无（可以封装）");
+        }
+        else
+        {
+            line("阻断项: " + std::to_string(blocking.size()) + " 项，封装前必须解决");
+            for (const Check* check : blocking)
+            {
+                line("  - " + check->title + "：" + check->message);
+            }
+        }
     }
 
     if (!report.warnings.empty())

@@ -94,6 +94,24 @@ struct StartupItem
     std::string command;
 };
 
+// ---------------------------------------------------------------- 体检项
+
+// 一项体检结论。severity 决定它会不会阻断封装：
+//   critical —— 阻断（sysprep 会失败或让数据不可恢复）
+//   warning  —— 提示（会随镜像带走，但能继续）
+//   info     —— 只是记录（例如待重命名文件，实测在大量健康机器上存在）
+struct Check
+{
+    std::string id;
+    std::string severity; // critical / warning / info
+    std::string title;
+    std::string message;    // 检测到问题时的一句话
+    std::string resolution; // 怎么处理
+    std::string evidence;   // 命中的路径 / 注册表值 / 原始输出
+    bool detected = false;  // 是否命中问题
+    bool evaluated = true;  // false = 本次没查（例如需要管理员）
+};
+
 // ---------------------------------------------------------------- 汇总
 struct CheckupReport
 {
@@ -107,11 +125,16 @@ struct CheckupReport
     bool isLikelyClone = false;
     AntivirusInfo antivirus;
     std::vector<StartupItem> startupItems;
+    std::vector<Check> checks;
     std::vector<std::string> warnings;
 };
 
 // 采集全量体检报告。永不抛异常；单项失败写入 warnings。
 CheckupReport collect();
+
+// severity == critical 且 detected 的项。--sysprep 直接拿它当 blockers，
+// 不再各写一套判断。
+std::vector<const Check*> blockingChecks(const CheckupReport& report);
 
 // 序列化为 JSON 文本（2 空格缩进）。
 std::string toJson(const CheckupReport& report);
