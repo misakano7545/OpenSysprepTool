@@ -1391,6 +1391,34 @@ Plan build(const config::Config& cfg, const Options& options)
         }
         else
         {
+            const auto addServiceCommand =
+                [&plan, &opt](const char* id, const char* title, const char* arguments) {
+                    Action action;
+                    action.kind = ActionKind::RunCommand;
+                    action.id = id;
+                    action.group = "隐私痕迹清理";
+                    action.title = title;
+                    action.sourceField = "optimization.clearUpdateCache";
+                    action.program = joinPath(opt.windowsDir, "System32\\net.exe");
+                    action.arguments = arguments;
+                    // 停一个本来没跑的服务会返回 3521；起一个已在跑的服务返回 2114
+                    action.tolerateNonZeroExit = true;
+                    return action;
+                };
+
+            // 顺序与 SysprepPreparator 的 WindowsUpdateTempFileCleanupPT 一致：
+            // 先停服务（否则文件被占用删不掉），清缓存，再起服务。
+            Action stopWu = addServiceCommand(
+                "optimization.clearUpdateCache.stopWuauserv", "停止 Windows Update 服务", "stop wuauserv"
+            );
+            stopWu.note = "服务本来没跑时返回 3521，已按容忍处理";
+            plan.actions.push_back(std::move(stopWu));
+
+            Action stopBits =
+                addServiceCommand("optimization.clearUpdateCache.stopBits", "停止 BITS 服务", "stop bits");
+            stopBits.note = "同上";
+            plan.actions.push_back(std::move(stopBits));
+
             Action action;
             action.kind = ActionKind::DeleteTree;
             action.id = "optimization.clearUpdateCache";
@@ -1399,8 +1427,30 @@ Plan build(const config::Config& cfg, const Options& options)
             action.sourceField = "optimization.clearUpdateCache";
             action.path = joinPath(opt.windowsDir, "SoftwareDistribution\\Download");
             action.irreversible = true;
-            action.note = "只删已下载的更新包，系统需要时会重新下载；正在安装更新时不要跑";
+            action.note = "只删已下载的更新包，系统需要时会重新下载";
             plan.actions.push_back(std::move(action));
+
+            Action resetQueue;
+            resetQueue.kind = ActionKind::RunCommand;
+            resetQueue.id = "optimization.clearUpdateCache.bitsReset";
+            resetQueue.group = "隐私痕迹清理";
+            resetQueue.title = "清空 BITS 传输队列";
+            resetQueue.sourceField = "optimization.clearUpdateCache";
+            resetQueue.program = joinPath(opt.windowsDir, "System32\\bitsadmin.exe");
+            resetQueue.arguments = "/reset /allusers";
+            resetQueue.irreversible = true;
+            resetQueue.tolerateNonZeroExit = true;
+            plan.actions.push_back(std::move(resetQueue));
+
+            Action startWu = addServiceCommand(
+                "optimization.clearUpdateCache.startWuauserv", "重新启动 Windows Update 服务", "start wuauserv"
+            );
+            startWu.note = "两个服务默认都是按需启动，这里只是把它们恢复成可用状态";
+            plan.actions.push_back(std::move(startWu));
+
+            Action startBits =
+                addServiceCommand("optimization.clearUpdateCache.startBits", "重新启动 BITS 服务", "start bits");
+            plan.actions.push_back(std::move(startBits));
         }
     }
 

@@ -396,6 +396,18 @@ TEST_CASE("prepare: privacy traces and update cache become cleanup actions")
     REQUIRE(cache != nullptr);
     CHECK(cache->path == std::string("C:\\Windows") + "\\SoftwareDistribution\\Download");
     CHECK(cache->irreversible);
+
+    // 停服务 → 删缓存 → 清队列 → 起服务，四步都要在
+    REQUIRE(findAction(plan, "optimization.clearUpdateCache.stopWuauserv") != nullptr);
+    REQUIRE(findAction(plan, "optimization.clearUpdateCache.stopBits") != nullptr);
+    REQUIRE(findAction(plan, "optimization.clearUpdateCache.bitsReset") != nullptr);
+    REQUIRE(findAction(plan, "optimization.clearUpdateCache.startWuauserv") != nullptr);
+    REQUIRE(findAction(plan, "optimization.clearUpdateCache.startBits") != nullptr);
+
+    const osp::prepare::Action* stop = findAction(plan, "optimization.clearUpdateCache.stopWuauserv");
+    CHECK(stop->arguments == "stop wuauserv");
+    CHECK(stop->tolerateNonZeroExit);
+    CHECK(stop->program.find("net.exe") != std::string::npos);
 }
 
 TEST_CASE("prepare: deleting a registry key is idempotent")
