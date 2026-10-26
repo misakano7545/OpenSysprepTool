@@ -1424,7 +1424,7 @@ void checkStagedAppx(std::vector<Check>& checks)
     checks.push_back(std::move(check));
 }
 
-void fillChecks(CheckupReport& report)
+void fillChecks(CheckupReport& report, const StartupScan& serviceScan, const StartupScan& taskScan)
 {
     checkPendingServicing(report.checks);
     checkPendingFileRename(report.checks);
@@ -1434,6 +1434,10 @@ void fillChecks(CheckupReport& report)
     checkUnattendResidue(report.checks);
     checkDirtyBit(report.checks);
     checkStagedAppx(report.checks);
+    checkHibernateSpace(report.checks);
+    checkDllCacheSpace(report.checks);
+    checkBrowserPlugins(report.checks);
+    checkStartupCoverage(report.checks, serviceScan, taskScan);
     checkTweaks(report.checks);
 }
 
@@ -1477,7 +1481,9 @@ CheckupReport collectImpl()
     fillCloneIndicators(report.cloneIndicators, report.isLikelyClone, report.sysprep, report.warnings);
     fillAntivirusInfo(report.antivirus, report.warnings);
     fillStartupItems(report.startupItems);
-    fillChecks(report);
+    const StartupScan serviceScan = fillStartupServices(report.startupItems);
+    const StartupScan taskScan = fillStartupTasks(report.startupItems);
+    fillChecks(report, serviceScan, taskScan);
 
     return report;
 }
@@ -1696,10 +1702,47 @@ std::string toSummaryText(const CheckupReport& report)
     }
     line("");
 
+    // 启动项可能有几百条（服务 + 计划任务），全部铺开会把终端与 CI 日志淹掉。
+    // 这里按类型给计数，明细只列前 12 条；完整清单一律以 --json 为准。
     line("[启动项]  共 " + std::to_string(report.startupItems.size()) + " 项");
-    for (const StartupItem& s : report.startupItems)
     {
+        std::vector<std::pair<std::string, int>> counts;
+        for (const StartupItem& s : report.startupItems)
+        {
+            bool found = false;
+            for (auto& entry : counts)
+            {
+                if (entry.first == s.scope)
+                {
+                    ++entry.second;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                counts.emplace_back(s.scope, 1);
+            }
+        }
+        std::string summary;
+        for (const auto& entry : counts)
+        {
+            summary += (summary.empty() ? "" : "  ") + entry.first + "=" + std::to_string(entry.second);
+        }
+        line("  按类型：" + summary);
+    }
+    const std::size_t showLimit = 12;
+    for (std::size_t i = 0; i < report.startupItems.size() && i < showLimit; ++i)
+    {
+        const StartupItem& s = report.startupItems[i];
         line("  " + s.scope + "  " + s.name + " = " + s.command);
+    }
+    if (report.startupItems.size() > showLimit)
+    {
+        line(
+            "  …（其余 " + std::to_string(report.startupItems.size() - showLimit) +
+            " 项见 --json 的 startupItems）"
+        );
     }
 
     // 体检项按 severity 排序输出：critical 在最前，其次是 warning，info 最后。

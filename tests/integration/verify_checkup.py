@@ -261,6 +261,30 @@ def verify_other_groups(report: dict) -> None:
 
     check("warnings 是数组", isinstance(report.get("warnings"), list))
 
+    # SC 的 [Scandata] 三组：系统设置（休眠/Dllcache）、开机启动项（服务/计划任务）、
+    # 系统插件（BHO/BE/ActiveX）。每一项都必须在报告里出现，否则就是漏了 SC 的体检项。
+    checks_by_id = {item.get("id"): item for item in report.get("checks", [])}
+    for check_id, title in (
+        ("hibernateSpace", "休眠占用"),
+        ("dllCacheSpace", "Dllcache 占用"),
+        ("startupServices", "启动项_服务名"),
+        ("startupTasks", "启动项_计划任务"),
+        ("browserBho", "BHO 插件"),
+        ("browserBe", "BE 插件"),
+        ("browserActiveX", "ActiveX 插件"),
+    ):
+        item = checks_by_id.get(check_id)
+        check(f"体检项存在: {title}", item is not None, check_id)
+        if item is not None:
+            check(f"{title} 有结论", bool(item.get("message")), str(item)[:120])
+            check(f"{title} 有评估标记", isinstance(item.get("evaluated"), bool))
+
+    # 读不到的项必须标成未评估，不能悄悄报成 0
+    for check_id in ("startupTasks", "startupServices"):
+        item = checks_by_id.get(check_id) or {}
+        if item.get("evaluated") is False:
+            check(f"{check_id} 读不到时说明原因", "无法判定" in str(item.get("message", "")))
+
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:

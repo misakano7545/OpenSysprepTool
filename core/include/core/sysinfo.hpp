@@ -133,6 +133,28 @@ struct CheckupReport
     std::vector<std::string> warnings;
 };
 
+// 系统设置体检：休眠占用、Dllcache 占用（对齐 SC 的 [Scandata] Ossetinspect）
+void checkHibernateSpace(std::vector<Check>& checks);
+void checkDllCacheSpace(std::vector<Check>& checks);
+
+// 开机启动项体检里 SC 另有「服务名」与「计划任务」两栏，补进 startupItems。
+// 返回扫描本身是否读得到：System32\Tasks 的 ACL 只给 SYSTEM，非提权读不到，
+// 这种情况必须报「无法判定」，不能当成「没有计划任务」。
+struct StartupScan
+{
+    bool accessible = false;
+    std::size_t count = 0;
+    std::string error;
+};
+StartupScan fillStartupServices(std::vector<StartupItem>& out);
+StartupScan fillStartupTasks(std::vector<StartupItem>& out);
+
+// 把两份扫描结果落成体检项（读不到就如实报未检查）
+void checkStartupCoverage(std::vector<Check>& checks, const StartupScan& services, const StartupScan& tasks);
+
+// 系统插件体检：BHO / BE / ActiveX
+void checkBrowserPlugins(std::vector<Check>& checks);
+
 // 逐条比对 SC 优化表（见 core/tweaks），命中的项带 autoFix = 优化项 id。
 // 单独暴露出来是为了让「一键修复」能只跑这一遍而不必跑完整采集。
 void checkTweaks(std::vector<Check>& checks);

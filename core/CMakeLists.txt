@@ -6,6 +6,7 @@ add_library(osp_core STATIC
   log/log.cpp
   sysinfo/sysinfo.cpp
   sysinfo/tweakscheck.cpp
+  sysinfo/envcheck.cpp
   runplan/runplan.cpp
   unattend/unattend.cpp
   # M5 新增：Windows 7 兼容层与部署运行时内核

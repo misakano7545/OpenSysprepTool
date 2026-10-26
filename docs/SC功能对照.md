@@ -38,14 +38,14 @@
 | 封装环境体检 | 缺少必备文件 | `Packageinspect` / `NotExistFile` | ✅ |
 | | 克隆版 | `SecondSysprep` | ✅ |
 | | 杀软干扰 | `ExistSafeSoft` | ✅ |
-| 系统设置体检 | 休眠占用大小 | `Ossetinspect` / `Dormancyon` | ⬜ |
-| | Dllcache 占用大小 | `optimize_Dllcache` | ⬜ |
+| 系统设置体检 | 休眠占用大小 | `Ossetinspect` / `Dormancyon` | ✅ |
+| | Dllcache 占用大小 | `optimize_Dllcache` | ✅ |
 | 开机启动项体检 | 启动项_文件 | `Osstartrun_Path` | ✅（只做了文件） |
-| | 启动项_服务名 | `Osstartrun_Sname` | ⬜ |
-| | 启动项_计划任务 | `Osstartrun_Task` | ⬜ |
-| 系统插件体检 | BHO 插件 | `Osobj_BHO` | ⬜ |
-| | BE 插件 | `Osobj_BE` | ⬜ |
-| | ActiveX 插件 | `Osobj_ActiveX` | ⬜ |
+| | 启动项_服务名 | `Osstartrun_Sname` | ✅ |
+| | 启动项_计划任务 | `Osstartrun_Task` | ✅（ACL 只给 SYSTEM，非提权时如实报无法判定） |
+| 系统插件体检 | BHO 插件 | `Osobj_BHO` | ✅ |
+| | BE 插件 | `Osobj_BE` | ✅ |
+| | ActiveX 插件 | `Osobj_ActiveX` | ✅ |
 | 结果文案 | 发现 N 个问题 / 各项正常 / 部分需手动修复 | `ScanResultsA~D`、`Normaltip` | ✅ |
 
 ### 系统优化项（33 条，SC 自带数据表）
