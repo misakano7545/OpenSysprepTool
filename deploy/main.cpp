@@ -403,12 +403,13 @@ static bool isElevated()
     return ok != 0 && elevation.TokenIsElevated != 0;
 }
 
-// 未提权时用 runas 重新启动自己（带原参数），然后退出。返回 true 表示已重启。
-static bool relaunchElevated(int argc, char** argv)
+// 未提权时用 runas 重新启动自己（带原参数），等待它退出并返回其退出码。
+// 返回 -1 表示已提权（不需要重启）；返回 >=0 表示重启副本的退出码。
+static int relaunchElevatedAndWait(int argc, char** argv)
 {
     if (isElevated())
     {
-        return false;
+        return -1;
     }
 
     // 拼出原命令行
@@ -459,23 +460,40 @@ static bool relaunchElevated(int argc, char** argv)
 
     if (::ShellExecuteExW(&sei) == 0)
     {
-        return false;
+        return -2;
     }
-    if (sei.hProcess != nullptr)
+    if (sei.hProcess == nullptr)
     {
-        ::CloseHandle(sei.hProcess);
+        return -2;
     }
-    return true;
+
+    DWORD exitCode = 1;
+    ::WaitForSingleObject(sei.hProcess, INFINITE);
+    ::GetExitCodeProcess(sei.hProcess, &exitCode);
+    ::CloseHandle(sei.hProcess);
+    return static_cast<int>(exitCode);
 }
 
 } // namespace
 
 int main(int argc, char** argv)
 {
-    // 要求管理员权限：未提权时用 runas 重新启动自己，然后退出
-    if (relaunchElevated(argc, argv))
+    // 只读开关不自动提权：--version / --help / --win7-compat / --dry-run 这些不需要管理员。
+    // 只有真正需要管理员的操作（--plan 不带 --dry-run）才提权。
+    const bool needsAdmin = argc >= 2 && std::strcmp(argv[1], "--plan") == 0;
+
+    if (needsAdmin)
     {
-        return 0;
+        const int elevatedExit = relaunchElevatedAndWait(argc, argv);
+        if (elevatedExit == -2)
+        {
+            std::fprintf(stderr, "需要管理员权限：用户拒绝了 UAC 提权，或系统不允许提权\n");
+            return 1;
+        }
+        if (elevatedExit >= 0)
+        {
+            return elevatedExit;
+        }
     }
 
     if (argc < 2)

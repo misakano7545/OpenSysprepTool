@@ -39,12 +39,13 @@ static bool isElevated()
     return ok != 0 && elevation.TokenIsElevated != 0;
 }
 
-// 未提权时用 runas 重新启动自己（带原参数），然后退出。返回 true 表示已重启。
-static bool relaunchElevated(int argc, char** argv)
+// 未提权时用 runas 重新启动自己（带原参数），等待它退出并返回其退出码。
+// 返回 -1 表示已提权（不需要重启）；返回 >=0 表示重启副本的退出码。
+static int relaunchElevatedAndWait(int argc, char** argv)
 {
     if (isElevated())
     {
-        return false;
+        return -1;
     }
 
     // 拼出原命令行
@@ -55,12 +56,10 @@ static bool relaunchElevated(int argc, char** argv)
         {
             args += L" ";
         }
-        // 宽字符化
         const char* a = argv[i];
         const int wlen = ::MultiByteToWideChar(CP_UTF8, 0, a, -1, nullptr, 0);
         std::wstring wa(static_cast<size_t>(wlen - 1), L'\0');
         ::MultiByteToWideChar(CP_UTF8, 0, a, -1, wa.data(), wlen);
-        // 含空格或引号时包起来
         if (wa.find(L' ') != std::wstring::npos || wa.find(L'"') != std::wstring::npos)
         {
             std::wstring escaped;
@@ -97,16 +96,19 @@ static bool relaunchElevated(int argc, char** argv)
 
     if (::ShellExecuteExW(&sei) == 0)
     {
-        // 用户拒绝了 UAC，或者系统不允许提权
-        return false;
+        return -2; // 用户拒绝 UAC 或系统不允许提权
+    }
+    if (sei.hProcess == nullptr)
+    {
+        return -2;
     }
 
-    // 新进程已启动，本进程退出
-    if (sei.hProcess != nullptr)
-    {
-        ::CloseHandle(sei.hProcess);
-    }
-    return true;
+    // 等提权副本跑完，把它的退出码作为本进程的退出码（CI 需要这个结果）
+    DWORD exitCode = 1;
+    ::WaitForSingleObject(sei.hProcess, INFINITE);
+    ::GetExitCodeProcess(sei.hProcess, &exitCode);
+    ::CloseHandle(sei.hProcess);
+    return static_cast<int>(exitCode);
 }
 
 // ospt.exe 现在是 GUI 子系统：正常启动不再出现命令行窗口（宪章 §10 记的「M7 若改 GUI
@@ -1027,10 +1029,26 @@ int runUiSmokeTest(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-    // 要求管理员权限：未提权时用 runas 重新启动自己，然后退出
-    if (relaunchElevated(argc, argv))
+    // 界面（无参数或 --ui）需要管理员权限（装驱动、写离线注册表、跑 sysprep 都要管理员）。
+    // 只读开关不自动提权：--version / --help / --selftest / --checkup / --gen-unattend /
+    // --gen-runplan / --ui-smoke-test 这些不需要管理员，直接跑（CI 也要能跑）。
+    // 只有真正需要管理员的操作（--inject-drivers / --sysprep / --execute / --ui / 无参数）才提权。
+    const bool needsAdmin = argc < 2 ||
+        (std::strcmp(argv[1], "--ui") == 0 || std::strcmp(argv[1], "--inject-drivers") == 0 ||
+         std::strcmp(argv[1], "--sysprep") == 0 || std::strcmp(argv[1], "--execute") == 0);
+
+    if (needsAdmin)
     {
-        return 0;
+        const int elevatedExit = relaunchElevatedAndWait(argc, argv);
+        if (elevatedExit == -2)
+        {
+            std::fprintf(stderr, "需要管理员权限：用户拒绝了 UAC 提权，或系统不允许提权\n");
+            return 1;
+        }
+        if (elevatedExit >= 0)
+        {
+            return elevatedExit;
+        }
     }
 
     // GUI 子系统下没有控制台：命令行开关要输出就自己挂回父控制台

@@ -102,10 +102,13 @@ osptd --version                                         版本与源码地址
 
 `ospt.exe` 与 `osptd.exe` 需要**管理员权限**（装驱动、写离线注册表、跑 sysprep 都要管理员）：
 
-- 启动时自动提权：未提权的会话里启动它，会用 `runas` 重新启动自己（UAC 可能弹一次），
-  新进程以管理员身份运行，原进程退出。
-- 命令行开关也一样：在 PowerShell / cmd / bash 里直接跑 `ospt --checkup` 即可，
-  它会自己提权，不需要你先开管理员终端。
+- **界面（无参数或 `--ui`）和真正需要管理员的操作**（`--inject-drivers` / `--sysprep` /
+  `--execute` / `--plan` 不带 `--dry-run`）启动时自动提权：未提权的会话里启动它，会用
+  `runas` 重新启动自己（UAC 可能弹一次），新进程以管理员身份运行，原进程等待其退出并
+  返回其退出码。
+- **只读开关不自动提权**：`--version` / `--help` / `--selftest` / `--checkup` /
+  `--gen-unattend` / `--gen-runplan` / `--ui-smoke-test` / `--win7-compat` / `--dry-run`
+  这些不需要管理员，直接跑（CI 也要能跑）。
 - 清单保持 `asInvoker`：如果写成 `requireAdministrator`，`CreateProcess` 会在未提权时
   直接拒绝（740），自动提权逻辑就没机会跑。提权是在 `main()` 开头做的。
 - 单元测试产物 `osp_unit_tests.exe` 保持 `asInvoker` 且**不自动提权**，任何会话都能直接跑。

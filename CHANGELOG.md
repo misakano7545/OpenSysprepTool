@@ -23,8 +23,12 @@
   不可用时回落到父控制台（`AttachConsole`），重定向与管道场景一律不碰
 - **`ospt.exe` 与 `osptd.exe` 启动时自动提权**：清单保持 `asInvoker`，`main()` 开头自检
   是否提权，未提权时用 `ShellExecuteEx` + `runas` 重新启动自己（带原参数），新进程以管理员
-  运行，原进程退出。清单不能写 `requireAdministrator`，否则 `CreateProcess` 在未提权时直接
-  拒绝（740），自动提权逻辑没机会跑
+  运行，原进程**等待其退出并返回其退出码**（CI 需要真实结果）。清单不能写
+  `requireAdministrator`，否则 `CreateProcess` 在未提权时直接拒绝（740），自动提权逻辑没机会跑。
+  **只读开关不自动提权**（`--version` / `--help` / `--selftest` / `--checkup` /
+  `--gen-unattend` / `--gen-runplan` / `--ui-smoke-test` / `--win7-compat` / `--dry-run`），
+  只有界面（无参数 / `--ui`）和真正需要管理员的操作（`--inject-drivers` / `--sysprep` /
+  `--execute` / `--plan` 不带 `--dry-run`）才提权。
 - `verify_win7_compat.py` 增加了子系统**类型**断言（此前只看版本 6.1，改成 GUI 子系统不会被发现）
 - `verify_ui.py` / `verify_drivers.py` / `verify_deploy_exec.py` 增加提权前置检查：
   未提权时打印明确原因并以退出码 3 结束，避免看起来像产品坏了
