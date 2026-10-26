@@ -33,8 +33,7 @@ static bool isElevated()
     }
     TOKEN_ELEVATION elevation = {};
     DWORD returned = 0;
-    const BOOL ok = ::GetTokenInformation(
-        token, TokenElevation, &elevation, sizeof(elevation), &returned);
+    const BOOL ok = ::GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &returned);
     ::CloseHandle(token);
     return ok != 0 && elevation.TokenIsElevated != 0;
 }
@@ -120,8 +119,8 @@ static int relaunchElevatedAndWait(int argc, char** argv)
 void attachParentConsoleIfNeeded()
 {
     const HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
-    const bool usable = out != nullptr && out != INVALID_HANDLE_VALUE &&
-        ::GetFileType(out) != FILE_TYPE_UNKNOWN;
+    const bool usable =
+        out != nullptr && out != INVALID_HANDLE_VALUE && ::GetFileType(out) != FILE_TYPE_UNKNOWN;
     if (usable)
     {
         return; // 管道 / 文件 / 已挂上控制台，一律不动

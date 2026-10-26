@@ -397,8 +397,7 @@ static bool isElevated()
     }
     TOKEN_ELEVATION elevation = {};
     DWORD returned = 0;
-    const BOOL ok = ::GetTokenInformation(
-        token, TokenElevation, &elevation, sizeof(elevation), &returned);
+    const BOOL ok = ::GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &returned);
     ::CloseHandle(token);
     return ok != 0 && elevation.TokenIsElevated != 0;
 }

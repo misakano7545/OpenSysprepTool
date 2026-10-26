@@ -64,8 +64,11 @@ jobs:
       - name: Unattend 校验
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $work = 'build\m3'
+          # 不用 Stop：GUI 子系统的 exe 在 pwsh 里输出 stderr 会被当成 NativeCommandError，
+          # Stop 会在退出码 0 时也终止。用 Continue + 显式判断退出码。
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $work = 'build\\m3'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m3_cfg.json' (Join-Path $work 'cfg.json') -Force
 
@@ -95,8 +98,10 @@ jobs:
       - name: Runplan 校验
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $work = 'build\m4'
+          # 同 Unattend 校验：不用 Stop，显式判断退出码
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $work = 'build\\m4'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           Copy-Item 'tests\integration\fixtures\m4_plan.json' (Join-Path $work 'plan.json') -Force
 
