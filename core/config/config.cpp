@@ -33,6 +33,12 @@ json encode(const Config& cfg)
         {"colorDepth", fl.colorDepth},
         {"syncIeHomepage", fl.syncIeHomepage},
         {"syncIeFavorites", fl.syncIeFavorites},
+        {"createConnection", fl.createConnection},
+        {"connectionMode", fl.connectionMode},
+        {"connectionName", fl.connectionName},
+        {"connectionUser", fl.connectionUser},
+        {"connectionPassword", fl.connectionPassword},
+        {"connectionCountdownSec", fl.connectionCountdownSec},
     };
 
     const auto& op = cfg.optimization;
@@ -193,6 +199,12 @@ ParseResult fromJson(const std::string& text)
             cfg.firstLogon.colorDepth = fl.value("colorDepth", 32);
             cfg.firstLogon.syncIeHomepage = fl.value("syncIeHomepage", false);
             cfg.firstLogon.syncIeFavorites = fl.value("syncIeFavorites", false);
+            cfg.firstLogon.createConnection = fl.value("createConnection", false);
+            cfg.firstLogon.connectionMode = fl.value("connectionMode", std::string("show"));
+            cfg.firstLogon.connectionName = fl.value("connectionName", std::string("宽带连接"));
+            cfg.firstLogon.connectionUser = fl.value("connectionUser", std::string{});
+            cfg.firstLogon.connectionPassword = fl.value("connectionPassword", std::string{});
+            cfg.firstLogon.connectionCountdownSec = fl.value("connectionCountdownSec", 10);
         }
 
         if (j.contains("optimization"))

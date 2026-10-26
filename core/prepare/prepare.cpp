@@ -2,6 +2,7 @@
 
 #include "core/ini.hpp"
 #include "core/netcfg.hpp"
+#include "core/pppoe.hpp"
 #include "core/tweaks.hpp"
 
 #include <winsock2.h>
@@ -1130,6 +1131,72 @@ bool deleteOneFile(const Action& action, ExecResult& result, std::string& error)
 }
 
 // 单个文件复制（任务栏固定的快捷方式走这条）
+// 静默创建宽带（PPPoE）连接：让 Windows 写进临时 pbk，再复制到默认用户配置目录。
+//
+// 为什么要经过临时文件：RasSetEntryProperties 支持指定 pbk 路径，但目标目录
+// （默认用户的 Network\Connections\Pbk）在封装前不一定已被系统创建好；
+// 先写到 %TEMP% 里、确认读得回来，再复制过去，任何一步失败都能明确报出来，
+// 不会留下一个「看起来有、其实连不上」的半成品。
+bool pppoeCreate(const Action& action, ExecResult& result, std::string& error)
+{
+    const std::filesystem::path target = osp::win7::pathFromUtf8(action.destination);
+    const std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "ospt-pppoe";
+    std::error_code ec;
+    std::filesystem::create_directories(tempDir, ec);
+    const std::string tempPbk = osp::win7::toUtf8Path(tempDir / "probe.pbk");
+    std::filesystem::remove(osp::win7::pathFromUtf8(tempPbk), ec);
+
+    std::string createError;
+    if (!osp::netcfg::createPppoeEntry(
+            tempPbk, action.connName, action.connUser, action.connPassword, createError
+        ))
+    {
+        error = createError;
+        std::filesystem::remove_all(tempDir, ec);
+        return false;
+    }
+    if (!createError.empty())
+    {
+        // 条目建好但凭据没写进去：如实告警，不当成成功掩盖过去
+        result.warnings.push_back(action.id + "：" + createError);
+    }
+
+    // 读回确认 Windows 真的接受了这个条目（写失败却不报错是 RAS 的常见坑）
+    std::string readUser;
+    std::string readError;
+    if (!osp::netcfg::readPppoeEntry(tempPbk, action.connName, readUser, readError))
+    {
+        error = "创建后读不回宽带连接：" + readError;
+        std::filesystem::remove_all(tempDir, ec);
+        return false;
+    }
+    // 账号密码是否真的落进了电话簿，只能读回来才知道：RasSetCredentials 会返回 0
+    // 却没写进指定的 pbk（实测如此）。所以这里核对一次，没写进去就如实告警，
+    // 不要让用户以为「已经存好密码了」。
+    if (!action.connUser.empty() && readUser != action.connUser)
+    {
+        result.warnings.push_back(
+            action.id + "：账号密码未能写入电话簿（Windows 未持久化），首次连接时需要用户自己填"
+        );
+    }
+
+    std::error_code copyError;
+    std::filesystem::create_directories(target.parent_path(), copyError);
+    std::filesystem::copy_file(
+        osp::win7::pathFromUtf8(tempPbk), target, std::filesystem::copy_options::overwrite_existing, copyError
+    );
+    if (copyError)
+    {
+        error = "复制宽带连接配置失败：" + action.destination + "（" + copyError.message() + "）";
+        return false;
+    }
+    // 临时 pbk 用完就删；删不掉不影响结果，忽略即可
+    std::error_code cleanupError;
+    std::filesystem::remove_all(tempDir, cleanupError);
+    result.log.push_back(action.id + "：完成");
+    return true;
+}
+
 bool deleteTreeContents(const Action& action, ExecResult& result, std::string& error)
 {
     const fs::path root = pathFromUtf8(action.path);
@@ -1409,6 +1476,8 @@ bool executeOne(const Action& action, ExecResult& result, std::string& error)
         return copyOneFile(action, result, error);
     case ActionKind::FileDelete:
         return deleteOneFile(action, result, error);
+    case ActionKind::PppoeCreate:
+        return pppoeCreate(action, result, error);
     case ActionKind::HiveSet:
         return hiveSet(action, result, error);
     }
@@ -1596,6 +1665,8 @@ const char* actionKindId(ActionKind kind)
         return "fileCopy";
     case ActionKind::FileDelete:
         return "fileDelete";
+    case ActionKind::PppoeCreate:
+        return "pppoeCreate";
     }
     return "unknown";
 }
@@ -2269,6 +2340,44 @@ Plan build(const config::Config& cfg, const Options& options)
     {
         defer("deploy.blockVirtualMachine", "由部署运行时 osptd 在目标机上判定，封装前不适用");
     }
+    // ---------------------------------------------------------- 宽带连接（SC 的 Cb_CreateConnection）
+    // 静默模式（Rb_Silence_nc）：把连接建在**默认用户**的电话簿里，新用户登录即有，
+    // 全程无界面。展示模式（Rb_Show_nc）：改成在首次进桌面时弹创建向导，见 unattend。
+    if (cfg.firstLogon.createConnection)
+    {
+        const std::string mode =
+            cfg.firstLogon.connectionMode.empty() ? "show" : cfg.firstLogon.connectionMode;
+        if (mode == "silent")
+        {
+            if (cfg.firstLogon.connectionName.empty())
+            {
+                plan.warnings.push_back("宽带连接：连接名为空，已跳过");
+            }
+            else
+            {
+                Action action;
+                action.kind = ActionKind::PppoeCreate;
+                action.id = "firstLogon.createConnection";
+                action.group = "首次进桌面";
+                action.title = "静默创建宽带连接";
+                action.sourceField = "firstLogon.createConnection";
+                action.connName = cfg.firstLogon.connectionName;
+                action.connUser = cfg.firstLogon.connectionUser;
+                action.connPassword = cfg.firstLogon.connectionPassword;
+                action.destination = joinPath(
+                    options.defaultUserProfile,
+                    "AppData\\Roaming\\Microsoft\\Network\\Connections\\Pbk\\rasphone.pbk"
+                );
+                action.note = "写进默认用户的电话簿，新用户登录即有该连接；不执行拨号";
+                plan.actions.push_back(std::move(action));
+            }
+        }
+        else if (mode != "show")
+        {
+            plan.warnings.push_back("宽带连接：未知模式 \"" + mode + "\"（允许 silent/show），已跳过");
+        }
+    }
+
     // ---------------------------------------------------------- 任务栏固定 / 取消固定（SC 的 Cb_Locktaskbar）
     // 落点是「默认用户」的 User Pinned\TaskBar：新用户建配置目录时由系统复制过去。
     // 只写用户自己列出来的文件，绝不预置任何推广快捷方式（宪章 §7）。
@@ -2683,6 +2792,10 @@ std::string toJson(const Plan& plan)
             break;
         case ActionKind::FileDelete:
             item["path"] = action.path;
+            break;
+        case ActionKind::PppoeCreate:
+            item["path"] = action.destination;
+            item["connectionName"] = action.connName;
             break;
         case ActionKind::CopyTree:
         case ActionKind::MoveTree:

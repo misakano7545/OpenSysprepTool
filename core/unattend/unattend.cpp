@@ -511,6 +511,18 @@ GenResult generate(const osp::config::Config& cfg)
             }
         }
 
+        // 宽带连接（SC 的 Rb_Show_nc「倒计时创建[有界面]」）：首次进桌面时弹创建向导。
+        // rasphone -a 就是「添加新连接」向导本身，用户点几下就建好——这就是 SC
+        // 那个「询问是否创建」的行为，不需要我们自己画一个倒计时的窗口。
+        if (cfg.firstLogon.createConnection &&
+            (cfg.firstLogon.connectionMode.empty() || cfg.firstLogon.connectionMode == "show"))
+        {
+            const std::string name = cfg.firstLogon.connectionName.empty() ? std::string("宽带连接")
+                                                                           : cfg.firstLogon.connectionName;
+            commands.commandLines.push_back("rasphone.exe -a \"" + name + "\"");
+            commands.descriptions.emplace_back("创建宽带连接（询问用户）");
+        }
+
         if (!commands.commandLines.empty())
         {
             pugi::xml_node firstLogon = addChild(component, "FirstLogonCommands");

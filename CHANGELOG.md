@@ -7,6 +7,18 @@
 
 ### Added
 
+- **M10 宽带连接**（`Cb_CreateConnection`）：两个模式都按 SC 的语义做
+  - 静默创建（`Rb_Silence_nc`）：新建 `ActionKind::PppoeCreate`，把 PPPoE 条目写进
+    **默认用户**的电话簿，新用户登录即有该连接、全程无界面
+  - 展示创建（`Rb_Show_nc`）：在 unattend 的 `FirstLogonCommands` 里加
+    `rasphone.exe -a "<连接名>"`，首次进桌面弹创建向导询问用户
+  - **不自己拼 `.pbk` 文本**：rasphone.pbk 的段与键没有公开完整规范，手写「看起来对」
+    的文件写错了不报错、只是用户点进去连不上。这里由 `RasSetEntryProperties` 指向临时
+    文件生成，再复制到目标位置——格式永远由 Windows 保证
+  - 三处实测踩到的坑：`RASDEVINFOW.dwSize` 必须逐个预填，否则报「不正确的结构大小」；
+    RAS 自己的 `ERROR_BUFFER_TOO_SMALL` 是 603，被 winerror.h 的同名宏 122 遮蔽，
+    改成只认返回的缓冲区大小；`RasSetCredentials` 会返回 0 却没把账号写进指定的 pbk，
+    所以写完再读回核对，没落进去就如实告警而不是假装存好了
 - **M10 任务栏固定 / 取消固定**（`optimization.lockTaskbarFiles` / `unlockTaskbarFiles`）：新增
   `ActionKind::FileCopy` / `FileDelete`，把用户列出的快捷方式写进**默认用户**的
   `User Pinned\TaskBar`，新用户建配置目录时由系统带过去；取消固定只删同名项

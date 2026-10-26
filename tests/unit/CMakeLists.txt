@@ -20,6 +20,7 @@ add_executable(osp_unit_tests
   test_md5.cpp
   test_deploy_preflight.cpp
   test_taskbar.cpp
+  test_pppoe.cpp
 )
 
 # 界面数据层（页面与字段）被单测直接覆盖：它不依赖窗口，也不依赖 ATL/WTL，

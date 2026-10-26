@@ -247,6 +247,48 @@ def main() -> int:
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
 
+    # ------------------------------------------------------------ 宽带连接（B9b）
+    section("宽带连接")
+    bb_cfg = full_config()
+    bb_cfg["firstLogon"] = dict(bb_cfg.get("firstLogon") or {})
+    bb_cfg["firstLogon"].update({
+        "createConnection": True,
+        "connectionMode": "silent",
+        "connectionName": "我的宽带",
+        "connectionUser": "user001",
+        "connectionPassword": "pw-123456",
+    })
+    bb_path = os.path.join(work, "cfg-broadband.json")
+    bb_report = os.path.join(work, "plan-broadband.json")
+    write_json(bb_path, bb_cfg)
+    code, output = run([ospt, "--prepare", bb_path, "--dry-run", "--report", bb_report])
+    check("宽带连接计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    bb_plan = {}
+    if os.path.isfile(bb_report):
+        with open(bb_report, "r", encoding="utf-8") as handle:
+            bb_plan = json.load(handle)
+    pppoe = [a for a in bb_plan.get("actions", []) if a.get("kind") == "pppoeCreate"]
+    check("静默模式生成 pppoeCreate 动作", len(pppoe) == 1, f"{len(pppoe)} 个")
+    if pppoe:
+        dest = str(pppoe[0].get("path", ""))
+        check("宽带连接写进默认用户电话簿", "rasphone.pbk" in dest.lower() or "Pbk" in dest, dest)
+        check("宽带连接名写进计划", pppoe[0].get("connectionName") == "我的宽带", str(pppoe[0].get("connectionName")))
+
+    # 展示模式：封装前不建连接（交给首次进桌面弹向导）
+    bb_show = dict(bb_cfg)
+    bb_show["firstLogon"] = dict(bb_cfg["firstLogon"], connectionMode="show")
+    show_path = os.path.join(work, "cfg-broadband-show.json")
+    show_report = os.path.join(work, "plan-broadband-show.json")
+    write_json(show_path, bb_show)
+    code, output = run([ospt, "--prepare", show_path, "--dry-run", "--report", show_report])
+    check("展示模式 dry-run 退出码 0", code == 0, f"exit={code}")
+    show_plan = {}
+    if os.path.isfile(show_report):
+        with open(show_report, "r", encoding="utf-8") as handle:
+            show_plan = json.load(handle)
+    check("展示模式不生成封装前动作",
+          not [a for a in show_plan.get("actions", []) if a.get("kind") == "pppoeCreate"])
+
     # ------------------------------------------------------------ 任务栏固定 / 取消固定（B9）
     section("任务栏固定与取消固定")
     shortcut = os.path.join(work, "我的工具.lnk")

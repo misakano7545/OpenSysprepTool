@@ -28,6 +28,15 @@ struct FirstLogon
     int colorDepth = 32;
     bool syncIeHomepage = false;
     bool syncIeFavorites = false;
+    // 宽带（PPPoE）连接（SC 的 Cb_CreateConnection）：
+    //   connectionMode = silent -> Rb_Silence_nc「静默创建[无界面]」
+    //   connectionMode = show   -> Rb_Show_nc「倒计时创建[有界面]」
+    bool createConnection = false;
+    std::string connectionMode = "show";
+    std::string connectionName = "宽带连接";
+    std::string connectionUser;
+    std::string connectionPassword;
+    int connectionCountdownSec = 10;
 };
 
 struct Optimization
@@ -45,12 +54,12 @@ struct Optimization
     bool moveFavorites = false;
     bool favoritesSmart = true;
     std::string favoritesTarget;
-    // 同步封装前 IE 主页（SC 的 Cb_Saveiehp）；ieHomePage 空则取当前用户的主页
     // 任务栏固定 / 取消固定（SC 的 Cb_Locktaskbar / Cb_Unlocktaskbar）。
     // 只接受用户自己填的文件清单 —— SC 用这两个开关推自家推广快捷方式，
     // 那是宪章 §7 明令禁止的，我们不预置任何条目。
     std::vector<std::string> lockTaskbarFiles;
     std::vector<std::string> unlockTaskbarFiles;
+    // 同步封装前 IE 主页（SC 的 Cb_Saveiehp）；ieHomePage 空则取当前用户的主页
     bool saveIeHomePage = false;
     std::string ieHomePage;
     // 默认用户配置单元（NTUSER.DAT）的路径。空 = <系统盘>\Users\Default\NTUSER.DAT。

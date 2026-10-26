@@ -120,7 +120,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 项 | SC 键名 | 状态 |
 |---|---|---|
 | 清理多余的 SRS 驱动 | `Cb_ClearSrs` | ✅ |
-| 询问是否创建宽带连接（静默 / 倒计时） | `Cb_CreateConnection` + `Rb_Silence_nc` / `Rb_Show_nc` | ⬜ |
+| 询问是否创建宽带连接（静默 / 倒计时） | `Cb_CreateConnection` + `Rb_Silence_nc` / `Rb_Show_nc` | ✅（静默=写默认用户电话簿；展示=首登跑 `rasphone -a` 弹向导） |
 | 自动设置网络位置 | `Cb_SetNetWork` | ✅ |
 | 关闭系统重启对话框 | `Cb_CloseRestartbox` | ✅ |
 | **将文件固定到任务栏 / 取消固定**（含文件清单） | `Cb_Locktaskbar` / `Cb_Unlocktaskbar` / `Items_Lockfile` / `Items_UnLockfile` | ✅（只做机制：写默认用户的 `User Pinned\TaskBar`，清单必须由用户填；SC 用它推推广快捷方式，那部分不做） |

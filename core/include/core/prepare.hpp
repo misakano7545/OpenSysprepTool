@@ -44,6 +44,9 @@ enum class ActionKind
     FileCopy,
     // 删单个文件（path）。文件不存在时算成功，不算失败。
     FileDelete,
+    // 在默认用户配置目录里静默创建一个宽带（PPPoE）连接：
+    // 由 Windows 的 RasSetEntryProperties 写进临时 pbk，再落到 destination。
+    PppoeCreate,
 };
 
 const char* actionKindId(ActionKind kind);
@@ -71,6 +74,11 @@ struct Action
     std::uint64_t qword = 0;
     std::vector<std::string> multi;
     std::string bytesHex; // binary，十六进制
+
+    // PppoeCreate
+    std::string connName;
+    std::string connUser;
+    std::string connPassword;
 
     // RunCommand
     std::string program;
