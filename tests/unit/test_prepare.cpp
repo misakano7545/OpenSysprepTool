@@ -123,7 +123,8 @@ TEST_CASE("prepare: unimplemented fields are reported with reasons")
 
     // 我的文档转移已在 B3 落地（离线 hive），不再是推迟项
     CHECK_FALSE(hasDeferred(plan, "optimization.myDocumentsTarget"));
-    CHECK(hasDeferred(plan, "optimization.autoSetIp"));
+    // 自动 IP 已在 B5 落地（netsh 动作），不再是推迟项
+    CHECK_FALSE(hasDeferred(plan, "optimization.autoSetIp"));
     CHECK(hasDeferred(plan, "optimization.pinTaskbarItems"));
     CHECK(hasDeferred(plan, "firstLogon.syncIeHomepage"));
     CHECK(hasDeferred(plan, "deploy.verifyIntegrity"));

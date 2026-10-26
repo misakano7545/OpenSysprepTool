@@ -129,7 +129,7 @@ SC 把优化项存成一条条 `序号|类型|路径|键名|值` 的记录（序
 | 智能转移虚拟内存（智能 / 指定盘） | `Cb_MovePageFile` + `Rb_SmartMovePageFile` / `Rb_DiyMovePageFile` | ✅ |
 | **虚拟内存值（物理内存倍数 / 固定值）** | `Rb_PageFilevarValue` / `Rb_PageFileconstValue` + 四个数值框 | ⬜ |
 | 关闭笔记本小键盘 / 开启笔记本休眠 | `Cb_CloseKeypad` / `Cb_Dormancy` | ✅ |
-| **自动设置 IP**（固定 / 随机 / IP 段 + 掩码 / 网关 / DNS） | `Cb_AutoSetip` + `Rb_Setip` / `Rb_SetRandomip` / `Lab_Startip`… | ⬜ |
+| **自动设置 IP**（固定 / 随机 / IP 段 + 掩码 / 网关 / DNS） | `Cb_AutoSetip` + `Rb_Setip` / `Rb_SetRandomip` / `Lab_Startip`… | ✅（随机模式=同 /24 取址；SC 原始算法未见，已在代码注释与本节写明） |
 | 联网安装缺失的硬件驱动 | `Cb_Driveinstall` | ⛔ 推广（驱动总裁），宪章 §7 |
 | 联网安装总裁软件安装器 | `Cb_Mboxinstall` | ⛔ 推广（软件魔盒），宪章 §7 |
 

@@ -234,8 +234,8 @@ def main() -> int:
     # 我的文档转移已在 B3 落地（离线 hive），不该再出现在推迟项里；
     # 剩下这些仍是推迟项 —— 每一项都必须写清原因，不许静默略过。
     check("我的文档转移不再是推迟项", "optimization.myDocumentsTarget" not in deferred)
+    check("自动设置 IP 不再是推迟项", "optimization.autoSetIp" not in deferred)
     for field in (
-        "optimization.autoSetIp",
         "firstLogon.syncIeHomepage",
         "deploy.verifyIntegrity",
         "sysprep.uninstallDrivers",
@@ -244,6 +244,60 @@ def main() -> int:
         check(f"推迟项写明原因: {field}", field in deferred)
 
     check("推迟项都有非空原因", all(item.get("reason") for item in plan.get("deferred", [])))
+
+    # ------------------------------------------------------------ 自动设置 IP（B5）
+    section("自动设置 IP：三种模式")
+    ip_cfg = full_config()
+    ip_cfg["optimization"] = dict(ip_cfg.get("optimization") or {})
+    ip_cfg["optimization"].update({
+        "autoSetIp": True,
+        "ipMode": "fixed",
+        "ipAddress": "192.168.50.10",
+        "subnetMask": "255.255.255.0",
+        "gateway": "192.168.50.1",
+        "dnsPreferred": "114.114.114.114",
+        "dnsAlternate": "8.8.8.8",
+    })
+    ip_cfg_path = os.path.join(work, "cfg-ip.json")
+    ip_plan_path = os.path.join(work, "plan-ip.json")
+    write_json(ip_cfg_path, ip_cfg)
+
+    code, output = run([ospt, "--prepare", ip_cfg_path, "--dry-run", "--report", ip_plan_path])
+    check("自动 IP 计划 dry-run 退出码 0", code == 0, f"exit={code}\n{output[-300:]}")
+    ip_plan = {}
+    if os.path.isfile(ip_plan_path):
+        with open(ip_plan_path, "r", encoding="utf-8") as handle:
+            ip_plan = json.load(handle)
+    ip_actions = {item.get("id"): item for item in ip_plan.get("actions", [])}
+
+    addr = ip_actions.get("optimization.autoSetIp") or {}
+    if addr:
+        # 网卡名取决于跑测试的机器，所以只断言命令骨架与地址/掩码/网关
+        args = str(addr.get("arguments", ""))
+        check("自动 IP 用 netsh 设置静态地址", args.startswith("interface ipv4 set address name="), args[:120])
+        check("自动 IP 带上指定地址", "192.168.50.10" in args, args[:120])
+        check("自动 IP 带上掩码与网关", "255.255.255.0" in args and "192.168.50.1" in args, args[:120])
+        check("自动 IP 程序是 netsh", addr.get("program") == "netsh", str(addr.get("program")))
+    else:
+        # 机器上没有带网关的网卡时不会生成动作，但必须给出原因而不是静默
+        check("没有可用网卡时给出告警", "找不到可用的网卡" in output, output[-200:])
+
+    dns = ip_actions.get("optimization.autoSetIp.dns") or {}
+    if dns:
+        check("首选 DNS 用 set dns static", "set dns name=" in str(dns.get("arguments")) and
+              "static 114.114.114.114" in str(dns.get("arguments")), str(dns.get("arguments"))[:120])
+    dns_alt = ip_actions.get("optimization.autoSetIp.dnsAlt") or {}
+    if dns_alt:
+        check("备用 DNS 用 add dns index=2", "add dns name=" in str(dns_alt.get("arguments")) and
+              "index=2" in str(dns_alt.get("arguments")), str(dns_alt.get("arguments"))[:120])
+
+    # 网关与地址不同网段时必须告警——这种配置执行完直接断网
+    bad_ip = dict(ip_cfg)
+    bad_ip["optimization"] = dict(ip_cfg["optimization"], gateway="10.99.99.1")
+    bad_path = os.path.join(work, "cfg-ip-bad.json")
+    write_json(bad_path, bad_ip)
+    code, output = run([ospt, "--prepare", bad_path, "--dry-run"])
+    check("网关跨网段时告警", "不在同一子网" in output, output[-200:])
 
     # ------------------------------------------------------------ 离线 hive 三项（B3）
     section("离线 hive：我的文档 / 收藏夹 / IE 主页")

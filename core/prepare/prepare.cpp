@@ -1,8 +1,11 @@
 #include "core/prepare.hpp"
 
+#include "core/netcfg.hpp"
 #include "core/tweaks.hpp"
 
+#include <winsock2.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #include <sddl.h>
 
 #include <algorithm>
@@ -433,6 +436,83 @@ Action makeRegistryAction(
     action.valueName = std::move(valueName);
     action.valueType = std::move(valueType);
     return action;
+}
+
+// 找「有默认网关且已连接」的网卡名（GetAdaptersAddresses 的 FriendlyName）。
+// 为什么选这个判据：SC 的自动 IP 是设给正在用的那块网卡，没有网关的适配器
+// （虚拟网卡、断开的无线）设了也没意义。
+std::string activeAdapterName()
+{
+    ULONG size = 16 * 1024;
+    std::vector<std::uint8_t> buffer(size);
+    auto* addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    // 必须带 INCLUDE_GATEWAYS，否则 FirstGatewayAddress 恒为 nullptr，
+    // 看起来「所有网卡都没有网关」——这个坑不实测会一直返回空。
+    ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER |
+        GAA_FLAG_INCLUDE_GATEWAYS;
+    ULONG status = GetAdaptersAddresses(AF_INET, flags, nullptr, addresses, &size);
+    if (status == ERROR_BUFFER_OVERFLOW)
+    {
+        buffer.resize(size);
+        addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+        status = GetAdaptersAddresses(AF_INET, flags, nullptr, addresses, &size);
+    }
+    if (status != NO_ERROR)
+    {
+        return std::string();
+    }
+
+    for (auto* item = addresses; item != nullptr; item = item->Next)
+    {
+        if (item->OperStatus != IfOperStatusUp || item->FirstGatewayAddress == nullptr)
+        {
+            continue;
+        }
+        if (item->FriendlyName != nullptr && item->FriendlyName[0] != L'\0')
+        {
+            return toUtf8(std::wstring(item->FriendlyName));
+        }
+    }
+    return std::string();
+}
+
+// 读某块网卡当前的 IPv4 地址（随机模式用来决定落在哪个 /24）
+std::uint32_t currentAdapterAddress(const std::string& adapterName)
+{
+    ULONG size = 16 * 1024;
+    std::vector<std::uint8_t> buffer(size);
+    auto* addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+    const ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER |
+        GAA_FLAG_INCLUDE_GATEWAYS;
+    ULONG status = GetAdaptersAddresses(AF_INET, flags, nullptr, addresses, &size);
+    if (status == ERROR_BUFFER_OVERFLOW)
+    {
+        buffer.resize(size);
+        addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+        status = GetAdaptersAddresses(AF_INET, flags, nullptr, addresses, &size);
+    }
+    if (status != NO_ERROR)
+    {
+        return 0;
+    }
+
+    for (auto* item = addresses; item != nullptr; item = item->Next)
+    {
+        if (item->FriendlyName == nullptr || toUtf8(std::wstring(item->FriendlyName)) != adapterName)
+        {
+            continue;
+        }
+        for (auto* unicast = item->FirstUnicastAddress; unicast != nullptr; unicast = unicast->Next)
+        {
+            if (unicast->Address.lpSockaddr == nullptr || unicast->Address.lpSockaddr->sa_family != AF_INET)
+            {
+                continue;
+            }
+            const auto* ipv4 = reinterpret_cast<const sockaddr_in*>(unicast->Address.lpSockaddr);
+            return ntohl(ipv4->sin_addr.s_addr);
+        }
+    }
+    return 0;
 }
 
 // 文件是否存在。用 GetFileAttributesW 而不是 std::filesystem::exists：
@@ -1768,9 +1848,153 @@ Plan build(const config::Config& cfg, const Options& options)
     }
     if (cfg.optimization.autoSetIp)
     {
-        defer(
-            "optimization.autoSetIp", "配置模型没有 IP 地址 / 子网掩码 / 网关 / DNS 字段，无法生成 netsh 命令"
-        );
+        // SC 的三种模式：固定 IP / 随机 IP / IP 段
+        const std::string mode = cfg.optimization.ipMode.empty() ? "fixed" : cfg.optimization.ipMode;
+        const std::string ifName = options.ipInterface.empty() ? activeAdapterName() : options.ipInterface;
+
+        if (ifName.empty())
+        {
+            plan.warnings.push_back("自动设置 IP：找不到可用的网卡（没有带网关的已连接适配器），已跳过");
+        }
+        else if (mode == "fixed" || mode == "random" || mode == "range")
+        {
+            std::string address = cfg.optimization.ipAddress;
+            std::uint32_t chosen = 0;
+
+            if (mode == "fixed")
+            {
+                std::uint32_t parsed = 0;
+                if (!netcfg::parseIpv4(address, parsed))
+                {
+                    plan.warnings.push_back("自动设置 IP：指定 IP 不是合法 IPv4，已跳过：" + address);
+                    address.clear();
+                }
+            }
+            else if (mode == "range" || mode == "random")
+            {
+                std::uint32_t startIp = 0;
+                std::uint32_t endIp = 0;
+                const bool hasRange = netcfg::parseIpv4(cfg.optimization.ipRangeStart, startIp) &&
+                    netcfg::parseIpv4(cfg.optimization.ipRangeEnd, endIp);
+
+                if (mode == "range" && !hasRange)
+                {
+                    plan.warnings.push_back(
+                        "自动设置 IP：IP 段模式的起始/结束 IP 不合法，已跳过：" +
+                        cfg.optimization.ipRangeStart + " - " + cfg.optimization.ipRangeEnd
+                    );
+                }
+                else if (hasRange)
+                {
+                    chosen = netcfg::pickInRange(startIp, endIp, options.ipRandomSeed);
+                    address = netcfg::formatIpv4(chosen);
+                }
+                else
+                {
+                    // 随机模式没有给网段：在本机当前地址的同一 /24 里取，保证网关仍可达。
+                    // 这是本实现的取舍，SC 的原始算法未在产物中体现，已在文档中注明。
+                    std::uint32_t current = currentAdapterAddress(ifName);
+                    if (current == 0)
+                    {
+                        plan.warnings.push_back(
+                            "自动设置 IP：随机模式既没给 IP 段，也读不到本机当前地址，已跳过"
+                        );
+                        address.clear();
+                    }
+                    else
+                    {
+                        chosen = netcfg::pickSameSubnet24(current, options.ipRandomSeed);
+                        address = netcfg::formatIpv4(chosen);
+                    }
+                }
+            }
+
+            if (!address.empty())
+            {
+                const std::string mask =
+                    cfg.optimization.subnetMask.empty() ? "255.255.255.0" : cfg.optimization.subnetMask;
+                std::uint32_t maskValue = 0;
+                if (!netcfg::parseIpv4(mask, maskValue))
+                {
+                    plan.warnings.push_back("自动设置 IP：子网掩码不合法，已跳过：" + mask);
+                }
+                else
+                {
+                    std::uint32_t addressValue = 0;
+                    netcfg::parseIpv4(address, addressValue);
+                    if (!cfg.optimization.gateway.empty())
+                    {
+                        std::uint32_t gatewayValue = 0;
+                        if (!netcfg::parseIpv4(cfg.optimization.gateway, gatewayValue))
+                        {
+                            plan.warnings.push_back(
+                                "自动设置 IP：默认网关不合法，忽略：" + cfg.optimization.gateway
+                            );
+                        }
+                        else if ((gatewayValue & maskValue) != (addressValue & maskValue))
+                        {
+                            // 随机/网段模式很容易撞到这种情况：地址落在 A 网段、网关填的是 B 网段，
+                            // 执行完就直接断网。这不是可以用「用户自己知道」带过的错误。
+                            plan.warnings.push_back(
+                                "自动设置 IP：地址 " + address + " 与网关 " + cfg.optimization.gateway +
+                                " 不在同一子网（掩码 " + mask + "），执行后可能直接断网，请核对配置"
+                            );
+                        }
+                    }
+
+                    Action addressAction;
+                    addressAction.kind = ActionKind::RunCommand;
+                    addressAction.id = "optimization.autoSetIp";
+                    addressAction.group = "系统优化";
+                    addressAction.title = "设置静态 IP（" + mode + "）";
+                    addressAction.sourceField = "optimization.autoSetIp";
+                    addressAction.program = "netsh";
+                    addressAction.arguments =
+                        "interface ipv4 set address name=\"" + ifName + "\" static " + address + " " + mask;
+                    if (!cfg.optimization.gateway.empty())
+                    {
+                        addressAction.arguments += " " + cfg.optimization.gateway;
+                    }
+                    addressAction.note = "网卡：" + ifName + "；地址 " + address + "/" + mask +
+                        (cfg.optimization.gateway.empty() ? "" : " 网关 " + cfg.optimization.gateway);
+                    plan.actions.push_back(std::move(addressAction));
+
+                    if (!cfg.optimization.dnsPreferred.empty())
+                    {
+                        Action dnsAction;
+                        dnsAction.kind = ActionKind::RunCommand;
+                        dnsAction.id = "optimization.autoSetIp.dns";
+                        dnsAction.group = "系统优化";
+                        dnsAction.title = "设置首选 DNS";
+                        dnsAction.sourceField = "optimization.dnsPreferred";
+                        dnsAction.program = "netsh";
+                        dnsAction.arguments = "interface ipv4 set dns name=\"" + ifName + "\" static " +
+                            cfg.optimization.dnsPreferred;
+                        plan.actions.push_back(std::move(dnsAction));
+
+                        if (!cfg.optimization.dnsAlternate.empty())
+                        {
+                            Action altAction;
+                            altAction.kind = ActionKind::RunCommand;
+                            altAction.id = "optimization.autoSetIp.dnsAlt";
+                            altAction.group = "系统优化";
+                            altAction.title = "设置备用 DNS";
+                            altAction.sourceField = "optimization.dnsAlternate";
+                            altAction.program = "netsh";
+                            altAction.arguments = "interface ipv4 add dns name=\"" + ifName + "\" " +
+                                cfg.optimization.dnsAlternate + " index=2";
+                            plan.actions.push_back(std::move(altAction));
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            plan.warnings.push_back(
+                "自动设置 IP：未知模式 \"" + mode + "\"（允许 fixed/random/range），已跳过"
+            );
+        }
     }
     if (cfg.optimization.clearSrsDrivers)
     {

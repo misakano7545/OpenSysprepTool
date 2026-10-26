@@ -7,6 +7,15 @@
 
 ### Added
 
+- **M10 自动设置 IP**（`core/netcfg` + `--prepare`）：对齐 SC 的 `Cb_AutoSetip` 三种模式
+  —— 固定 IP（`Rb_Setip`）、随机 IP（`Rb_SetRandomip`）、IP 段（`Lab_ips` 起止地址），
+  加掩码 / 网关 / 首选与备用 DNS。全部翻成 `netsh interface ipv4` 命令，dry-run 逐字可打印
+  - 网卡自动探测：取「已连接且有默认网关」的适配器（`GetAdaptersAddresses`，注意必须带
+    `GAA_FLAG_INCLUDE_GATEWAYS`，否则网关字段恒为空）
+  - 随机模式没有给网段时，在本机当前地址的同一 /24 里取址（跳过 .0/.255），
+    保证网关仍可达；SC 的原始随机算法在产物中看不到，这个取舍已写进注释与对照表
+  - **网关与地址不在同一子网时告警**：随机/网段模式很容易撞到，执行完会直接断网
+  - 非法 IP、非法掩码、未知模式一律只告警不生成动作，不猜
 - **M10 离线 hive：我的文档 / IE 收藏夹转移、IE 主页同步**（``core/regio`` 的
   `LoadedHive` + `ActionKind::HiveSet`）：三项都要写进所有新用户的默认配置
   （`<系统盘>\Users\Default\NTUSER.DAT`），必须 `RegLoadKey` 离线挂载后写、写完卸载

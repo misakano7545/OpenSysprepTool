@@ -202,6 +202,13 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.sysTweaks = op.value("sysTweaks", std::vector<std::string>{});
             cfg.optimization.autoSetIp = op.value("autoSetIp", false);
             cfg.optimization.ipMode = op.value("ipMode", std::string{});
+            cfg.optimization.ipAddress = op.value("ipAddress", std::string{});
+            cfg.optimization.ipRangeStart = op.value("ipRangeStart", std::string{});
+            cfg.optimization.ipRangeEnd = op.value("ipRangeEnd", std::string{});
+            cfg.optimization.subnetMask = op.value("subnetMask", std::string{});
+            cfg.optimization.gateway = op.value("gateway", std::string{});
+            cfg.optimization.dnsPreferred = op.value("dnsPreferred", std::string{});
+            cfg.optimization.dnsAlternate = op.value("dnsAlternate", std::string{});
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
             cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
             cfg.optimization.setResolution = op.value("setResolution", false);

@@ -115,6 +115,12 @@ struct Options
     // 做成可注入是为了让「选剩余最大分区」这条规则能被单测钉住，
     // 否则断言就依赖跑测试那台机器插了几个盘、各剩多少。
     std::vector<PagefileCandidate> pagefileCandidates;
+
+    // 自动设置 IP 用的网卡名（SC 是设置在目标机当前网卡上）。
+    // 空 = 现场探测「有默认网关且已连接」的那个适配器。
+    std::string ipInterface;
+    // 随机/网段模式的选择种子。0 = 真随机；非 0 = 同种子同结果，单测据此钉住行为。
+    std::uint64_t ipRandomSeed = 0;
 };
 
 // 从环境变量取默认值；空字段会被填上。
