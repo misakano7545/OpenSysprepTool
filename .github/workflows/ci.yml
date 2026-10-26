@@ -162,7 +162,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -215,7 +215,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -247,7 +247,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -272,7 +272,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -291,7 +291,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -310,7 +310,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -332,7 +332,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code
@@ -353,7 +353,7 @@ jobs:
             Tee-Object -FilePath $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $hits = Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback|Error'
+            $hits = Get-Content $log | Select-String -Pattern 'FAIL |Traceback|::error'
             if ($hits) { $hits | ForEach-Object { Write-Host "::error::$($_.Line.Trim())" } }
             else { Get-Content $log -Tail 40 | ForEach-Object { Write-Host "::error::$_" } }
             exit $code

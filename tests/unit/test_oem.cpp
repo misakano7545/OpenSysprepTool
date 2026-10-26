@@ -94,16 +94,11 @@ TEST_CASE("INI：编码判定——UTF-8 BOM / 合法 UTF-8 / GBK 都转成 UTF-
     const std::string withBom = std::string("\xEF\xBB\xBF") + "带 BOM";
     CHECK(ini::decodeToUtf8(withBom) == "带 BOM");
 
-    // GBK：D6 D0 CE C4 是「中文」。它不是合法 UTF-8，所以按 ANSI 解释；
-    // 只有中文代码页的系统上才能还原成「中文」，别的代码页上会被替换，
-    // 但**不能抛异常、不能返回空**。
+    // GBK：D6 D0 CE C4 是「中文」。它不是合法 UTF-8，而 SC 的 .ini 全是 GBK，
+    // 所以必须按 936 解 —— **与本机 ANSI 代码页无关**。曾经用 CP_ACP 兜底，
+    // 结果在 ACP=1252 的 CI runner 上解成乱码（ACER£¨ºê³ž£©）。
     const std::string gbk("\xD6\xD0\xCE\xC4", 4);
-    const std::string decoded = ini::decodeToUtf8(gbk);
-    CHECK(!decoded.empty());
-    if (GetACP() == 936)
-    {
-        CHECK(decoded == "中文");
-    }
+    CHECK(ini::decodeToUtf8(gbk) == "中文");
 
     // UTF-16LE + BOM
     std::string utf16 = "\xFF\xFE";

@@ -6,8 +6,9 @@
 // 而 SC 的配置文件是 Delphi TIniFile 写的标准 Windows INI —— 也就是
 // GetPrivateProfileString 认得的那一套。引一个库比自己写代价更高。
 //
-// 编码是这里唯一容易踩坑的地方：SC 的 .ini 是 GBK，本项目内部一律 UTF-8。
-// 所以 loadFile() 按 BOM / 合法性判定编码，统一转成 UTF-8 再交给调用方。
+// 编码是这里唯一容易踩坑的地方：SC 的 .ini 是 **GBK（CP936）**，本项目内部一律 UTF-8。
+// 所以 loadFile() 的判定顺序是 UTF-8 BOM → UTF-16 BOM → 合法 UTF-8 → **固定 936** → 系统 ANSI。
+// 固定 936 而不是跟随 CP_ACP：ACP 在英文系统上是 1252，同一份 GBK 会被解成乱码。
 
 #include <string>
 #include <vector>
@@ -48,8 +49,7 @@ struct Document
 Document parse(const std::string& utf8Text);
 
 // 读文件并按编码解码成 UTF-8。
-// 判定顺序：UTF-8 BOM -> UTF-16 BOM -> 合法 UTF-8 -> ANSI（CP_ACP，中文系统即 GBK）。
-// 最后一步是 SC 的老 .ini 能读出来的关键。
+// 判定顺序：UTF-8 BOM -> UTF-16 BOM -> 合法 UTF-8 -> 固定 936（GBK） -> 系统 ANSI。
 Document loadFile(const std::string& utf8Path);
 
 // 把一段字节按上述规则解码成 UTF-8（loadFile 内部用，也给测试直接用）

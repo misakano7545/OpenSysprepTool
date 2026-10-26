@@ -128,11 +128,23 @@ std::string decodeToUtf8(const std::string& bytes)
             return fromWide(wide);
         }
     }
-    // 无 BOM：合法 UTF-8 就当 UTF-8，否则按 ANSI（中文系统即 GBK）
+    // 无 BOM：合法 UTF-8 就当 UTF-8
     if (isValidUtf8(bytes))
     {
         return bytes;
     }
+
+    // 不是 UTF-8 —— SC 的 .ini 是 **GBK（CP936）** 写的，所以先按 936 解。
+    // 这里**不能**用 CP_ACP：ACP 在英文系统上是 1252，同一份 GBK 文件会被解成
+    // 「ACER£¨ºê³ž£©」这种乱码（CI 的 windows runner 上实测如此）。
+    // 用固定 936 而不是跟随系统，是因为「导入 SC 的配置」这件事与宿主语言无关。
+    const std::string gbk = decodeWith(936, bytes);
+    if (!gbk.empty() && gbk.find('\uFFFD') == std::string::npos && gbk.find('?') == std::string::npos)
+    {
+        return gbk;
+    }
+
+    // 936 也解不动（例如纯 1251 的俄文 ini）：退回系统 ANSI，尽力而为
     return decodeWith(CP_ACP, bytes);
 }
 

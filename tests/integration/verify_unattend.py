@@ -45,8 +45,21 @@ SHELL_SETUP_OOBE_ORDER = [
     "Display",
     "FirstLogonCommands",
     "LogonCommands",
+    # OEMInformation 在微软文档里排在 LogonCommands 与 OOBE 之间（字母序）
+    "OEMInformation",
     "OOBE",
     "UserAccounts",
+]
+
+# OEMInformation 的子元素顺序（文档字母序）。Manufacturer/Model/SupportHours/
+# SupportPhone 在 Win10 文档里已标注弃用，但 Win7 只认它们，所以两代一起写。
+OEM_INFORMATION_CHILD_ORDER = [
+    "Manufacturer",
+    "Model",
+    "SupportHours",
+    "SupportPhone",
+    "SupportProvider",
+    "SupportURL",
 ]
 
 OOBE_CHILD_ORDER = [

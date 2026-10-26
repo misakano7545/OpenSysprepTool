@@ -6,7 +6,8 @@ namespace osp::tweaks {
 namespace {
 
 const char* const kSessionManager = "SYSTEM\\CurrentControlSet\\Control\\Session Manager";
-const char* const kMemoryManagement = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management";
+const char* const kMemoryManagement =
+    "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management";
 const char* const kDesktop = "Control Panel\\Desktop";
 const char* const kExplorerPolicy = "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer";
 const char* const kExplorer = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer";
@@ -354,7 +355,9 @@ const std::vector<Tweak>& all()
 const Tweak* find(const std::string& id)
 {
     const std::vector<Tweak>& list = all();
-    const auto it = std::find_if(list.begin(), list.end(), [&id](const Tweak& t) { return t.id == id; });
+    const auto it = std::find_if(list.begin(), list.end(), [&id](const Tweak& t) {
+        return t.id == id;
+    });
     return it == list.end() ? nullptr : &*it;
 }
 
@@ -363,8 +366,12 @@ const std::vector<std::string>& unresolvedLabels()
     // 语言文件里有、二进制里没有单行记录：SC 可能用命令或另有代码路径实现。
     // 这里如实列出来，由 --prepare 的 deferred 段报「尚未实现」而不是假装做了。
     static const std::vector<std::string> kLabels{
-        "optimize_Aero",        "optimize_RefreshFile", "optimize_Process",
-        "optimize_AutoRefresh", "optimize_Cmsgsd",      "optimize_Sdmsg",
+        "optimize_Aero",
+        "optimize_RefreshFile",
+        "optimize_Process",
+        "optimize_AutoRefresh",
+        "optimize_Cmsgsd",
+        "optimize_Sdmsg",
     };
     return kLabels;
 }
