@@ -48,6 +48,8 @@ json encode(const Config& cfg)
         {"networkLocation", op.networkLocation},
         {"clearSrsDrivers", op.clearSrsDrivers},
         {"setResolution", op.setResolution},
+        {"clearPrivacyTraces", op.clearPrivacyTraces},
+        {"clearUpdateCache", op.clearUpdateCache},
     };
 
     json tasks = json::array();
@@ -182,6 +184,8 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
             cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
             cfg.optimization.setResolution = op.value("setResolution", false);
+            cfg.optimization.clearPrivacyTraces = op.value("clearPrivacyTraces", false);
+            cfg.optimization.clearUpdateCache = op.value("clearUpdateCache", false);
         }
 
         if (j.contains("runPlan"))

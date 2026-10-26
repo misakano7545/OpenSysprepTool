@@ -44,6 +44,10 @@ struct Optimization
     // M7b 新增（可选，默认值不变）：对位 DFM 里没有宿主的两个字段
     bool clearSrsDrivers = false; // 清理多余的 SRS 驱动（Cb_ClearSrs）
     bool setResolution = false;   // 智能设置分辨率（Cb_SetResolution）
+    // M10 新增：隐私痕迹与更新缓存清理。SC 在封装前会清 100 多条痕迹，
+    // 这里只做有明确系统位置、清掉不影响功能的那批。
+    bool clearPrivacyTraces = false; // 清理使用痕迹（地址栏/运行/最近文档/对话框历史/托盘缓存）
+    bool clearUpdateCache = false;   // 清理 Windows 更新下载缓存
 };
 
 // 运行计划：5 个阶段 × 4 种任务类型

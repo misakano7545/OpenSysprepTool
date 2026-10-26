@@ -858,6 +858,21 @@ bool deleteTreeContents(const Action& action, ExecResult& result, std::string& e
     return true;
 }
 
+bool registryDeleteKey(const Action& action, ExecResult& result, std::string& error)
+{
+    regio::Hive hive;
+    if (!regio::parseHive(action.hive, hive, error))
+    {
+        return false;
+    }
+    if (!regio::deleteTree(hive, action.key, error))
+    {
+        return false;
+    }
+    result.log.push_back("RegDeleteTree  " + action.hive + "\\" + action.key);
+    return true;
+}
+
 bool bcdTimeoutSet(const Action& action, ExecResult& result, std::string& error)
 {
     if (action.program.empty())
@@ -921,6 +936,8 @@ bool executeOne(const Action& action, ExecResult& result, std::string& error)
         return deleteTreeContents(action, result, error);
     case ActionKind::BcdTimeout:
         return bcdTimeoutSet(action, result, error);
+    case ActionKind::RegistryDeleteKey:
+        return registryDeleteKey(action, result, error);
     }
     error = "未知的动作类型";
     return false;
@@ -1098,6 +1115,8 @@ const char* actionKindId(ActionKind kind)
         return "deleteTree";
     case ActionKind::BcdTimeout:
         return "bcdTimeout";
+    case ActionKind::RegistryDeleteKey:
+        return "registryDeleteKey";
     }
     return "unknown";
 }
@@ -1325,6 +1344,87 @@ Plan build(const config::Config& cfg, const Options& options)
             "optimization.setResolution",
             "首登分辨率已由 unattend 的 Display 组件处理；智能检测当前分辨率未实现"
         );
+    }
+
+    // ------------------------------------------------------------ 隐私痕迹
+    // SC 在封装前会清一百多条痕迹。这里只做位置确定、清掉不影响功能的那批：
+    // 地址栏历史、运行对话框、最近文档、文件对话框历史、托盘缓存、压缩软件路径历史。
+    // 删的是整个键，值集合没法逐条还原，所以标为不可回滚。
+    if (cfg.optimization.clearPrivacyTraces)
+    {
+        struct TraceKey
+        {
+            const char* id;
+            const char* title;
+            const char* key;
+        };
+        const TraceKey traces[] = {
+            {"typedUrls", "清空 IE 地址栏历史", "Software\\Microsoft\\Internet Explorer\\TypedURLs"},
+            {"runMru", "清空「运行」对话框历史", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU"},
+            {"recentDocs", "清空最近文档", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RecentDocs"},
+            {"lastVisited",
+             "清空文件对话框历史（LastVisited）",
+             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\LastVisitedPidlMRU"},
+            {"openSave",
+             "清空文件对话框历史（OpenSave）",
+             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ComDlg32\\OpenSavePidlMRU"},
+            {"trayNotify", "清空托盘图标缓存", "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TrayNotify"},
+            {"winrar", "清空 WinRAR 路径历史", "Software\\WinRAR\\DialogEditHistory"},
+        };
+
+        for (const TraceKey& trace : traces)
+        {
+            Action action = makeRegistryAction(
+                ActionKind::RegistryDeleteKey,
+                std::string("optimization.privacy.") + trace.id,
+                "隐私痕迹清理",
+                trace.title,
+                "optimization.clearPrivacyTraces",
+                "HKCU",
+                trace.key,
+                "",
+                "sz"
+            );
+            action.irreversible = true;
+            action.note = "整个键删除；键不存在时跳过";
+            plan.actions.push_back(std::move(action));
+        }
+
+        const std::string appData = env("APPDATA");
+        if (!appData.empty())
+        {
+            Action recent;
+            recent.kind = ActionKind::DeleteTree;
+            recent.id = "optimization.privacy.recentFolder";
+            recent.group = "隐私痕迹清理";
+            recent.title = "清空「最近访问」目录";
+            recent.sourceField = "optimization.clearPrivacyTraces";
+            recent.path = joinPath(appData, "Microsoft\\Windows\\Recent");
+            recent.irreversible = true;
+            recent.note = "开始菜单「最近使用的项目」背后的快捷方式目录";
+            plan.actions.push_back(std::move(recent));
+        }
+    }
+
+    if (cfg.optimization.clearUpdateCache)
+    {
+        if (opt.windowsDir.empty())
+        {
+            plan.warnings.push_back("无法确定 %SystemRoot%，已跳过清理更新缓存");
+        }
+        else
+        {
+            Action action;
+            action.kind = ActionKind::DeleteTree;
+            action.id = "optimization.clearUpdateCache";
+            action.group = "隐私痕迹清理";
+            action.title = "清空 Windows 更新下载缓存";
+            action.sourceField = "optimization.clearUpdateCache";
+            action.path = joinPath(opt.windowsDir, "SoftwareDistribution\\Download");
+            action.irreversible = true;
+            action.note = "只删已下载的更新包，系统需要时会重新下载；正在安装更新时不要跑";
+            plan.actions.push_back(std::move(action));
+        }
     }
 
     // ------------------------------------------------------------ 首次进桌面
@@ -1592,6 +1692,9 @@ std::string dryRunReport(const Plan& plan)
             out += "    执行  " + quoteIfNeeded(action.program) + " /set {bootmgr} timeout " +
                 std::to_string(action.dword) + "（执行时读取原值写入回滚日志）\n";
             break;
+        case ActionKind::RegistryDeleteKey:
+            out += "    RegDeleteTree  " + action.hive + "\\" + action.key + "\n";
+            break;
         }
 
         if (action.requiresReboot)
@@ -1668,6 +1771,7 @@ std::string toJson(const Plan& plan)
         {
         case ActionKind::RegistrySet:
         case ActionKind::RegistryDelete:
+        case ActionKind::RegistryDeleteKey:
             item["hive"] = action.hive;
             item["key"] = action.key;
             item["valueName"] = action.valueName;

@@ -362,3 +362,55 @@ TEST_CASE("prepare: self-test writes and restores HKCU values")
     CHECK(report.find("prepare selftest OK") != std::string::npos);
     CHECK(error.empty());
 }
+
+TEST_CASE("prepare: privacy traces and update cache become cleanup actions")
+{
+    osp::config::Config cfg;
+    cfg.optimization.clearPrivacyTraces = true;
+    cfg.optimization.clearUpdateCache = true;
+
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, testOptions());
+    REQUIRE(plan.ok);
+
+    const char* expected[] = {
+        "optimization.privacy.typedUrls",
+        "optimization.privacy.runMru",
+        "optimization.privacy.recentDocs",
+        "optimization.privacy.lastVisited",
+        "optimization.privacy.openSave",
+        "optimization.privacy.trayNotify",
+        "optimization.privacy.winrar",
+    };
+    for (const char* id : expected)
+    {
+        const osp::prepare::Action* action = findAction(plan, id);
+        REQUIRE(action != nullptr);
+        CHECK(action->kind == osp::prepare::ActionKind::RegistryDeleteKey);
+        CHECK(action->hive == "HKCU");
+        CHECK(action->irreversible);
+    }
+
+    const osp::prepare::Action* cache = findAction(plan, "optimization.clearUpdateCache");
+    REQUIRE(cache != nullptr);
+    CHECK(cache->path == std::string("C:\\Windows") + "\\SoftwareDistribution\\Download");
+    CHECK(cache->irreversible);
+}
+
+TEST_CASE("prepare: deleting a registry key is idempotent")
+{
+    const std::string key = "Software\\OpenSysprepTool\\NoSuchKey";
+    std::string error;
+    osp::regio::deleteTree(osp::regio::Hive::CurrentUser, key, error);
+
+    osp::prepare::Action action;
+    action.kind = osp::prepare::ActionKind::RegistryDeleteKey;
+    action.id = "test.deleteKey";
+    action.hive = "HKCU";
+    action.key = key;
+    action.valueType = "sz";
+
+    const osp::prepare::ExecResult result = osp::prepare::executeActions({action});
+    CHECK(result.ok);
+    CHECK(result.applied == 1);
+    CHECK(result.journal.entries.empty()); // 不可回滚的动作不进 journal
+}

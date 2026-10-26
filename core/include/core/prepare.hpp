@@ -33,6 +33,8 @@ enum class ActionKind
     DeleteTree,
     // BCD 的启动菜单超时：执行时先读原值再写，原值进回滚日志
     BcdTimeout,
+    // 删整个注册表键（值集合无法逐条还原，所以不进 journal、标为不可回滚）
+    RegistryDeleteKey,
 };
 
 const char* actionKindId(ActionKind kind);

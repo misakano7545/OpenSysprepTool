@@ -999,6 +999,22 @@ Page sysprepPage(const config::Config& cfg)
         "sysprep.cleanDllCache",
         "图纸默认勾选"
     ));
+    // 这两项没有 DFM 控件（SC 把痕迹清理散在运行计划事件里），是本项目新增的开关，
+    // 由 --prepare 落地。放在「系统类」是因为它们和清理动作同属封装前的系统处理。
+    sysset.fields.push_back(makeCheck(
+        "Cb_ClearPrivacy",
+        "清理使用痕迹（地址栏/运行/最近文档/对话框历史/托盘缓存）",
+        cfg.optimization.clearPrivacyTraces,
+        "optimization.clearPrivacyTraces",
+        "本项目新增，图纸无对应控件；由 --prepare 执行"
+    ));
+    sysset.fields.push_back(makeCheck(
+        "Cb_ClearUpdateCache",
+        "清理 Windows 更新下载缓存",
+        cfg.optimization.clearUpdateCache,
+        "optimization.clearUpdateCache",
+        "本项目新增，图纸无对应控件；由 --prepare 执行"
+    ));
     page.groups.push_back(std::move(sysset));
 
     Group net;
@@ -1399,6 +1415,14 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.sysprep.cleanDllCache = field.checked;
             }
+            else if (id == "Cb_ClearPrivacy")
+            {
+                cfg.optimization.clearPrivacyTraces = field.checked;
+            }
+            else if (id == "Cb_ClearUpdateCache")
+            {
+                cfg.optimization.clearUpdateCache = field.checked;
+            }
             else if (id == "Ed_WorkGroup")
             {
                 cfg.sysprep.workgroup = field.value;
@@ -1702,6 +1726,8 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
             "Cb_Cutdesktopfile",
             "Cb_Cleanjunkfiles",
             "Cb_Dllcache",
+            "Cb_ClearPrivacy",
+            "Cb_ClearUpdateCache",
             "Rb_WorkGroup",
             "Rb_Domain",
             "Ed_WorkGroup",
