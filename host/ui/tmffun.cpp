@@ -53,6 +53,8 @@ struct TabSpec
 
 constexpr int kIdcTabs = 4300;
 constexpr int kIdcFirstControl = 4400;
+constexpr int kIdcTamperDelete = 4390;
+constexpr int kIdcTamperDeleteAll = 4391;
 
 // 页签条与内容区的相对位置：DFM 里 Mfpage 占满窗体上部，页签内容自己带坐标。
 constexpr int kTabStripX = 6;
@@ -503,7 +505,6 @@ writeBinding(const std::string& path, const std::string& text, bool flag, bool h
 
 struct TabPageState
 {
-    HWND sheet = nullptr;
     std::vector<HWND> controls;
     HWND status = nullptr;
     bool dirty = false;
@@ -540,12 +541,14 @@ const ControlSpec* specAt(int tab, int index)
     return &spec->controls[index];
 }
 
-HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* groupSpec)
+HWND createControl(HWND parent, int baseX, int baseY, const ControlSpec& spec, const ControlSpec* groupSpec)
 {
-    const int offsetX = groupSpec == nullptr ? 0 : groupSpec->x;
-    const int offsetY = groupSpec == nullptr ? 0 : groupSpec->y;
-    const int x = spec.x - offsetX;
-    const int y = spec.y - offsetY;
+    // 控件统一挂在**对话框**上（而不是页签内的中间容器）：按钮/勾选框/单选的
+    // WM_COMMAND 只会发给父窗口，挂在 STATIC 容器上的话消息到那就被丢掉了 ——
+    // 表现是「按钮看得见但点了没反应」。所以这里把页签内容区的偏移直接加进坐标。
+    // 组框里的控件：DFM 的坐标相对组框，组框本身相对页签 —— 两级都要加上
+    const int x = baseX + (groupSpec == nullptr ? 0 : groupSpec->x) + spec.x;
+    const int y = baseY + (groupSpec == nullptr ? 0 : groupSpec->y) + spec.y;
     const std::wstring text = wide(spec.text);
     const std::string kind = spec.kind;
 
@@ -579,7 +582,10 @@ HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* grou
     else if (kind == "radio")
     {
         cls = L"BUTTON";
-        style |= BS_AUTORADIOBUTTON;
+        // 用手动单选而不是 AUTO：图纸里「虚拟内存大小」只有倍数/固定值两个单选，
+        // 没有「回到系统管理」的第三个。再点一次已选中的单选就取消勾选，两个都不选
+        // 即「由系统管理大小」——不加图纸里没有的控件。
+        style |= BS_RADIOBUTTON | WS_TABSTOP;
     }
     else if (kind == "combo")
     {
@@ -832,6 +838,100 @@ std::string buildOemPreview(const config::OemSettings& oem, const config::System
     return text;
 }
 
+// 按控件 id 找本页的窗口句柄
+HWND findControl(DialogState& state, const char* id)
+{
+    if (state.current < 0)
+    {
+        return nullptr;
+    }
+    const TabSpec* tabSpec = kTabs[state.current];
+    TabPageState& page = state.pages[static_cast<std::size_t>(state.current)];
+    for (int i = 0; i < tabSpec->controlCount; ++i)
+    {
+        if (tabSpec->controls[i].id != nullptr && std::string(tabSpec->controls[i].id) == id)
+        {
+            return page.controls[static_cast<std::size_t>(i)];
+        }
+    }
+    return nullptr;
+}
+
+// 防篡改清单的删除。SC 图纸里这份清单带右键菜单「删除 / 删除所有」
+// （Tampering_menu），这里照做：清单空了就把 verifyIntegrity 关掉 ——
+// 否则部署端会以「要求校验但列表为空」拒绝执行，等于把自己锁死。
+void deleteTamperEntries(DialogState& state, HWND list, bool all)
+{
+    if (state.cfg == nullptr || list == nullptr)
+    {
+        return;
+    }
+    int removed = 0;
+    if (all)
+    {
+        removed = static_cast<int>(state.cfg->deploy.tamperFiles.size());
+        state.cfg->deploy.tamperFiles.clear();
+    }
+    else
+    {
+        const int selected =
+            static_cast<int>(::SendMessageW(list, LVM_GETNEXTITEM, static_cast<WPARAM>(-1), LVNI_SELECTED));
+        if (selected >= 0 && selected < static_cast<int>(state.cfg->deploy.tamperFiles.size()))
+        {
+            state.cfg->deploy.tamperFiles.erase(state.cfg->deploy.tamperFiles.begin() + selected);
+            removed = 1;
+        }
+    }
+    if (removed == 0)
+    {
+        return;
+    }
+    if (state.cfg->deploy.tamperFiles.empty())
+    {
+        state.cfg->deploy.verifyIntegrity = false;
+    }
+    state.saved = true;
+    fillTamperList(list, *state.cfg);
+    if (HWND hint = findControl(state, "Lab_TamperinguseTip"); hint != nullptr)
+    {
+        const std::string text = "已删除 " + std::to_string(removed) + " 条，剩 " +
+            std::to_string(state.cfg->deploy.tamperFiles.size()) + " 条";
+        ::SetWindowTextW(hint, toWide(text.c_str()).c_str());
+    }
+}
+
+// 虚拟内存页的状态行：说清当前是哪种大小方式。
+// 两个单选都不选 = 由系统管理 —— 这个状态没有专门控件，只能在这里讲明白。
+void refreshPagefileStatus(DialogState& state)
+{
+    if (state.current < 0 || std::string(kTabs[state.current]->id) != "MlSkinTabSheet7")
+    {
+        return;
+    }
+    HWND multiplier = findControl(state, "Rb_PageFilevarValue");
+    HWND fixed = findControl(state, "Rb_PageFileconstValue");
+    const bool isMultiplier =
+        multiplier != nullptr && ::SendMessageW(multiplier, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    const bool isFixed = fixed != nullptr && ::SendMessageW(fixed, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    std::string text;
+    if (!isMultiplier && !isFixed)
+    {
+        text = "当前：由系统管理大小（两个都不选）";
+    }
+    else if (isMultiplier)
+    {
+        text = "当前：按物理内存的倍数";
+    }
+    else
+    {
+        text = "当前：固定值（MB）";
+    }
+    if (HWND status = findControl(state, "Lab_Tip_MovePagefile"); status != nullptr)
+    {
+        ::SetWindowTextW(status, toWide(text.c_str()).c_str());
+    }
+}
+
 void loadTabInto(DialogState& state, int tab)
 {
     if (tab < 0 || tab >= kTabCount || state.cfg == nullptr)
@@ -997,6 +1097,27 @@ bool saveTab(DialogState& state, int tab, std::string& error)
     // 虚拟内存那页的大小关系要在保存时就拦下来，不然要等到封装前才报错
     if (std::string(tabSpec->id) == "MlSkinTabSheet7")
     {
+        // 两个单选都不选 = 由系统管理（图纸没有第三个单选，靠「再点一次取消」到达）
+        bool anySizeRadio = false;
+        for (int i = 0; i < tabSpec->controlCount; ++i)
+        {
+            const ControlSpec& candidate = tabSpec->controls[i];
+            const std::string group = candidate.radioGroup == nullptr ? std::string() : candidate.radioGroup;
+            if (std::string(candidate.kind) != "radio" || group != "pageFileSize")
+            {
+                continue;
+            }
+            HWND radio = page.controls[static_cast<std::size_t>(i)];
+            if (radio != nullptr && ::SendMessageW(radio, BM_GETCHECK, 0, 0) == BST_CHECKED)
+            {
+                anySizeRadio = true;
+            }
+        }
+        if (!anySizeRadio)
+        {
+            staged.optimization.pageFileSizeMode = "system";
+        }
+
         const config::Optimization& opt = staged.optimization;
         if (opt.pageFileSizeMode == "multiplier" && opt.pageFileMinMultiplier > 0 &&
             opt.pageFileMaxMultiplier > 0 && opt.pageFileMinMultiplier > opt.pageFileMaxMultiplier)
@@ -1043,6 +1164,7 @@ void showTab(DialogState& state, int tab)
     {
         loadTabInto(state, tab);
     }
+    refreshPagefileStatus(state);
 }
 
 void buildTabs(DialogState& state, HWND parent)
@@ -1086,21 +1208,9 @@ void buildTabs(DialogState& state, HWND parent)
         const int contentW = (strip.right - strip.left);
         const int contentH = (strip.bottom - strip.top);
 
-        HWND sheet = ::CreateWindowExW(
-            0,
-            L"STATIC",
-            L"",
-            WS_CHILD | WS_CLIPCHILDREN,
-            contentX,
-            contentY,
-            contentW,
-            contentH,
-            state.tabs,
-            nullptr,
-            ::GetModuleHandleW(nullptr),
-            nullptr
-        );
-        state.pages[static_cast<std::size_t>(i)].sheet = sheet;
+        // 内容区在对话框客户区里的绝对偏移（页签控件自身位置 + 页签条占掉的部分）
+        const int baseX = kTabStripX + contentX;
+        const int baseY = kTabStripY + contentY;
 
         const TabSpec* tabSpec = kTabs[i];
         if (tabSpec == nullptr || tabSpec->controls == nullptr)
@@ -1115,7 +1225,7 @@ void buildTabs(DialogState& state, HWND parent)
                 24,
                 contentW - 40,
                 contentH - 60,
-                sheet,
+                parent,
                 nullptr,
                 ::GetModuleHandleW(nullptr),
                 nullptr
@@ -1159,7 +1269,7 @@ void buildTabs(DialogState& state, HWND parent)
                     groupSpec = found->second;
                 }
             }
-            HWND handle = createControl(sheet, spec, groupSpec);
+            HWND handle = createControl(parent, baseX, baseY, spec, groupSpec);
             state.pages[static_cast<std::size_t>(i)].controls[static_cast<std::size_t>(c)] = handle;
             if (kind == "group" && handle != nullptr)
             {
@@ -1175,8 +1285,7 @@ void buildTabs(DialogState& state, HWND parent)
                 ::SetWindowLongPtrW(handle, GWLP_ID, kIdcFirstControl + c);
             }
         }
-        // 组框里的控件要跟随组框显示/隐藏，所以 parent 一律记成 sheet（同一窗口），
-        // 靠 Z 序保证可见性即可。
+        // 全部控件都是对话框的直接子窗口，显示/隐藏按页签逐个处理（见 showTab）。
     }
     showTab(state, 0);
 }
@@ -1235,6 +1344,36 @@ LRESULT CALLBACK tmffunProc(HWND wnd, UINT message, WPARAM wParam, LPARAM lParam
     }
     case WM_NOTIFY: {
         auto* header = reinterpret_cast<LPNMHDR>(lParam);
+        if (state != nullptr && header != nullptr && header->code == NM_RCLICK)
+        {
+            // 防篡改清单的右键菜单：删除 / 删除所有（对应图纸的 Tampering_menu）
+            HWND list = findControl(*state, "Lv_Tampering");
+            if (list != nullptr && header->hwndFrom == list)
+            {
+                HMENU menu = ::CreatePopupMenu();
+                if (menu != nullptr)
+                {
+                    ::AppendMenuW(menu, MF_STRING, kIdcTamperDelete, L"删除(&D)");
+                    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                    ::AppendMenuW(menu, MF_STRING, kIdcTamperDeleteAll, L"删除所有(&A)");
+                    POINT cursor = {};
+                    ::GetCursorPos(&cursor);
+                    const int command = ::TrackPopupMenu(
+                        menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, wnd, nullptr
+                    );
+                    ::DestroyMenu(menu);
+                    if (command == kIdcTamperDelete)
+                    {
+                        deleteTamperEntries(*state, list, false);
+                    }
+                    else if (command == kIdcTamperDeleteAll)
+                    {
+                        deleteTamperEntries(*state, list, true);
+                    }
+                }
+            }
+            return 0;
+        }
         if (state != nullptr && header != nullptr && header->idFrom == kIdcTabs &&
             header->code == TCN_SELCHANGE)
         {
@@ -1257,6 +1396,37 @@ LRESULT CALLBACK tmffunProc(HWND wnd, UINT message, WPARAM wParam, LPARAM lParam
         const ControlSpec* spec = specAt(state->current, index);
         if (spec == nullptr)
         {
+            return 0;
+        }
+        const TabSpec* tabSpec = kTabs[state->current];
+        TabPageState& page = state->pages[static_cast<std::size_t>(state->current)];
+        if (std::string(spec->kind) == "radio")
+        {
+            HWND handle = page.controls[static_cast<std::size_t>(index)];
+            // 点已选中的那个 = 取消，全部不选由调用方解释（虚拟内存 = 系统管理）
+            const bool wasChecked = ::SendMessageW(handle, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            const std::string group = spec->radioGroup == nullptr ? std::string() : spec->radioGroup;
+            for (int i = 0; i < tabSpec->controlCount; ++i)
+            {
+                const ControlSpec& other = tabSpec->controls[i];
+                if (std::string(other.kind) != "radio")
+                {
+                    continue;
+                }
+                const std::string otherGroup = other.radioGroup == nullptr ? std::string() : other.radioGroup;
+                if (otherGroup != group)
+                {
+                    continue;
+                }
+                HWND sibling = page.controls[static_cast<std::size_t>(i)];
+                if (sibling != nullptr)
+                {
+                    const bool wantChecked = i == index && !wasChecked;
+                    ::SendMessageW(sibling, BM_SETCHECK, wantChecked ? BST_CHECKED : BST_UNCHECKED, 0);
+                }
+            }
+            page.dirty = true;
+            refreshPagefileStatus(*state);
             return 0;
         }
         const std::string action = spec->action == nullptr ? std::string() : spec->action;
@@ -1621,6 +1791,72 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         return false;
     }
 
+    // 真点一次页签上的「保存」按钮：控件必须挂在对话框上，否则 WM_COMMAND 会
+    // 发给中间的 STATIC 容器然后被丢掉，表现是「按钮看得见但点了没反应」。
+    {
+        HWND saveButton = findControl(state, "Btn_MoveDocuments_Save");
+        if (saveButton == nullptr)
+        {
+            detail = "转移文档页没有保存按钮";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        cfg.optimization.myDocumentsTarget.clear();
+        HWND editor = findControl(state, "Ed_MovePath");
+        ::SetWindowTextW(editor, L"D:\\点按钮写入");
+        ::SendMessageW(saveButton, BM_CLICK, 0, 0);
+        if (cfg.optimization.myDocumentsTarget != "D:\\点按钮写入")
+        {
+            detail = "点「保存」按钮没有落到配置（按钮消息没到对话框）";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+    }
+
+    // 虚拟内存大小：两个都不选 = 由系统管理（再点一次已选中的单选）
+    {
+        state.current = pagefile; // findControl 按当前页找，先切过来
+        HWND radioFixed = findControl(state, "Rb_PageFileconstValue");
+        HWND radioMultiplier = findControl(state, "Rb_PageFilevarValue");
+        if (radioFixed == nullptr || radioMultiplier == nullptr)
+        {
+            detail = "虚拟内存页缺少大小单选";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        // 先选「固定值」并保存
+        ::SendMessageW(radioFixed, BM_SETCHECK, BST_CHECKED, 0);
+        ::SendMessageW(radioMultiplier, BM_SETCHECK, BST_UNCHECKED, 0);
+        if (HWND fixedMin = findControl(state, "Ed_PageFileCMinisize"); fixedMin != nullptr)
+        {
+            ::SetWindowTextW(fixedMin, L"4096");
+        }
+        if (HWND fixedMax = findControl(state, "Ed_PageFileCMaxsize"); fixedMax != nullptr)
+        {
+            ::SetWindowTextW(fixedMax, L"8192");
+        }
+        if (!saveTab(state, pagefile, error) || cfg.optimization.pageFileSizeMode != "fixed")
+        {
+            detail = "选固定值没保存成：" + error;
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        // 再点一次同一个单选 -> 取消 -> 保存成 system
+        ::SendMessageW(radioFixed, BM_CLICK, 0, 0);
+        if (!saveTab(state, pagefile, error))
+        {
+            detail = "取消选中后保存失败：" + error;
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        if (cfg.optimization.pageFileSizeMode != "system")
+        {
+            detail = "再点一次单选没回到系统管理，mode=" + cfg.optimization.pageFileSizeMode;
+            ::DestroyWindow(dialog);
+            return false;
+        }
+    }
+
     // 切页签不能丢未保存的输入：改了转移文档的路径，切走再切回来要还在
     {
         HWND pathEdit = nullptr;
@@ -1820,6 +2056,31 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
     if (::SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) != static_cast<LRESULT>(before + 1))
     {
         detail = "清单里显示的行数与配置不一致";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
+    // 删除：删掉选中的那条，清单要跟着少一行
+    state.current = lockTab;
+    ::SendMessageW(list, LVM_SETITEMSTATE, 0, 0);
+    LVITEMW select = {};
+    select.state = LVIS_SELECTED | LVIS_FOCUSED;
+    select.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+    ::SendMessageW(list, LVM_SETITEMSTATE, static_cast<WPARAM>(before), reinterpret_cast<LPARAM>(&select));
+    deleteTamperEntries(state, list, false);
+    if (cfg.deploy.tamperFiles.size() != before)
+    {
+        detail = "删除一条后剩 " + std::to_string(cfg.deploy.tamperFiles.size()) + " 条，应为 " +
+            std::to_string(before);
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    // 删除所有：清单空时 verifyIntegrity 必须关掉，否则部署端会拒绝执行
+    cfg.deploy.tamperFiles.push_back(config::DeploySettings::TamperEntry{});
+    deleteTamperEntries(state, list, true);
+    if (!cfg.deploy.tamperFiles.empty() || cfg.deploy.verifyIntegrity)
+    {
+        detail = "删除所有后清单没清空或 verifyIntegrity 仍为真";
         ::DestroyWindow(dialog);
         return false;
     }
