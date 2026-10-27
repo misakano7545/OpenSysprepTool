@@ -334,8 +334,17 @@ def main(argv: list[str]) -> int:
     section("按 SC 的 DFM 坐标摆放（运行 / 完成 / 目标系统）")
     lines = report.get("lines", [])
     placed = [line for line in lines if "控件按图纸坐标摆放" in line]
-    # 运行页 5 + 完成页 8 + 目标系统页 34（四组里的全部控件，Btn_Bugs 等红线项不在内）
-    check("坐标核对覆盖 47 个控件（运行 5 + 完成 8 + 目标系统 34）", len(placed) == 47, f"{len(placed)} 条")
+    # 七个页面都按 DFM 摆：母盘系统 16 + 目标系统 34 + 计划任务 15 + 部署过程 12 +
+    # 封装过程 21 + 运行 5 + 完成 8 = 111（红线项与图纸纯标签不在内）
+    check("坐标核对覆盖 111 个控件（七个页面）", len(placed) == 111, f"{len(placed)} 条")
+    # 逐页都要有核对记录，防止某一页悄悄退回自动排列
+    for page_name, expected in (("母盘系统", 16), ("目标系统", 34), ("计划任务", 15),
+                                ("部署过程", 12), ("封装过程", 21), ("运行", 5), ("完成", 8)):
+        pages = [p for p in report.get("pages", []) if p.get("title") == page_name]
+        if not pages:
+            check(f"报告里有 {page_name} 页", False)
+            continue
+        check(f"{page_name} 页按 DFM 摆放", pages[0].get("dfmLayout") is True, str(pages[0].get("dfmLayout")))
     # 目标系统页的分组框是绝对矩形、组内控件相对它定位；少加分组原点会整体偏移
     target_placed = [line for line in placed if any(
         name in line for name in ("Cb_ShowDevmgmt", "Ed_Owner", "Se_Boottime", "Lab_tempX", "Btn_OemSet"))]

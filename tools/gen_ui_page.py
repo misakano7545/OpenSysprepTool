@@ -76,9 +76,13 @@ def emit_field(field: dict, spec: dict, indent: str) -> list[str]:
     lines.append(f"{indent}    field.dfmClass = {cxx_string(cls)};")
 
     if kind == "info":
-        value = spec.get("value", field.get("caption", ""))
         lines.append(f"{indent}    field.kind = FieldKind::Info;")
-        lines.append(f"{indent}    field.value = {cxx_string(value)};")
+        if "valueSource" in spec:
+            # 动态值（系统信息、磁盘容量…）：表达式原样放进生成代码
+            lines.append(f"{indent}    field.value = {spec['valueSource']};")
+        else:
+            value = spec.get("value", field.get("caption", ""))
+            lines.append(f"{indent}    field.value = {cxx_string(value)};")
     elif kind == "button":
         label = spec.get("label", field.get("caption", ""))
         lines.append(f"{indent}    field.kind = FieldKind::Button;")
@@ -188,6 +192,8 @@ def main(argv: list[str]) -> int:
         out.append(f"        group.y = {group.get('top')};")
         out.append(f"        group.width = {group.get('width')};")
         out.append(f"        group.height = {group.get('height')};")
+        if group.get("visible") is False:
+            out.append("        group.visible = false; // DFM: Visible = False（点按钮才显示）")
         out.append("")
         for item in items:
             if item["name"] in excluded:
@@ -195,8 +201,15 @@ def main(argv: list[str]) -> int:
                 out.append(f"        // 跳过 {item['name']}：{why}")
                 continue
             if item["name"] not in specs:
+                # 图纸里的纯文本标签（TMlSkinLabel / TLabel，带 Caption）自动补成只读文本，
+                # 不需要人工声明：它们的文字就在 DFM 里，漏掉反而会让界面少一行说明。
+                if item.get("class") in ("TMlSkinLabel", "TLabel") and item.get("caption"):
+                    auto = {"kind": "info", "value": item["caption"], "note": "图纸 Caption 逐字"}
+                    out.extend(emit_field(item, auto, "        "))
+                    continue
                 raise SystemExit(
-                    f"控件 {item['name']}（{sheet}）既没在 controls 里声明，也没在 exclude 里说明"
+                    f"控件 {item['name']}（{sheet}，{item.get('class')}）既没在 controls 里声明，"
+                    f"也没在 exclude 里说明"
                 )
             out.extend(emit_field(item, specs[item["name"]], "        "))
         out.append("")

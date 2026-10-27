@@ -1,0 +1,123 @@
+{
+  "page": "sysprep",
+  "sheet": "MlSkinTabSheet5",
+  "function": "sysprepPage",
+  "hiddenGroups": [],
+  "exclude": {
+    "Rb_Sysprep_Type2": {
+      "kind": "control",
+      "why": "宪章 §7：联盟封装方式依赖联盟授权，不做"
+    },
+    "Rb_Sysprep_Type3": {
+      "kind": "control",
+      "why": "宪章 §7：会员封装方式依赖服务器授权，不做"
+    },
+    "Gb_Temp": {
+      "kind": "control",
+      "why": "图纸里的空占位分组框（高度 14），无控件"
+    }
+  },
+  "controls": {
+    "Btn_Syspreprun": {
+      "kind": "button",
+      "label": "开始封装"
+    },
+    "Cb_Uninstalldriver": {
+      "kind": "check",
+      "label": "卸载本机驱动",
+      "binding": "sysprep.uninstallDrivers"
+    },
+    "Cb_LoadSrsDrv": {
+      "kind": "check",
+      "label": "加载 SRS 磁盘控制器驱动",
+      "binding": "sysprep.loadSrsDrivers"
+    },
+    "Cb_Createnewsid": {
+      "kind": "check",
+      "label": "在目标计算机系统中生成全新的安全标识符",
+      "binding": "sysprep.generateNewSid"
+    },
+    "Rb_Sysprep_Type1": {
+      "kind": "radio",
+      "label": "传统封装方式",
+      "binding": "sysprep.mode",
+      "source": "true"
+    },
+    "Cb_Cutdesktopfile": {
+      "kind": "check",
+      "label": "转移桌面文件到所有用户",
+      "binding": "sysprep.transferDesktopFiles"
+    },
+    "Cb_Cleanjunkfiles": {
+      "kind": "check",
+      "label": "封装后清理系统无用文件",
+      "binding": "sysprep.cleanTemp"
+    },
+    "Cb_Dllcache": {
+      "kind": "check",
+      "label": "清理 DLLcache 目录并在部署时还原(减少体积)",
+      "binding": "sysprep.cleanDllCache"
+    },
+    "Rb_WorkGroup": {
+      "kind": "radio",
+      "label": "工作组",
+      "binding": "sysprep.workgroup",
+      "source": "!joinDomain"
+    },
+    "Rb_Domain": {
+      "kind": "radio",
+      "label": "加入域",
+      "binding": "sysprep.domain",
+      "source": "joinDomain"
+    },
+    "Ed_Domain_name": {
+      "kind": "edit",
+      "label": "域名",
+      "binding": "sysprep.domain"
+    },
+    "Ed_Domain_user": {
+      "kind": "edit",
+      "label": "域用户",
+      "binding": "sysprep.domainUser"
+    },
+    "Ed_Domain_pw": {
+      "kind": "edit",
+      "label": "域密码",
+      "binding": "sysprep.domainPassword"
+    },
+    "Ed_WorkGroup": {
+      "kind": "edit",
+      "label": "工作组名",
+      "binding": "sysprep.workgroup"
+    },
+    "Rb_EveryOne": {
+      "kind": "radio",
+      "label": "每设备或每用户",
+      "binding": "sysprep.perServerLicensing",
+      "source": "!cfg.sysprep.perServerLicensing"
+    },
+    "Rb_EverySer": {
+      "kind": "radio",
+      "label": "每服务器,同时连接数",
+      "binding": "sysprep.perServerLicensing",
+      "source": "cfg.sysprep.perServerLicensing"
+    },
+    "Se_Serconut": {
+      "kind": "number",
+      "label": "同时连接数",
+      "binding": "sysprep.maxConnections"
+    },
+    "Cb_AfterSysprep": {
+      "kind": "combo",
+      "label": "封装后处理",
+      "binding": "sysprep.afterAction",
+      "fromDfm": true
+    },
+    "Btn_Sysprepaset": {
+      "kind": "button",
+      "label": "高级设置(&A)",
+      "action": "sysprepAdvanced",
+      "note": "图纸 Caption 逐字"
+    }
+  }
+}

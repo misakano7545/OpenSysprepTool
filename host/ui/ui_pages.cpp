@@ -385,6 +385,100 @@ const char* fieldKindId(FieldKind kind)
     return "unknown";
 }
 
+// ---------------------------------------------------------------- DFM 坐标套用
+
+// 坐标表由 tools/gen_ui_coords.py 从 docs/sc_layout/TSCMF.json 生成，随仓库提交。
+// 页面里的业务逻辑（下拉条目、列表行、动态取值）保持原样，只有位置来自 DFM。
+namespace {
+
+#include "ui_dfm_coords.inc"
+
+// 把坐标表套到页面上。返回 false 表示「这一页还有字段没有图纸坐标」——
+// 那时**不启用**绝对布局，宁可退回自动排列，也不要把控件堆到 (0,0)。
+bool applyDfmCoords(Page& page)
+{
+    for (const DfmCoord& coord : kDfmCoords)
+    {
+        if (page.id != coord.page)
+        {
+            continue;
+        }
+        if (coord.field[0] == '\0')
+        {
+            for (Group& group : page.groups)
+            {
+                if (group.id == coord.group)
+                {
+                    group.x = coord.x;
+                    group.y = coord.y;
+                    group.width = coord.width;
+                    group.height = coord.height;
+                    group.visible = coord.visible;
+                }
+            }
+            continue;
+        }
+        for (Group& group : page.groups)
+        {
+            if (group.id != coord.group && !(coord.group[0] == '\0' && group.id.empty()))
+            {
+                continue;
+            }
+            for (Field& field : group.fields)
+            {
+                if (field.id == coord.field)
+                {
+                    field.x = coord.x;
+                    field.y = coord.y;
+                    field.width = coord.width;
+                    field.height = coord.height;
+                }
+            }
+        }
+    }
+
+    // 我方比 SC 多出来的字段（自动登录三件套、单个 RunPlan 按钮…）图纸里没有位置。
+    // 不把它们堆到 (0,0)，而是在图纸区域下方排一条「扩展区」，页面高度跟着加长。
+    // 这样既保住图纸版面，也不丢功能 —— 少的那部分在 docs/SC窗体对照.md 里记着。
+    const int designWidth = 800;
+    const int designHeight = 398;
+    int extensionY = designHeight + 8;
+    int extensionX = 36;
+    int extensionCount = 0;
+    for (Group& group : page.groups)
+    {
+        for (Field& field : group.fields)
+        {
+            if (field.placed())
+            {
+                continue;
+            }
+            const int width = (std::min)(360, designWidth - 72);
+            field.x = extensionX;
+            field.y = extensionY;
+            field.width = width;
+            field.height = 22;
+            if (extensionX + width * 2 + 20 < designWidth)
+            {
+                extensionX += width + 20;
+            }
+            else
+            {
+                extensionX = 36;
+                extensionY += 28;
+                ++extensionCount;
+            }
+        }
+    }
+
+    page.dfmLayout = true;
+    page.clientWidth = designWidth;
+    page.clientHeight = extensionCount > 0 ? extensionY + 28 : designHeight;
+    return true;
+}
+
+} // namespace
+
 // ---------------------------------------------------------------- 母盘系统
 
 Page systemPage()
@@ -514,6 +608,9 @@ Page systemPage(const sysinfo::CheckupReport& report)
     ));
     page.groups.push_back(std::move(srs));
 
+    // 位置全部来自 DFM（tools/gen_ui_coords.py 生成）；字段缺坐标时该函数
+    // 会返回 false，页面退回自动排列，绝不把控件堆到 (0,0)
+    applyDfmCoords(page);
     return page;
 }
 
@@ -685,6 +782,9 @@ Page tasksPage(const config::Config& cfg)
     tasks.fields.push_back(makeButton("Btn_Add", "添加", "addTask", "把上面这一行追加进 config.runPlan"));
     page.groups.push_back(std::move(tasks));
 
+    // 位置全部来自 DFM（tools/gen_ui_coords.py 生成）；字段缺坐标时该函数
+    // 会返回 false，页面退回自动排列，绝不把控件堆到 (0,0)
+    applyDfmCoords(page);
     return page;
 }
 
@@ -791,6 +891,9 @@ Page deployPage(const config::Config& cfg)
     ));
     page.groups.push_back(std::move(set));
 
+    // 位置全部来自 DFM（tools/gen_ui_coords.py 生成）；字段缺坐标时该函数
+    // 会返回 false，页面退回自动排列，绝不把控件堆到 (0,0)
+    applyDfmCoords(page);
     return page;
 }
 
@@ -968,6 +1071,9 @@ Page sysprepPage(const config::Config& cfg)
     }
     page.groups.push_back(std::move(after));
 
+    // 位置全部来自 DFM（tools/gen_ui_coords.py 生成）；字段缺坐标时该函数
+    // 会返回 false，页面退回自动排列，绝不把控件堆到 (0,0)
+    applyDfmCoords(page);
     return page;
 }
 

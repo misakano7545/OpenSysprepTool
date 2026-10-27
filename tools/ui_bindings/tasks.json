@@ -1,0 +1,70 @@
+{
+  "page": "tasks",
+  "sheet": "MlSkinTabSheet3",
+  "function": "tasksPage",
+  "hiddenGroups": [],
+  "exclude": {
+    "Bar1": {
+      "kind": "control",
+      "why": "列表右侧滚动条是 Lv_Tasklist 的内部件，Windows 列表控件自带滚动条"
+    },
+    "Bar2": {
+      "kind": "control",
+      "why": "同上：底部横向滚动条"
+    }
+  },
+  "controls": {
+    "Cb_Tasktype": {
+      "kind": "combo",
+      "label": "任务类型",
+      "fromDfm": true
+    },
+    "Cb_RunWait": {
+      "kind": "combo",
+      "label": "运行等待",
+      "fromDfm": true
+    },
+    "Cb_RunMode": {
+      "kind": "combo",
+      "label": "运行方式",
+      "fromDfm": true
+    },
+    "Cb_RunAfter": {
+      "kind": "combo",
+      "label": "善后处理",
+      "fromDfm": true
+    },
+    "Cb_RunPath": {
+      "kind": "combo",
+      "label": "执行路径",
+      "fromDfm": true
+    },
+    "Ed_RunPath": {
+      "kind": "edit",
+      "label": "路径"
+    },
+    "Ed_CmdLine": {
+      "kind": "edit",
+      "label": "执行参数"
+    },
+    "Btn_Open": {
+      "kind": "button",
+      "label": "浏览(&O)",
+      "action": "openTaskFile",
+      "note": "图纸 Caption 逐字"
+    },
+    "Btn_Add": {
+      "kind": "button",
+      "label": "添加"
+    },
+    "Lv_Tasklist": {
+      "kind": "list",
+      "label": "任务列表",
+      "note": "列头按运行计划的四个维度给出"
+    },
+    "Sed_WaitTime": {
+      "kind": "number",
+      "label": "等待时间(秒)"
+    }
+  }
+}

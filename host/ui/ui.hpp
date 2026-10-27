@@ -115,6 +115,10 @@ struct Group
     int width = 0;
     int height = 0;
 
+    // DFM 的 Visible。母盘系统页里「封装体检 / 扫描结果 / 一键修复 / 帮助 / 导入 SRS」
+    // 五个面板占同一矩形，靠按钮切换；默认只显示封装体检那一个。
+    bool visible = true;
+
     bool placed() const noexcept
     {
         return x >= 0;
@@ -201,8 +205,9 @@ struct PageSummary
     std::string id;
     std::string title;
     std::string dfmSheet;
-    int fields = 0;   // 页面模型里的字段数
-    int controls = 0; // 窗口层真的建出来的控件数
+    int fields = 0;         // 页面模型里的字段数
+    bool dfmLayout = false; // 是否按 DFM 绝对坐标摆放
+    int controls = 0;       // 窗口层真的建出来的控件数
     bool opened = false;
 };
 

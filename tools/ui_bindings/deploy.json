@@ -1,0 +1,111 @@
+{
+  "page": "deploy",
+  "sheet": "MlSkinTabSheet4",
+  "function": "deployPage",
+  "hiddenGroups": [],
+  "exclude": {
+    "Bar_Dm1": {
+      "kind": "control",
+      "why": "列表滚动条是 Lv_DeployModular 的内部件"
+    },
+    "Bar_Dm2": {
+      "kind": "control",
+      "why": "同上：横向滚动条"
+    }
+  },
+  "controls": {
+    "Ed_PicPath": {
+      "kind": "edit",
+      "label": "部署背景图片路径",
+      "binding": "deploy.backgroundImage"
+    },
+    "Btn_Open_Pic": {
+      "kind": "button",
+      "label": "浏览(&O)",
+      "action": "browseImage",
+      "note": "选择部署背景图（Ed_PicPath）"
+    },
+    "Cb_PicType": {
+      "kind": "combo",
+      "label": "背景类型",
+      "binding": "deploy.background",
+      "fromDfm": true,
+      "select": "indexOf(field.optionIds, cfg.deploy.background.empty() ? std::string(\"systemDefault\") : cfg.deploy.background, 0)",
+      "note": "条目取自 DFM；取值 systemDefault/single/multi"
+    },
+    "Ed_PicSpeed": {
+      "kind": "number",
+      "label": "多图切换速度(秒)",
+      "binding": "deploy.imageSwitchSeconds"
+    },
+    "Cb_DeployResolution": {
+      "kind": "combo",
+      "label": "部署分辨率",
+      "binding": "deploy.deployResolutionX / deployResolutionY",
+      "fromDfm": true
+    },
+    "Ed_DeployResolution_Width": {
+      "kind": "number",
+      "label": "部署分辨率宽",
+      "binding": "deploy.deployResolutionX"
+    },
+    "Ed_DeployResolution_Height": {
+      "kind": "number",
+      "label": "部署分辨率高",
+      "binding": "deploy.deployResolutionY"
+    },
+    "Cb_Skipoobe": {
+      "kind": "check",
+      "label": "跳过 OOBE",
+      "binding": "deploy.skipOobe"
+    },
+    "Cb_AddUser": {
+      "kind": "check",
+      "label": "自动新增系统用户",
+      "binding": "deploy.autoCreateUser"
+    },
+    "Ed_DeployFontcolour": {
+      "kind": "edit",
+      "label": "部署文字颜色",
+      "binding": "deploy.fontColor"
+    },
+    "Btn_DeployFontcolour": {
+      "kind": "button",
+      "label": "取色(&C)",
+      "action": "pickFontColor",
+      "note": "给 Ed_DeployFontcolour 取色"
+    },
+    "Btn_DisableVmrun": {
+      "kind": "check",
+      "label": "禁止在虚拟机里部署",
+      "binding": "deploy.blockVirtualMachine"
+    },
+    "Cb_Tampering": {
+      "kind": "check",
+      "label": "校验文件防篡改（用户态）",
+      "binding": "deploy.verifyIntegrity"
+    },
+    "Cb_Admin": {
+      "kind": "check",
+      "label": "开启 administrator",
+      "binding": "deploy.enableAdministrator"
+    },
+    "Cb_DeployTitle": {
+      "kind": "check",
+      "label": "开启部署顶部标题展示，自定义内容：",
+      "binding": "deploy.showTitle",
+      "source": "cfg.deploy.showTitle",
+      "note": "DFM 勾选框原文"
+    },
+    "Ed_DeployTitle": {
+      "kind": "edit",
+      "label": "部署顶部标题",
+      "binding": "deploy.titleText"
+    },
+    "Lv_DeployModular": {
+      "kind": "list",
+      "label": "部署模块",
+      "note": "SC 在这里列出已加载的部署模块"
+    }
+  }
+}

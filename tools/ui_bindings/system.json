@@ -1,0 +1,198 @@
+{
+  "page": "system",
+  "sheet": "MlSkinTabSheet1",
+  "function": "systemPage",
+  "hiddenGroups": [],
+  "exclude": {
+    "Mb_ScanOutList": {
+      "kind": "control",
+      "why": "体检结果的滚动容器，内容用 Lab_ScanResults 呈现"
+    },
+    "Btn_Repairend": {
+      "kind": "control",
+      "why": "一键修复的结果面板按钮，面板（Gb_Repairend）默认不显示，本轮不做该面板"
+    },
+    "Btn_help_V": {
+      "kind": "control",
+      "why": "帮助面板（Gb_HelpV）的切换按钮，面板默认不显示，本轮不做"
+    },
+    "Btn_Goback": {
+      "kind": "control",
+      "why": "帮助面板的返回按钮，随 Gb_HelpV 一起不做"
+    },
+    "Pic_helpv": {
+      "kind": "control",
+      "why": "帮助面板的图片，随 Gb_HelpV 一起不做"
+    },
+    "Pic_pedrive": {
+      "kind": "control",
+      "why": "SRS 面板的盘符示意图，随 Gb_SRS 一起不做"
+    },
+    "ScanBar1": {
+      "kind": "control",
+      "why": "体检进度条的滚动条内部件"
+    }
+  },
+  "controls": {
+    "Pic_Osname": {
+      "kind": "image",
+      "label": "系统图示",
+      "note": "DFM 16x16 图标，图案自绘"
+    },
+    "Pic_Csize": {
+      "kind": "image",
+      "label": "分区图示",
+      "note": "DFM 16x16 图标，图案自绘"
+    },
+    "Pic_SysprepSupportok": {
+      "kind": "image",
+      "label": "支持封装",
+      "note": "16x16 状态图标，自绘"
+    },
+    "Pic_SysprepSupportno": {
+      "kind": "image",
+      "label": "不支持封装",
+      "note": "16x16 状态图标，自绘"
+    },
+    "Lab_Osnamev": {
+      "kind": "info",
+      "valueSource": "osName"
+    },
+    "Lab_Osntverv": {
+      "kind": "info",
+      "valueSource": "report.os.version.empty() ? std::string(\"未知\") : report.os.version"
+    },
+    "Lab_SysprepSupportv": {
+      "kind": "info",
+      "valueSource": "sysprepText"
+    },
+    "Lab_Osdrivesv": {
+      "kind": "info",
+      "valueSource": "driveText"
+    },
+    "Lab_Osusesizev": {
+      "kind": "info",
+      "valueSource": "usedText"
+    },
+    "Lab_OsUserv": {
+      "kind": "info",
+      "valueSource": "currentUser()"
+    },
+    "Lab_OsRelativesizev": {
+      "kind": "info",
+      "valueSource": "percentBuffer"
+    },
+    "Lab_RunEnvironv": {
+      "kind": "info",
+      "valueSource": "runEnvironment()"
+    },
+    "Pic_Usm": {
+      "kind": "image",
+      "label": "母盘",
+      "note": "32x32 图标，自绘"
+    },
+    "Pic_DrvCeo": {
+      "kind": "image",
+      "label": "驱动",
+      "note": "32x32 图标，自绘"
+    },
+    "Pic_Mbox": {
+      "kind": "image",
+      "label": "软件",
+      "note": "32x32 图标，自绘"
+    },
+    "Btn_OsRepair": {
+      "kind": "button",
+      "label": "一键修复(&R)",
+      "action": "repair",
+      "note": "等同 ospt --repair"
+    },
+    "Lab_ScanResults": {
+      "kind": "info",
+      "valueSource": "\"点『封装体检』后重新采集（--checkup 的完整结果）\""
+    },
+    "Btn_PEloadsrs": {
+      "kind": "button",
+      "label": "执行"
+    },
+    "RB_LoadSCsrs": {
+      "kind": "radio",
+      "label": "加载SC内置SRS驱动",
+      "source": "!cfg.sysprep.diyDriverDir",
+      "note": "与 RB_Loaddiy 互斥"
+    },
+    "RB_Loaddiy": {
+      "kind": "radio",
+      "label": "手动指定驱动目录",
+      "source": "cfg.sysprep.diyDriverDir",
+      "note": "与 RB_LoadSCsrs 互斥"
+    },
+    "Cb_osDrives": {
+      "kind": "combo",
+      "label": "目标系统分区",
+      "options": [
+        "(本机分区)",
+        "A:",
+        "B:",
+        "C:",
+        "D:",
+        "E:",
+        "F:",
+        "G:",
+        "H:",
+        "I:",
+        "J:",
+        "K:",
+        "L:",
+        "M:",
+        "N:",
+        "O:",
+        "P:",
+        "Q:",
+        "R:",
+        "S:",
+        "T:",
+        "U:",
+        "V:",
+        "W:",
+        "X:",
+        "Y:",
+        "Z:"
+      ],
+      "optionIds": [
+        "",
+        "A:",
+        "B:",
+        "C:",
+        "D:",
+        "E:",
+        "F:",
+        "G:",
+        "H:",
+        "I:",
+        "J:",
+        "K:",
+        "L:",
+        "M:",
+        "N:",
+        "O:",
+        "P:",
+        "Q:",
+        "R:",
+        "S:",
+        "T:",
+        "U:",
+        "V:",
+        "W:",
+        "X:",
+        "Y:",
+        "Z:"
+      ],
+      "fromDfm": false
+    },
+    "Ed_Loaddiy": {
+      "kind": "edit",
+      "label": "自定义驱动目录"
+    }
+  }
+}
