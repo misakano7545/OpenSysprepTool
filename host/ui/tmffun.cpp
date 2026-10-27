@@ -541,6 +541,14 @@ const ControlSpec* specAt(int tab, int index)
     return &spec->controls[index];
 }
 
+// 哪些控件吃 Tab。创建时据此给 WS_TABSTOP，切换页签时据此把它摘掉 ——
+// 摘不掉的话 Tab 会跳到隐藏页的不存在控件上，焦点直接消失。
+bool isTabbable(const std::string& kind)
+{
+    return kind == "edit" || kind == "number" || kind == "check" || kind == "radio" || kind == "combo" ||
+        kind == "button" || kind == "list";
+}
+
 HWND createControl(HWND parent, int baseX, int baseY, const ControlSpec& spec, const ControlSpec* groupSpec)
 {
     // 控件统一挂在**对话框**上（而不是页签内的中间容器）：按钮/勾选框/单选的
@@ -568,7 +576,7 @@ HWND createControl(HWND parent, int baseX, int baseY, const ControlSpec& spec, c
     else if (kind == "edit" || kind == "number")
     {
         cls = L"EDIT";
-        style |= WS_BORDER | ES_AUTOHSCROLL;
+        style |= WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP;
         if (kind == "number")
         {
             style |= ES_NUMBER;
@@ -577,7 +585,7 @@ HWND createControl(HWND parent, int baseX, int baseY, const ControlSpec& spec, c
     else if (kind == "check")
     {
         cls = L"BUTTON";
-        style |= BS_AUTOCHECKBOX;
+        style |= BS_AUTOCHECKBOX | WS_TABSTOP;
     }
     else if (kind == "radio")
     {
@@ -590,12 +598,12 @@ HWND createControl(HWND parent, int baseX, int baseY, const ControlSpec& spec, c
     else if (kind == "combo")
     {
         cls = L"COMBOBOX";
-        style |= WS_BORDER | CBS_DROPDOWN | WS_VSCROLL;
+        style |= WS_BORDER | CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP;
     }
     else if (kind == "button")
     {
         cls = L"BUTTON";
-        style |= BS_PUSHBUTTON;
+        style |= BS_PUSHBUTTON | WS_TABSTOP;
     }
     else if (kind == "list")
     {
@@ -884,6 +892,10 @@ void deleteTamperEntries(DialogState& state, HWND list, bool all)
     }
     if (removed == 0)
     {
+        if (HWND hint = findControl(state, "Lab_TamperinguseTip"); hint != nullptr && !all)
+        {
+            ::SetWindowTextW(hint, L"先在清单里选一条再删除");
+        }
         return;
     }
     if (state.cfg->deploy.tamperFiles.empty())
@@ -1151,12 +1163,28 @@ void showTab(DialogState& state, int tab)
     for (int i = 0; i < static_cast<int>(state.pages.size()); ++i)
     {
         const bool visible = i == tab;
-        for (HWND handle : state.pages[static_cast<std::size_t>(i)].controls)
+        const TabSpec* tabSpec = kTabs[i];
+        TabPageState& page = state.pages[static_cast<std::size_t>(i)];
+        for (std::size_t c = 0; c < page.controls.size(); ++c)
         {
-            if (handle != nullptr)
+            HWND handle = page.controls[c];
+            if (handle == nullptr)
             {
-                ::ShowWindow(handle, visible ? SW_SHOW : SW_HIDE);
+                continue;
             }
+            ::ShowWindow(handle, visible ? SW_SHOW : SW_HIDE);
+            if (tabSpec == nullptr || tabSpec->controls == nullptr ||
+                c >= static_cast<std::size_t>(tabSpec->controlCount) ||
+                !isTabbable(tabSpec->controls[c].kind))
+            {
+                continue;
+            }
+            const LONG_PTR style = ::GetWindowLongPtrW(handle, GWL_STYLE);
+            ::SetWindowLongPtrW(
+                handle,
+                GWL_STYLE,
+                visible ? (style | WS_TABSTOP) : (style & ~static_cast<LONG_PTR>(WS_TABSTOP))
+            );
         }
     }
     state.current = tab;
@@ -1789,6 +1817,28 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         detail = "保存后 myDocumentsTarget = " + cfg.optimization.myDocumentsTarget;
         ::DestroyWindow(dialog);
         return false;
+    }
+
+    // 隐藏页的控件必须是 Tab 不可达：切到收藏夹后，转移文档页的单选要摘掉 WS_TABSTOP
+    {
+        showTab(state, favorites);
+        HWND hiddenRadio = state.pages[static_cast<std::size_t>(documents)].controls[0];
+        HWND visibleRadio = state.pages[static_cast<std::size_t>(favorites)].controls[0];
+        const LONG_PTR hiddenStyle = ::GetWindowLongPtrW(hiddenRadio, GWL_STYLE);
+        const LONG_PTR visibleStyle = ::GetWindowLongPtrW(visibleRadio, GWL_STYLE);
+        if ((hiddenStyle & WS_TABSTOP) != 0)
+        {
+            detail = "隐藏页的控件仍是 Tab 停点";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        if ((visibleStyle & WS_TABSTOP) == 0)
+        {
+            detail = "当前页的控件没有 Tab 停点";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        showTab(state, documents);
     }
 
     // 真点一次页签上的「保存」按钮：控件必须挂在对话框上，否则 WM_COMMAND 会
