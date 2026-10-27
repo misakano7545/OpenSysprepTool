@@ -22,10 +22,6 @@
       "kind": "control",
       "why": "§7 红线：预置收藏夹"
     },
-    "Cb_CreateConnection": {
-      "kind": "control",
-      "why": "宽带连接已实现（firstLogon.createConnection），但界面字段未接，先留空位不画"
-    },
     "Cb_ResolutionSos": {
       "kind": "control",
       "why": "黑屏急救归 M10 急救页，不在本页"
@@ -259,6 +255,14 @@
       "binding": "optimization.setResolution",
       "source": "cfg.optimization.setResolution",
       "note": "--prepare 写 Display 分辨率；与下方下拉配合"
+    },
+    "Cb_CreateConnection": {
+      "kind": "check",
+      "label": "询问创建宽带连接",
+      "binding": "firstLogon.createConnection",
+      "source": "cfg.firstLogon.createConnection",
+      "action": "connectionMode",
+      "note": "图纸 Caption 逐字；勾选时用 TSBOX 页签 2 问「静默创建 / 倒计时创建」"
     }
   }
 }

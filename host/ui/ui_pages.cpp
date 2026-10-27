@@ -1444,6 +1444,10 @@ void applyTo(const Page& page, config::Config& cfg)
             {
                 cfg.optimization.enableHibernate = field.checked;
             }
+            else if (id == "Cb_CreateConnection")
+            {
+                cfg.firstLogon.createConnection = field.checked;
+            }
             else if (id == "Cb_SetNetWork")
             {
                 // DFM 里这是勾选框（不是下拉）：勾了 = 自动设为工作网络
@@ -1839,15 +1843,24 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "target")
     {
         return {
-            "Cb_ShowDevmgmt",     "Cb_AutoSetip",     "Cb_CloseKeypad",   "Cb_MoveFavorites",
-            "Cb_MoveDocuments",   "Cb_MovePageFile",  "Cb_Reboot",        "Cb_ClearSrs",
-            "Cb_CloseRestartbox", "Cb_Dormancy",      "Cb_SetNetWork",    "Lab_Owner",
-            "Ed_Owner",           "Ed_Organization",  "Lab_Organization", "Lab_ProductKey",
-            "Ed_ProductKey",      "Lab_Pcname",       "Cb_Pcname",        "Lab_Pcnameprefix",
-            "Ed_Pcname",          "Lab_Boottime",     "Se_Boottime",      "Lab_TimeCompany",
-            "Btn_OemSet",         "Cb_SetResolution", "Cb_Resolution",    "Ed_ResolutionX",
-            "Ed_ResolutionY",     "Lab_Refresh",      "Ed_Refresh",       "Lab_ColorQuality",
-            "Ed_ColorQuality",    "Lab_tempX",
+            "Cb_ShowDevmgmt",   "Cb_CreateConnection",
+            "Cb_AutoSetip",     "Cb_CloseKeypad",
+            "Cb_MoveFavorites", "Cb_MoveDocuments",
+            "Cb_MovePageFile",  "Cb_Reboot",
+            "Cb_ClearSrs",      "Cb_CloseRestartbox",
+            "Cb_Dormancy",      "Cb_SetNetWork",
+            "Lab_Owner",        "Ed_Owner",
+            "Ed_Organization",  "Lab_Organization",
+            "Lab_ProductKey",   "Ed_ProductKey",
+            "Lab_Pcname",       "Cb_Pcname",
+            "Lab_Pcnameprefix", "Ed_Pcname",
+            "Lab_Boottime",     "Se_Boottime",
+            "Lab_TimeCompany",  "Btn_OemSet",
+            "Cb_SetResolution", "Cb_Resolution",
+            "Ed_ResolutionX",   "Ed_ResolutionY",
+            "Lab_Refresh",      "Ed_Refresh",
+            "Lab_ColorQuality", "Ed_ColorQuality",
+            "Lab_tempX",
         };
     }
     if (pageId == "tasks")
@@ -1967,7 +1980,6 @@ std::vector<std::string> excludedControlIds()
         "Page_Nodelfile",
         "Page_Nodelreg",
         // 尚未实现，按 docs/SC功能对照.md 排期（不是永久不做）
-        "Cb_CreateConnection",
         "Btn_Execute",
         // 内部图片暂存页与工具栏容器，不是配置控件
         "Pan_temp",

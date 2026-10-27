@@ -14,6 +14,7 @@
 // 重启或开始封装。
 
 #include "deploy_runner.hpp"
+#include "popups.hpp"
 #include "ui.hpp"
 
 #include <windows.h>
@@ -1170,7 +1171,50 @@ void MainFrame::handleAction(const std::string& action, const std::string& contr
     }
     else if (action == "afterRestart")
     {
-        requestPowerAction(true);
+        // 冒烟测试里绝不能弹模态框：它会一直等用户点，CI 上就是死等。
+        // dry-run 模式下跳过询问，直接按当前配置记录一次重启请求。
+        if (powerActionsDryRun)
+        {
+            requestPowerAction(true);
+            return;
+        }
+
+        // 图纸 TSBOX 页签 1：重启前先问「静默重启 / 倒计时重启」。
+        // 选倒计时就复用完成页的 10 秒倒计时（图纸 Lab_Countdown 的文案），
+        // 选静默则立刻重启。
+        const osp::ui::ChoiceResult choice =
+            osp::ui::showChoiceDialog(m_hWnd, osp::ui::ChoiceKind::Restart, cfg.sysprep.restartSilent);
+        if (choice.confirmed)
+        {
+            cfg.sysprep.restartSilent = choice.silent;
+            if (choice.silent)
+            {
+                requestPowerAction(true);
+            }
+            else if (doneCountdown <= 0)
+            {
+                doneCountdown = 10;
+                if (doneTimer == 0)
+                {
+                    doneTimer = ::SetTimer(m_hWnd, kDoneTimer, 1000, nullptr);
+                }
+                refreshStatus();
+            }
+        }
+    }
+    else if (action == "connectionMode")
+    {
+        // 图纸 TSBOX 页签 2：勾上「询问创建宽带连接」后问一次「静默创建 / 倒计时创建」，
+        // 结果落到 firstLogon.connectionMode（silent / show）。
+        const bool silentDefault = cfg.firstLogon.connectionMode == "silent";
+        const osp::ui::ChoiceResult choice =
+            osp::ui::showChoiceDialog(m_hWnd, osp::ui::ChoiceKind::BroadbandCreate, silentDefault);
+        if (choice.confirmed)
+        {
+            cfg.firstLogon.createConnection = true;
+            cfg.firstLogon.connectionMode = choice.silent ? "silent" : "show";
+            ::PostMessageW(m_hWnd, kMsgRebuildPages, 0, 0);
+        }
     }
     else if (action == "runDeploy")
     {
@@ -2403,6 +2447,20 @@ SmokeResult runSmokeTest(bool visible)
         const bool badLoaded = loadConfigFile(badPath.string(), ignored, error);
         context.record(!badLoaded && !error.empty(), "非法 JSON 被拒绝并给出原因", error);
         context.record(true, "非法 JSON 没有把程序搞崩");
+    }
+
+    // TSBOX 弹窗（冒烟里不上屏）：尺寸 300x136、控件位置、点确定后的返回值。
+    // 必须在主窗口还活着的时候验 —— 它要拿主窗口当 owner。
+    for (const auto kind : {osp::ui::ChoiceKind::Restart, osp::ui::ChoiceKind::BroadbandCreate})
+    {
+        std::string detail;
+        const bool ok = osp::ui::smokeChoiceDialog(context.frame.m_hWnd, kind, detail);
+        context.record(
+            ok,
+            std::string("TSBOX 弹窗（") +
+                (kind == osp::ui::ChoiceKind::Restart ? "重启方式" : "宽带创建方式") + "）",
+            detail
+        );
     }
 
     // 退出无崩溃：销毁窗口并确认进程仍能继续

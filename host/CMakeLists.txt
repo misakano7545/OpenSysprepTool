@@ -21,6 +21,8 @@ add_executable(ospt
   ui/ui_pages.cpp
   # M10：在界面里拉起 osptd 并读回结构化进度（运行页 / 完成页）
   ui/deploy_runner.cpp
+  # M10：SC 的小确认弹窗 TSBOX（重启方式 / 宽带创建方式）
+  ui/popups.cpp
 )
 
 target_link_options(ospt PRIVATE

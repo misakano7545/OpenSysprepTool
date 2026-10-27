@@ -159,12 +159,12 @@ TEST_CASE("宪章 §7 红线字段不出现在任何页面上")
     CHECK(contains(excluded, "Cb_Saveiehp"));        // 同步封装前 IE 主页
     CHECK(contains(excluded, "Cb_SaveieFavorites")); // 同步封装前 IE 收藏夹
     // 任务栏固定机制已在 B9 实现（只接受用户列出的文件），所以它不再属于「不做」
-    CHECK(contains(excluded, "Rb_Sysprep_Type2"));    // 联盟封装方式
-    CHECK(contains(excluded, "Rb_Sysprep_Type3"));    // 会员封装方式
-    CHECK(contains(excluded, "Btn_Bugs"));            // 错误报告
-    CHECK(contains(excluded, "Btn_Update"));          // 更新页
-    CHECK(contains(excluded, "Page_Nodelfile"));      // 需内核驱动，§7 禁止
-    CHECK(contains(excluded, "Cb_CreateConnection")); // 宽带连接尚未实现（已排期）
+    CHECK(contains(excluded, "Rb_Sysprep_Type2")); // 联盟封装方式
+    CHECK(contains(excluded, "Rb_Sysprep_Type3")); // 会员封装方式
+    CHECK(contains(excluded, "Btn_Bugs"));         // 错误报告
+    CHECK(contains(excluded, "Btn_Update"));       // 更新页
+    CHECK(contains(excluded, "Page_Nodelfile"));   // 需内核驱动，§7 禁止
+    CHECK(contains(excluded, "Btn_Execute"));      // 立即执行按钮不在界面上（要命令行）
 
     // 已经实现的不许留在「不做」名单里 —— M7 时期的名单就犯过这个错，
     // 把后来做出来的 Ctrl+F11、OEM 设置、部署标题、虚拟内存转移都列成了不做。

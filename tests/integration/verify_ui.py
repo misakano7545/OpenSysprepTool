@@ -336,9 +336,9 @@ def main(argv: list[str]) -> int:
     placed = [line for line in lines if "控件按图纸坐标摆放" in line]
     # 七个页面都按 DFM 摆：母盘系统 16 + 目标系统 34 + 计划任务 15 + 部署过程 12 +
     # 封装过程 21 + 运行 5 + 完成 8 = 111（红线项与图纸纯标签不在内）
-    check("坐标核对覆盖 111 个控件（七个页面）", len(placed) == 111, f"{len(placed)} 条")
+    check("坐标核对覆盖 112 个控件（七个页面）", len(placed) == 112, f"{len(placed)} 条")
     # 逐页都要有核对记录，防止某一页悄悄退回自动排列
-    for page_name, expected in (("母盘系统", 16), ("目标系统", 34), ("计划任务", 15),
+    for page_name, expected in (("母盘系统", 16), ("目标系统", 35), ("计划任务", 15),
                                 ("部署过程", 12), ("封装过程", 21), ("运行", 5), ("完成", 8)):
         pages = [p for p in report.get("pages", []) if p.get("title") == page_name]
         if not pages:
@@ -366,6 +366,15 @@ def main(argv: list[str]) -> int:
           str(report.get("powerActionsDryRun")))
     check("点击到了关机/重启两个按钮", int(report.get("powerActionRequests") or 0) >= 2,
           str(report.get("powerActionRequests")))
+
+    section("TSBOX 弹窗（重启方式 / 宽带创建方式）")
+    tsbox = [line for line in lines if "TSBOX 弹窗" in line]
+    check("冒烟覆盖了 TSBOX 两个页签", len(tsbox) == 2, f"{len(tsbox)} 条")
+    for name in ("重启方式", "宽带创建方式"):
+        hit = [line for line in tsbox if name in line]
+        check(f"TSBOX「{name}」验过了", bool(hit), "未出现在报告里")
+        if hit:
+            check(f"TSBOX「{name}」判定通过", "PASS" in hit[0], hit[0].strip()[:160])
 
     section("宪章 §7 红线：这些控件名一个都不许出现")
     excluded = report.get("excludedControls", [])

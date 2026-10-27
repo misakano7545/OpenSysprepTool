@@ -26,7 +26,22 @@
             field.note = "行为落到运行计划的『进桌面』阶段";
             group.fields.push_back(std::move(field));
         }
-        // 跳过 Cb_CreateConnection：宽带连接已实现（firstLogon.createConnection），但界面字段未接，先留空位不画
+        {
+            Field field;
+            field.id = "Cb_CreateConnection";
+            field.dfmClass = "TMlSkinCheckBox";
+            field.kind = FieldKind::Check;
+            field.label = "询问创建宽带连接";
+            field.binding = "firstLogon.createConnection";
+            field.checked = cfg.firstLogon.createConnection;
+            field.action = "connectionMode";
+            field.x = 188;
+            field.y = 15;
+            field.width = 163;
+            field.height = 17;
+            field.note = "图纸 Caption 逐字；勾选时用 TSBOX 页签 2 问「静默创建 / 倒计时创建」";
+            group.fields.push_back(std::move(field));
+        }
         {
             Field field;
             field.id = "Cb_AutoSetip";

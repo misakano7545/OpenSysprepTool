@@ -108,6 +108,8 @@ def emit_field(field: dict, spec: dict, indent: str) -> list[str]:
         binding = spec.get("binding", "")
         lines.append(f"{indent}    field.binding = {cxx_string(binding)};")
         lines.append(f"{indent}    field.checked = {spec.get('source', 'false')};")
+        if spec.get("action"):
+            lines.append(f"{indent}    field.action = {cxx_string(spec['action'])};")
     elif kind == "combo":
         lines.append(f"{indent}    field.kind = FieldKind::Combo;")
         lines.append(f"{indent}    field.label = {cxx_string(spec.get('label', ''))};")

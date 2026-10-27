@@ -111,6 +111,7 @@ json encode(const Config& cfg)
         {"workgroup", sp.workgroup},
         {"domain", sp.domain},
         {"domainUser", sp.domainUser},
+        {"restartSilent", sp.restartSilent},
         {"afterAction", sp.afterAction},
         {"domainPassword", sp.domainPassword},
         {"perServerLicensing", sp.perServerLicensing},
@@ -323,6 +324,7 @@ ParseResult fromJson(const std::string& text)
             cfg.sysprep.workgroup = sp.value("workgroup", std::string{});
             cfg.sysprep.domain = sp.value("domain", std::string{});
             cfg.sysprep.domainUser = sp.value("domainUser", std::string{});
+            cfg.sysprep.restartSilent = sp.value("restartSilent", false);
             cfg.sysprep.afterAction = sp.value("afterAction", std::string{});
             cfg.sysprep.domainPassword = sp.value("domainPassword", std::string{});
             cfg.sysprep.perServerLicensing = sp.value("perServerLicensing", false);

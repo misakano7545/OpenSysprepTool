@@ -160,6 +160,10 @@ struct SysprepSettings
     std::string workgroup;
     std::string domain;
     std::string domainUser;
+    // 重启方式（SC 的 TSBOX 页签 1：Rb_Silence / Rb_Show）
+    //   true  = 静默重启[无界面]，直接 ExitWindowsEx
+    //   false = 倒计时重启[有界面]，完成页按图纸文案倒数 10 秒
+    bool restartSilent = false;
     std::string afterAction; // stay / reboot / shutdown
     // M7b 新增（可选，默认值不变）
     std::string domainPassword;      // 域用户密码（Ed_Domain_pw）

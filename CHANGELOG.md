@@ -39,6 +39,14 @@
 
 ### Added
 
+- **TSBOX 确认弹窗**（`host/ui/popups.cpp`）：SC 的 300×136 小确认框，两个模式
+  - 重启方式：完成页「重启(&R)」先问「静默重启[无界面] / 倒计时重启[有界面]」，
+    静默直接 `ExitWindowsEx`，倒计时复用完成页的 10 秒倒数（图纸 `Lab_Countdown` 文案）
+  - 宽带创建方式：目标系统页「询问创建宽带连接」勾上后问「静默创建 / 倒计时创建」，
+    结果落到 `firstLogon.connectionMode`
+  - **文案取自语言文件而非 DFM**：DFM 里宽带页签写成「静默重启」是 SC 的复制粘贴错误，
+    运行时被语言文件覆盖成「静默创建」
+  - 新增 `sysprep.restartSilent` 记录重启方式；冒烟里强制 dry-run，绝不弹模态框
 - **运行页接上真实进度**：`ospt` 现在真的拉起 `osptd` 跑部署，两条进度条与说明文字
   跟着走，结束后自动切到完成页
   - `osptd --progress-json`：一行一个 JSON 事件（phaseStart / taskStart / taskFinish /
