@@ -23,6 +23,8 @@ add_executable(ospt
   ui/deploy_runner.cpp
   # M10：SC 的小确认弹窗 TSBOX（重启方式 / 宽带创建方式）
   ui/popups.cpp
+  # M10：SC 的任务对话框 TTLMF（添加任务）
+  ui/task_dialog.cpp
 )
 
 target_link_options(ospt PRIVATE

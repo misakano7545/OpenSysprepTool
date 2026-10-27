@@ -15,6 +15,7 @@
 
 #include "deploy_runner.hpp"
 #include "popups.hpp"
+#include "task_dialog.hpp"
 #include "ui.hpp"
 
 #include <windows.h>
@@ -1152,9 +1153,41 @@ void MainFrame::handleAction(const std::string& action, const std::string& contr
     }
     else if (action == "addTask")
     {
-        if (const Page* tasks = findPage(pages, "tasks"))
+        // 图纸 TTLMF：任务不是在页面上直接填的，而是在这个 740x400 的对话框里编辑。
+        // 页面上那一排字段仍然保留（作为快速草稿），这里用它们当对话框初值。
+        const Page* tasks = findPage(pages, "tasks");
+        if (tasks == nullptr)
         {
-            cfg.runPlan.push_back(taskFromPage(*tasks));
+            return;
+        }
+        config::RunPlanTask draft = taskFromPage(*tasks);
+        osp::ui::TaskDraft dialogDraft;
+        dialogDraft.phase = draft.phase;
+        dialogDraft.type = draft.type;
+        dialogDraft.windowStyle = draft.windowStyle;
+        dialogDraft.waitMode = draft.waitMode;
+        dialogDraft.waitSeconds = draft.waitSeconds;
+        dialogDraft.cleanup = draft.cleanup;
+        dialogDraft.target = draft.target;
+        dialogDraft.arguments = draft.arguments;
+
+        // 冒烟测试里不弹模态框（会死等用户点击）：直接按页面上的草稿添加，
+        // 按钮的响应照样能被验收覆盖
+        const bool accepted = powerActionsDryRun || osp::ui::showTaskDialog(m_hWnd, dialogDraft);
+        if (accepted)
+        {
+            if (!powerActionsDryRun)
+            {
+                draft.phase = dialogDraft.phase;
+                draft.type = dialogDraft.type;
+                draft.windowStyle = dialogDraft.windowStyle;
+                draft.waitMode = dialogDraft.waitMode;
+                draft.waitSeconds = dialogDraft.waitSeconds;
+                draft.cleanup = dialogDraft.cleanup;
+                draft.target = dialogDraft.target;
+                draft.arguments = dialogDraft.arguments;
+            }
+            cfg.runPlan.push_back(draft);
             ++taskAddCount;
             ::PostMessageW(m_hWnd, kMsgRebuildPages, 0, 0);
         }
@@ -2461,6 +2494,13 @@ SmokeResult runSmokeTest(bool visible)
                 (kind == osp::ui::ChoiceKind::Restart ? "重启方式" : "宽带创建方式") + "）",
             detail
         );
+    }
+
+    // TTLMF 任务对话框（同样不上屏）：尺寸 740x400、五个阶段按钮齐、空路径被拦下
+    {
+        std::string detail;
+        const bool ok = osp::ui::smokeTaskDialog(context.frame.m_hWnd, detail);
+        context.record(ok, "TTLMF 任务对话框", detail);
     }
 
     // 退出无崩溃：销毁窗口并确认进程仍能继续

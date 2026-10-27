@@ -367,6 +367,12 @@ def main(argv: list[str]) -> int:
     check("点击到了关机/重启两个按钮", int(report.get("powerActionRequests") or 0) >= 2,
           str(report.get("powerActionRequests")))
 
+    section("TTLMF 任务对话框")
+    ttl = [line for line in lines if "TTLMF 任务对话框" in line]
+    check("冒烟覆盖了 TTLMF 任务对话框", len(ttl) == 1, f"{len(ttl)} 条")
+    if ttl:
+        check("TTLMF 判定通过", "PASS" in ttl[0], ttl[0].strip()[:200])
+
     section("TSBOX 弹窗（重启方式 / 宽带创建方式）")
     tsbox = [line for line in lines if "TSBOX 弹窗" in line]
     check("冒烟覆盖了 TSBOX 两个页签", len(tsbox) == 2, f"{len(tsbox)} 条")
