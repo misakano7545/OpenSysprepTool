@@ -34,6 +34,26 @@ TEST_CASE("popups: 枚举覆盖 SC 的两个页签")
     CHECK(static_cast<int>(osp::ui::ChoiceKind::BroadbandCreate) == 1);
 }
 
+TEST_CASE("popups: TAPPMSGFORM 尺寸与 DFM 一致")
+{
+    // DFM: AppMsgForm ClientWidth=480 / ClientHeight=242
+    CHECK(osp::ui::kMessageClientWidth == 480);
+    CHECK(osp::ui::kMessageClientHeight == 242);
+}
+
+TEST_CASE("popups: 提示框冒烟（尺寸 / 正文回显 / 确定）")
+{
+    std::string detail;
+    const bool ok = osp::ui::smokeMessageDialog(nullptr, detail);
+    if (!ok)
+    {
+        CHECK(!detail.empty());
+        return;
+    }
+    CHECK(detail.find("480x242") != std::string::npos);
+    CHECK(detail.find("正文回显") != std::string::npos);
+}
+
 TEST_CASE("popups: 冒烟入口对空 owner 也要能跑通")
 {
     // 不上屏、不需要消息循环：验证窗口能建、尺寸/控件位置对、点确定的结果对。

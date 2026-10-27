@@ -41,4 +41,35 @@ bool smokeChoiceDialog(void* ownerHwnd, ChoiceKind kind, std::string& detail);
 constexpr int kChoiceClientWidth = 300;
 constexpr int kChoiceClientHeight = 136;
 
+// ---------------------------------------------------------------- TAPPMSGFORM 提示框
+//
+// DFM: AppMsgForm 480x242
+//   Lab_little(16,6 121x25)  标题行的产品名（SC 那里写的是「封装总裁」，我们不搬它的品牌）
+//   lbTip(16,72 449x73)      正文
+//   Btn_Bigok(0,191 480x51)「确定(&K)」          单按钮模式：整条只有确定
+//   Btn_Exit(0,191 240x51)「取消(&E)」 + Btn_Ok(240,191 240x51)「确定(&K)」  双按钮模式
+//   Btn_Close(456,0 24x20)   右上角关闭
+//
+// SC 里所有提示都走这个框而不是系统 MessageBox。我们的调用点里还有「是/否/取消」三选，
+// 图纸只有两个按钮，那几处保留系统对话框（在文档里写明）。
+
+enum class MessageKind
+{
+    Info,   // 只有「确定」
+    Confirm // 「取消」+「确定」
+};
+
+struct MessageResult
+{
+    bool confirmed = false; // Info 模式恒为 true（点确定或关闭）
+};
+
+MessageResult showMessageDialog(void* ownerHwnd, const std::string& text, MessageKind kind);
+
+// 冒烟测试用：不上屏，验尺寸、正文回显与两种模式的按钮可见性
+bool smokeMessageDialog(void* ownerHwnd, std::string& detail);
+
+constexpr int kMessageClientWidth = 480;
+constexpr int kMessageClientHeight = 242;
+
 } // namespace osp::ui

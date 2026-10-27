@@ -1254,8 +1254,7 @@ void MainFrame::handleAction(const std::string& action, const std::string& contr
         std::string error;
         if (!startDeployment(error))
         {
-            const std::wstring message = toWide(error);
-            ::MessageBoxW(m_hWnd, message.c_str(), L"无法开始部署", MB_OK | MB_ICONWARNING);
+            osp::ui::showMessageDialog(m_hWnd, "无法开始部署：\n" + error, osp::ui::MessageKind::Info);
         }
     }
     (void)controlId;
@@ -1592,8 +1591,7 @@ void MainFrame::requestPowerAction(bool reboot)
     std::string error;
     if (!osp::win7::requestSystemPowerAction(reboot, error))
     {
-        const std::wstring message = toWide(error);
-        ::MessageBoxW(m_hWnd, message.c_str(), L"关机 / 重启失败", MB_OK | MB_ICONERROR);
+        osp::ui::showMessageDialog(m_hWnd, "关机 / 重启失败：\n" + error, osp::ui::MessageKind::Info);
     }
     refreshStatus();
 }
@@ -1704,7 +1702,7 @@ bool MainFrame::loadConfigFrom(const std::string& path)
     std::string error;
     if (!loadConfigFile(path, loaded, error))
     {
-        MessageBoxW(toWide("载入失败：\n" + error).c_str(), L"打开配置", MB_OK | MB_ICONWARNING);
+        osp::ui::showMessageDialog(m_hWnd, "载入失败：\n" + error, osp::ui::MessageKind::Info);
         setStatus("载入失败：" + error);
         return false;
     }
@@ -1723,7 +1721,7 @@ bool MainFrame::saveConfigTo(const std::string& path)
     std::string error;
     if (!saveConfigFile(path, cfg, error))
     {
-        MessageBoxW(toWide("保存失败：\n" + error).c_str(), L"另存为配置", MB_OK | MB_ICONWARNING);
+        osp::ui::showMessageDialog(m_hWnd, "保存失败：\n" + error, osp::ui::MessageKind::Info);
         setStatus("保存失败：" + error);
         return false;
     }
@@ -1739,12 +1737,14 @@ bool MainFrame::promptOpenConfig()
 {
     if (configDirty)
     {
-        const int answer = MessageBoxW(
-            L"当前配置有未保存的修改，继续打开会丢弃它们。\n\n要打开其它配置吗？",
-            L"打开配置",
-            MB_YESNO | MB_ICONQUESTION
+        // 图纸 TAPPMSGFORM 只有「确定 / 取消」两个按钮，所以「是否丢弃修改」用双选；
+        // 退出时那个「是/否/取消」三选保留系统对话框（图纸没有第三键）
+        const osp::ui::MessageResult answer = osp::ui::showMessageDialog(
+            m_hWnd,
+            "当前配置有未保存的修改，继续打开会丢弃它们。\n\n要打开其它配置吗？",
+            osp::ui::MessageKind::Confirm
         );
-        if (answer != IDYES)
+        if (!answer.confirmed)
         {
             return false;
         }
@@ -1809,8 +1809,7 @@ LRESULT MainFrame::OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
             std::string error;
             if (!startDeployment(error))
             {
-                const std::wstring message = toWide(error);
-                ::MessageBoxW(m_hWnd, message.c_str(), L"无法开始部署", MB_OK | MB_ICONWARNING);
+                osp::ui::showMessageDialog(m_hWnd, "无法开始部署：\n" + error, osp::ui::MessageKind::Info);
             }
             return 0;
         }
@@ -2501,6 +2500,13 @@ SmokeResult runSmokeTest(bool visible)
         std::string detail;
         const bool ok = osp::ui::smokeTaskDialog(context.frame.m_hWnd, detail);
         context.record(ok, "TTLMF 任务对话框", detail);
+    }
+
+    // TAPPMSGFORM 提示框（不上屏）：尺寸 480x242、正文回显、确定返回确认
+    {
+        std::string detail;
+        const bool ok = osp::ui::smokeMessageDialog(context.frame.m_hWnd, detail);
+        context.record(ok, "TAPPMSGFORM 提示框", detail);
     }
 
     // 退出无崩溃：销毁窗口并确认进程仍能继续

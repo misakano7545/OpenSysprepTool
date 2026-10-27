@@ -17,9 +17,9 @@
 | 1 | `TSCMF` | `TScmf` | 800×540 | 主窗体，`Page_mf` 下 11 个页签 | 🟡 7/11 页签，见下 |
 | 2 | `TSBOX` | `TSbox` | 300×136 | 小弹窗：页签「重启方式」`Rb_Silence`/`Rb_Show`+`Btn_Scrok`；页签「宽带创建方式」`Rb_Silence_nc`/`Rb_Show_nc`+`Btn_Ncok` | ✅ `host/ui/popups.cpp` |
 | 3 | `TSCUBOX` | `TScubox` | 300×136 | 小弹窗：`Lab_pwub` + `Ed_Unpwub`（密码）+ `Btn_Okub` / `Btn_Ubox_Exit` | ⛔ 语言文件里查不到对应文案，用途无法确认 |
-| 4 | `TAPPMSGFORM` | `TAppMsgForm` | 480×242 | 通用提示框：`lbTip` / `Lab_little` / `Btn_Ok` / `Btn_Bigok` / `Btn_Exit` / `Btn_Close` | ⬜ 未做成窗口 |
+| 4 | `TAPPMSGFORM` | `TAppMsgForm` | 480×242 | 通用提示框：`lbTip` 正文 + 单按钮（`Btn_Bigok`）或双按钮（`Btn_Exit`/`Btn_Ok`） | ✅ `showMessageDialog` |
 | 5 | `TTLMF` | `TTlmf` | 740×400 | 「任务」对话框：任务类型 / 五个阶段按钮 / 运行方式与等待 / 执行路径与参数 / 善后处理 / 状态行 | ✅ `host/ui/task_dialog.cpp` |
-| 6 | `TMFFUN` | `TMFfun` | — | 部署呈现设置的大窗体（`Gb_DM1_Fontset` 等，407 个控件） | 🟡 只做了字段，未按窗体布局 |
+| 6 | `TMFFUN` | `TMFfun` | 740×400 | **高级设置总窗体**：18 个页签（模块1/2设置、转移文档/收藏夹/虚拟内存、新增用户、预置IP、固定/取消固定文件、OEM、选择网络、TrueTrans、登录、文件锁定、图片部署、封装高级设置、补丁安装、End），约 370 个控件 | ⬜ 未做（见 §4.4） |
 | 7 | `TMLSKINRESDM` | — | — | 皮肤资源（2 个控件，无界面语义） | — 不适用 |
 
 ---
@@ -156,6 +156,47 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 用的隐藏编辑框，界面上看不见也没有语义。
 
 入口：计划任务页的「添加」按钮打开它，页面上那排字段作为对话框初值（我们的快速草稿）。
+
+## 4.3 TAPPMSGFORM 提示框（已完成）
+
+`showMessageDialog(owner, text, MessageKind)`：480×242，`lbTip` 在 (16,72 449×73)。
+两种模式：
+
+| 模式 | 按钮 | 用在 |
+|---|---|---|
+| `Info` | `Btn_Bigok`(0,191 480×51)「确定(&K)」 | 载入/保存失败、无法开始部署、关机重启失败 |
+| `Confirm` | `Btn_Exit`(0,191 240×51)「取消(&E)」+ `Btn_Ok`(240,191 240×51)「确定(&K)」 | 打开其它配置会丢弃未保存修改时 |
+
+标题行 `Lab_little`(16,6 121×25) 在 SC 里写的是它的品牌名「封装总裁」，这里换成
+`OpenSysprepTool` —— 品牌字样属于宪章 §5 不搬运的范围。
+
+**保留系统对话框的一处**：退出时「是 / 否 / 取消」三选。图纸只有两个按钮，做不出第三键，
+所以那一处仍用 `MessageBox`，并在代码注释里写明原因。
+
+## 4.4 TMFFUN 高级设置总窗体（未做，单独一轮）
+
+这是 SC 的「高级设置」总窗体，740×400，18 个页签，约 370 个控件：
+
+| 页签 | 控件数 | 对应我们的配置 |
+|---|---|---|
+| 模块1设置 / 模块2设置 | 39 / 42 | `deploy` 段的部署模块参数 |
+| 转移文档 / 转移收藏夹 | 11 / 11 | `optimization.myDocumentsTarget` / `favoritesTarget` |
+| 转移虚拟内存 | 21 | `optimization.pageFileTarget` |
+| 新增用户 | 10 | `deploy.autoCreateUser` + 账号密码 |
+| 预置IP | 28 | `optimization.autoSetIp` 三模式 + 掩码/网关/DNS |
+| 固定文件 / 取消固定 | 7 / 7 | `lockTaskbarFiles` / `unlockTaskbarFiles` |
+| OEM | 47 | `oem` 六项 + 壁纸 + Logo |
+| 选择网络 | 10 | `autoNetworkLocation` / `networkLocation` |
+| 登录 | 34 | `sysprep.autoLogon` + 次数 + 密码 |
+| 文件锁定 | 30 | `deploy.tamperFiles`（防篡改清单） |
+| 图片部署 | 36 | `deploy.backgroundImage` / 分辨率 / 切换秒数 |
+| 封装高级设置 | 21 | `sysprep` 高级项 |
+| 补丁安装 | 14 | **无对应**：SC 的补丁安装我们没做 |
+| TrueTrans / End / 两个空页 | 3 / 1 / 1 | 内部页 |
+
+**为什么没有硬塞进这一轮**：370 个控件的坐标转写 + 逐页验证是独立一轮的工作量，
+而且其中「补丁安装」在我们这边没有对应功能，需要先决定做不做。做法和前面一样：
+`tools/ui_bindings/` 加一份 `tmffun.json`，按页签生成坐标表，再逐页接。
 
 ## 5. 与 DFM 有关的三条硬规矩（写进代码注释与测试）
 
