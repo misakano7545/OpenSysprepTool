@@ -1933,15 +1933,22 @@ Plan build(const config::Config& cfg, const Options& options)
         }
         else
         {
+            if (!cfg.optimization.pageFileDrive.empty())
+            {
+                // 指定了盘符却仍是智能转移：不静默按智能处理，把冲突说出来
+                plan.warnings.push_back(
+                    "虚拟内存指定了盘符 " + cfg.optimization.pageFileDrive +
+                    "，但转移方式仍是智能转移（pageFileSmart=true），已按智能转移处理；"
+                    "要按指定盘符走请把 pageFileSmart 设为 false"
+                );
+            }
             const std::vector<PagefileCandidate> candidates = options.pagefileCandidates.empty()
                 ? enumeratePagefileCandidates(options.systemDrive)
                 : options.pagefileCandidates;
             const std::string picked = pickPagefileDrive(candidates);
             if (picked.empty())
             {
-                plan.warnings.push_back(
-                    "智能转移虚拟内存：除系统盘外没有可用的固定磁盘，改为系统盘由系统管理大小"
-                );
+                plan.warnings.push_back("智能转移虚拟内存：除系统盘外没有可用的固定磁盘，改为系统盘");
                 rawTarget = options.systemDrive;
             }
             else
@@ -2011,7 +2018,16 @@ Plan build(const config::Config& cfg, const Options& options)
             ? joinPath(opt.defaultUserProfile, "NTUSER.DAT")
             : cfg.optimization.defaultUserHive;
         action.tolerateFailure = true;
-        plan.actions.push_back(std::move(action));
+        // 配置单元不存在时别安排这个动作 —— 兄弟动作（文档/收藏夹/壁纸）都先探过文件，
+        // 只有这里漏了，结果会是「计划里有、执行时才报读不到」。
+        if (fileExists(action.hiveFile))
+        {
+            plan.actions.push_back(std::move(action));
+        }
+        else
+        {
+            plan.warnings.push_back("IE 窗口标题：默认用户配置单元不存在，已跳过：" + action.hiveFile);
+        }
     }
 
     if (!cfg.optimization.sysTweaks.empty())

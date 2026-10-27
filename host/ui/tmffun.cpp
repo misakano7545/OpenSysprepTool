@@ -507,6 +507,9 @@ struct TabPageState
     std::vector<HWND> controls;
     HWND status = nullptr;
     bool dirty = false;
+    // 只在第一次显示时从配置装载。切页签不再重读，否则正在编辑但没点保存的内容
+    // 会被静默丢掉（切一下页签就白打了）。
+    bool loaded = false;
 };
 
 struct DialogState
@@ -915,6 +918,7 @@ void loadTabInto(DialogState& state, int tab)
         }
     }
     page.dirty = false;
+    page.loaded = true;
 }
 
 // 把当前页签的控件写回配置。返回 false = 校验没过（原因写进状态行）。
@@ -1010,6 +1014,9 @@ bool saveTab(DialogState& state, int tab, std::string& error)
 
     *state.cfg = staged;
     page.dirty = false;
+    // 保存后控件内容与配置一致，算「已装载」——否则下次显示会再读一遍配置，
+    // 把刚保存的值读回来倒也无害，但页签会闪一下，且未保存判定的语义会乱。
+    page.loaded = true;
     state.saved = true;
     return true;
 }
@@ -1032,7 +1039,10 @@ void showTab(DialogState& state, int tab)
         }
     }
     state.current = tab;
-    loadTabInto(state, tab);
+    if (!state.pages[static_cast<std::size_t>(tab)].loaded)
+    {
+        loadTabInto(state, tab);
+    }
 }
 
 void buildTabs(DialogState& state, HWND parent)
@@ -1271,6 +1281,10 @@ LRESULT CALLBACK tmffunProc(HWND wnd, UINT message, WPARAM wParam, LPARAM lParam
         if (action == "browseFile")
         {
             // 选一个文件写进本页的 Ed_Tampering（role=tamperPath）
+            if (state->current < 0)
+            {
+                return 0;
+            }
             HWND edit = nullptr;
             for (int i = 0; i < kTabs[state->current]->controlCount; ++i)
             {
@@ -1605,6 +1619,35 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         detail = "保存后 myDocumentsTarget = " + cfg.optimization.myDocumentsTarget;
         ::DestroyWindow(dialog);
         return false;
+    }
+
+    // 切页签不能丢未保存的输入：改了转移文档的路径，切走再切回来要还在
+    {
+        HWND pathEdit = nullptr;
+        for (int i = 0; i < kTabs[documents]->controlCount; ++i)
+        {
+            if (std::string(kTabs[documents]->controls[i].id) == "Ed_MovePath")
+            {
+                pathEdit = documentsPage.controls[static_cast<std::size_t>(i)];
+            }
+        }
+        if (pathEdit == nullptr)
+        {
+            detail = "转移文档页没有 Ed_MovePath（切页签检查）";
+            ::DestroyWindow(dialog);
+            return false;
+        }
+        ::SetWindowTextW(pathEdit, L"D:\\未保存也要留着");
+        showTab(state, favorites);
+        showTab(state, documents);
+        wchar_t buffer[256] = {};
+        ::GetWindowTextW(pathEdit, buffer, 256);
+        if (narrow(buffer) != "D:\\未保存也要留着")
+        {
+            detail = "切页签把未保存的输入丢了：" + narrow(buffer);
+            ::DestroyWindow(dialog);
+            return false;
+        }
     }
 
     // 虚拟内存页的校验：最小倍数大于最大倍数要拦住

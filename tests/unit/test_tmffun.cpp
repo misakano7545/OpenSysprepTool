@@ -428,3 +428,59 @@ TEST_CASE("OEM 智能识别：开关关掉时不动厂商字段")
     REQUIRE(generated.ok);
     CHECK(generated.xml.find("<OEMInformation>") == std::string::npos);
 }
+
+TEST_CASE("虚拟内存：指定了盘符但仍是智能转移时不静默忽略")
+{
+    osp::config::Config cfg;
+    cfg.optimization.pageFileDrive = "D:"; // pageFileSmart 默认 true
+    REQUIRE(cfg.optimization.pageFileSmart);
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.physicalMemoryMb = 16384;
+    options.pagefileCandidates = {{"E:", 500000}};
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+
+    // 仍按智能走（选到 E:），但必须告警说清为什么没用 D:
+    bool warned = false;
+    for (const std::string& warning : plan.warnings)
+    {
+        if (warning.find("指定了盘符 D:") != std::string::npos)
+        {
+            warned = true;
+        }
+    }
+    CHECK(warned);
+    bool usesSmart = false;
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        if (action.valueName == "PagingFiles" && !action.multi.empty())
+        {
+            usesSmart = action.multi[0].rfind("E:\\pagefile.sys", 0) == 0;
+        }
+    }
+    CHECK(usesSmart);
+}
+
+TEST_CASE("IE 窗口标题：默认用户配置单元不存在时跳过并说明")
+{
+    osp::config::Config cfg;
+    cfg.oem.ieTitle = "TestBrand 定制系统";
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.defaultUserProfile = "Z:\\绝对不存在的目录";
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        CHECK(action.valueName != "Window Title");
+    }
+    bool warned = false;
+    for (const std::string& warning : plan.warnings)
+    {
+        if (warning.find("IE 窗口标题") != std::string::npos)
+        {
+            warned = true;
+        }
+    }
+    CHECK(warned);
+}
