@@ -92,6 +92,7 @@ def main():
 
     tab_entries = []
     excluded = bindings.get("excludeTabs", {})
+    excluded_controls = bindings.get("excludeControls", {})
     for tab in visible_tabs:
         sheet = tab["name"]
         if sheet in excluded:
@@ -138,11 +139,15 @@ def main():
             name = row["name"]
             if row["class"] in ("TMlSkinTabSheet",):
                 continue
+            if name in excluded_controls:
+                continue
             bound = spec["controls"].get(name)
             if bound is None:
                 continue
             rows.append((row, bound, None))
             for child in children.get(name, []):
+                if child["name"] in excluded_controls:
+                    continue
                 child_bound = spec["controls"].get(child["name"])
                 if child_bound is None:
                     continue

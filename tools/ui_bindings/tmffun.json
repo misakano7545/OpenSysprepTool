@@ -418,6 +418,120 @@
           "text": "加进来的文件会在部署前校验 MD5，值取自添加时的文件内容。"
         }
       }
+    },
+    "MlSkinTabSheet10": {
+      "note": "OEM：系统属性 / 技术支持两组；开始菜单组不做（见 exclude）",
+      "controls": {
+        "Lab_OemManufacturer": {
+          "kind": "label",
+          "text": "厂商名称:"
+        },
+        "Ed_OemManufacturer": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.manufacturer"
+        },
+        "Lab_OemProduct": {
+          "kind": "label",
+          "text": "系统型号:"
+        },
+        "Ed_OemProduct": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.model"
+        },
+        "Lab_OemUrl": {
+          "kind": "label",
+          "text": "厂商网址:"
+        },
+        "Ed_OemUrl": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.supportUrl"
+        },
+        "Lab_Oemservicetime": {
+          "kind": "label",
+          "text": "服务时间:"
+        },
+        "Ed_Oemservicetime": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.supportHours"
+        },
+        "Lab_OemTel": {
+          "kind": "label",
+          "text": "服务电话:"
+        },
+        "Ed_OemTel": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.supportPhone"
+        },
+        "Lab_OemLogo": {
+          "kind": "label",
+          "text": "厂商图片:"
+        },
+        "Ed_OemLogo": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.logo"
+        },
+        "Btn_OemLogo": {
+          "kind": "button",
+          "text": "...",
+          "action": "browseOemLogo"
+        },
+        "Lab_OemRegname": {
+          "kind": "label",
+          "text": "注册姓名:"
+        },
+        "Ed_OemRegname": {
+          "kind": "edit",
+          "text": "",
+          "binding": "systemInfo.registeredName"
+        },
+        "Lab_OemRegunit": {
+          "kind": "label",
+          "text": "使用单位:"
+        },
+        "Ed_OemRegunit": {
+          "kind": "edit",
+          "text": "",
+          "binding": "systemInfo.registeredOrg"
+        },
+        "Lab_Oemietitle": {
+          "kind": "label",
+          "text": "IE标题栏:"
+        },
+        "Ed_Oemietitle": {
+          "kind": "edit",
+          "text": "",
+          "binding": "oem.ieTitle"
+        },
+        "Gb_Sysattribute": {
+          "kind": "group",
+          "text": "系统属性信息:"
+        },
+        "Gb_Supportinfo": {
+          "kind": "group",
+          "text": "技术支持信息:"
+        },
+        "Btn_OemPreview": {
+          "kind": "button",
+          "text": "预览(&P)",
+          "action": "oemPreview"
+        },
+        "Btn_OemSave": {
+          "kind": "button",
+          "text": "设置(&S)",
+          "action": "save"
+        },
+        "Btn_OemClear": {
+          "kind": "button",
+          "text": "清除OEM(&C)",
+          "action": "oemClear"
+        }
+      }
     }
   },
   "unimplemented": {
@@ -426,7 +540,6 @@
     "MlSkinTabSheet5": "新增用户：账号/组/密码的落地方式待定，本轮不做",
     "MlSkinTabSheet8": "固定文件：主窗体字段已实现，这里的清单页待下一轮",
     "MlSkinTabSheet9": "取消固定：同上",
-    "MlSkinTabSheet10": "OEM：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet11": "选择网络：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet13": "登录：SC 这一页是「登录系统总裁装机联盟」+ VIP 特权（计费ID/生成授权文件/退出当前用户），属宪章 §7 禁止的联盟账户体系，整页不做",
     "MlSkinTabSheet14": "图片部署：主窗体已能配置，这里的详细页待下一轮",
@@ -439,5 +552,16 @@
   "excludeTabs": {
     "Page_Nodelfile": "宪章 §7 红线：SC 用内核驱动锁住文件不让删，本工具不提供",
     "Page_Nodelreg": "宪章 §7 红线：同上，锁注册表不让删，本工具不提供"
+  },
+  "excludeControls": {
+    "Gb_Startmenuattribute": "SC 的「开始菜单信息」组（菜单名称/链接说明/右键说明/链接动作/菜单图标）是在开始菜单里拉一个自定义入口，链接动作可指向任意 URL/程序 —— 这正是 SC 投放推广入口的位置（宪章 §7）。我们没有创建快捷方式的模块，也不提供半成品入口，整组不做",
+    "Pic_Logo": "图纸里的图片预览框；没有素材可显示，空着即可（不是控件缺失）",
+    "Pic_logoicon": "同上",
+    "Cb_OemManufacturerlist": "「预设品牌标识」下拉：SC 自带一份合作品牌清单（品牌名与标识图），属宪章 §5 不搬运的范围；要预设只能由用户自己导入 OEM 档案",
+    "Lab_OemManufacturerlist": "标签随上面的下拉一起去掉",
+    "Lab_Loadusesoem": "「加载上一次使用的OEM信息」：SC 把上次的值存在它自己的配置里；我们要做得先定义「上一次」存在哪，本轮不做",
+    "Ed_Oemiebottom": "「IE底部」：图纸只有 Caption，查不到它写进哪个键/哪个文件，没有依据就不做（不猜）",
+    "Lab_Oemiebottom": "随上面的字段一起去掉",
+    "MM_Supportinfo": "「技术支持信息」多行框：图纸只有这个控件，查不到 SC 把它写到哪份文件/哪个键（oeminfo 里没有对应元素），没有依据就不做（不猜）；要写支持信息请用服务时间/服务电话两项"
   }
 }

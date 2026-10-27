@@ -211,7 +211,8 @@ bool isLogonCommandsPhase(const std::string& phase)
 bool hasOemContent(const osp::config::OemSettings& oem)
 {
     return !oem.manufacturer.empty() || !oem.model.empty() || !oem.supportHours.empty() ||
-        !oem.supportPhone.empty() || !oem.supportProvider.empty() || !oem.supportUrl.empty();
+        !oem.supportPhone.empty() || !oem.supportProvider.empty() || !oem.supportUrl.empty() ||
+        !oem.logo.empty();
 }
 
 std::string buildCommandLine(const osp::config::RunPlanTask& task)
@@ -262,8 +263,9 @@ const std::vector<const char*>& oemInformationChildOrder()
     // Manufacturer / Model / SupportHours / SupportPhone 在 Win10 文档里标为已弃用，
     // 但 Win7（本项目最低目标）只认它们，且 Win10+ 在缺 SupportProvider 时仍会用
     // Manufacturer，所以两代字段一起写。
+    // Logo 在文档字母序里排在 Manufacturer 之后、Model 之前。
     static const std::vector<const char*> kOrder{
-        "Manufacturer", "Model", "SupportHours", "SupportPhone", "SupportProvider", "SupportURL"
+        "Manufacturer", "Logo", "Model", "SupportHours", "SupportPhone", "SupportProvider", "SupportURL"
     };
     return kOrder;
 }
@@ -578,6 +580,12 @@ GenResult generate(const osp::config::Config& cfg)
             if (!cfg.oem.model.empty())
             {
                 addTextChild(oem, "Model", cfg.oem.model);
+            }
+            // 厂商图片（DFM 的 Ed_OemLogo / Pic_Logo）。unattend 的 OEMInformation
+            // 支持 <Logo>，指向 BMP。路径由用户给，我们不预置任何品牌素材（宪章 §5）。
+            if (!cfg.oem.logo.empty())
+            {
+                addTextChild(oem, "Logo", cfg.oem.logo);
             }
             if (!cfg.oem.supportHours.empty())
             {

@@ -374,6 +374,7 @@ def main(argv: list[str]) -> int:
         check("TMFFUN 判定通过", "PASS" in tmffun[0], tmffun[0].strip()[:260])
         check("TMFFUN 客户区是 740x400", "740x400" in tmffun[0], tmffun[0].strip()[:260])
         check("TMFFUN 保存回写与大小校验都验到", "保存回写" in tmffun[0], tmffun[0].strip()[:260])
+        check("TMFFUN 覆盖了预置IP/文件锁定/OEM 三页", "随机网段" in tmffun[0] and "防篡改" in tmffun[0] and "OEM" in tmffun[0], tmffun[0].strip()[:300])
 
     section("TAPPMSGFORM 提示框")
     msg = [line for line in lines if "TAPPMSGFORM 提示框" in line]

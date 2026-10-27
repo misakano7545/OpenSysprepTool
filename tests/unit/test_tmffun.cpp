@@ -4,6 +4,7 @@
 
 #include "core/config.hpp"
 #include "core/prepare.hpp"
+#include "core/unattend.hpp"
 #include "tmffun.hpp"
 
 // TMFFUN 高级设置窗体：页签集合、三个已排页签的绑定、虚拟内存大小换算。
@@ -260,4 +261,116 @@ TEST_CASE("防篡改条目带说明：JSON 往返不丢")
     REQUIRE(parsed.ok);
     REQUIRE(parsed.config.deploy.tamperFiles.size() == 1);
     CHECK(parsed.config.deploy.tamperFiles[0].tip == std::string("explorer 被替换会劫持主页"));
+}
+
+TEST_CASE("OEM 信息：全空时不生成 OEM 段")
+{
+    osp::config::Config cfg;
+    const std::string json = osp::config::toJson(cfg);
+    // 空 OEM 段的字段不应出现在 JSON 里造成误解——序列化本身是照写空串的，
+    // 真正决定「生成不生成」的是 unattend 侧；这里先钉住字段存在且为空。
+    const osp::config::ParseResult parsed = osp::config::fromJson(json);
+    REQUIRE(parsed.ok);
+    CHECK(parsed.config.oem.manufacturer.empty());
+    CHECK(parsed.config.oem.logo.empty());
+    CHECK(parsed.config.oem.ieTitle.empty());
+}
+
+TEST_CASE("OEM 信息：新增三项可往返")
+{
+    osp::config::Config cfg;
+    cfg.oem.manufacturer = "TestBrand";
+    cfg.oem.model = "Model-X";
+    cfg.oem.logo = "D:\\oem\\logo.bmp";
+    cfg.oem.ieTitle = "TestBrand 定制系统";
+
+    const std::string json = osp::config::toJson(cfg);
+    const osp::config::ParseResult parsed = osp::config::fromJson(json);
+    REQUIRE(parsed.ok);
+    CHECK(parsed.config.oem.logo == std::string("D:\\oem\\logo.bmp"));
+    CHECK(parsed.config.oem.ieTitle == std::string("TestBrand 定制系统"));
+}
+
+TEST_CASE("tmffun: OEM 页在页签列表里，且 §7 红线子页不存在")
+{
+    CHECK(osp::ui::tmffunTabIndex("MlSkinTabSheet10") >= 0);
+    CHECK(osp::ui::tmffunTabIndex("Page_Nodelfile") == -1);
+    CHECK(osp::ui::tmffunTabIndex("Page_Nodelreg") == -1);
+}
+
+namespace {
+
+// generate() 先要能算出计算机名，否则整份 XML 不生成（返回 error）
+osp::config::Config minimalConfig()
+{
+    osp::config::Config cfg;
+    cfg.systemInfo.computerName = "PC-";
+    cfg.systemInfo.computerNameMode = "prefixRandom";
+    return cfg;
+}
+
+} // namespace
+
+TEST_CASE("OEM 厂商图片：写进 unattend 的 OEMInformation/Logo")
+{
+    osp::config::Config cfg = minimalConfig();
+    cfg.oem.manufacturer = "TestBrand";
+    cfg.oem.logo = "D:\\oem\\logo.bmp";
+
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    const std::string xml = generated.xml;
+    CHECK(xml.find("<OEMInformation>") != std::string::npos);
+    CHECK(xml.find("<Logo>D:\\oem\\logo.bmp</Logo>") != std::string::npos);
+    // Logo 在 Manufacturer 之后、Model 之前（文档字母序）
+    const std::size_t manufacturer = xml.find("<Manufacturer>TestBrand</Manufacturer>");
+    const std::size_t logo = xml.find("<Logo>");
+    REQUIRE(manufacturer != std::string::npos);
+    REQUIRE(logo != std::string::npos);
+    CHECK(manufacturer < logo);
+}
+
+TEST_CASE("OEM 厂商图片：只有图片没有别的字段时也生成 OEM 段")
+{
+    osp::config::Config cfg = minimalConfig();
+    cfg.oem.logo = "D:\\oem\\only.bmp";
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    const std::string xml = generated.xml;
+    CHECK(xml.find("<OEMInformation>") != std::string::npos);
+    CHECK(xml.find("<Logo>D:\\oem\\only.bmp</Logo>") != std::string::npos);
+}
+
+TEST_CASE("IE 窗口标题：落到默认用户配置单元，且允许失败")
+{
+    osp::config::Config cfg;
+    cfg.oem.ieTitle = "TestBrand 定制系统";
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+
+    bool found = false;
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        if (action.valueName != "Window Title")
+        {
+            continue;
+        }
+        found = true;
+        CHECK(action.text == std::string("TestBrand 定制系统"));
+        CHECK(action.key == std::string("Software\\Microsoft\\Internet Explorer\\Main"));
+        CHECK(action.kind == osp::prepare::ActionKind::HiveSet);
+        CHECK(action.tolerateFailure);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("IE 窗口标题：不填时不产生动作")
+{
+    osp::config::Config cfg;
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, osp::prepare::defaultOptions());
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        CHECK(action.valueName != "Window Title");
+    }
 }

@@ -11,6 +11,7 @@
 #include <shlobj.h>
 
 #include "core/md5.hpp"
+#include "popups.hpp"
 
 namespace osp::ui {
 namespace {
@@ -163,6 +164,51 @@ BindResult readBinding(const std::string& path, const config::Config& cfg, std::
         out = cfg.optimization.pageFileSizeMode;
         return BindResult::Ok;
     }
+    if (path == "oem.manufacturer")
+    {
+        out = cfg.oem.manufacturer;
+        return BindResult::Ok;
+    }
+    if (path == "oem.model")
+    {
+        out = cfg.oem.model;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportUrl")
+    {
+        out = cfg.oem.supportUrl;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportHours")
+    {
+        out = cfg.oem.supportHours;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportPhone")
+    {
+        out = cfg.oem.supportPhone;
+        return BindResult::Ok;
+    }
+    if (path == "oem.logo")
+    {
+        out = cfg.oem.logo;
+        return BindResult::Ok;
+    }
+    if (path == "oem.ieTitle")
+    {
+        out = cfg.oem.ieTitle;
+        return BindResult::Ok;
+    }
+    if (path == "systemInfo.registeredName")
+    {
+        out = cfg.systemInfo.registeredName;
+        return BindResult::Ok;
+    }
+    if (path == "systemInfo.registeredOrg")
+    {
+        out = cfg.systemInfo.registeredOrg;
+        return BindResult::Ok;
+    }
     if (path == "optimization.ipMode")
     {
         out = cfg.optimization.ipMode;
@@ -267,6 +313,51 @@ writeBinding(const std::string& path, const std::string& text, bool flag, bool h
     if (path == "optimization.pageFileSizeMode")
     {
         cfg.optimization.pageFileSizeMode = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.manufacturer")
+    {
+        cfg.oem.manufacturer = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.model")
+    {
+        cfg.oem.model = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportUrl")
+    {
+        cfg.oem.supportUrl = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportHours")
+    {
+        cfg.oem.supportHours = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.supportPhone")
+    {
+        cfg.oem.supportPhone = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.logo")
+    {
+        cfg.oem.logo = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.ieTitle")
+    {
+        cfg.oem.ieTitle = text;
+        return BindResult::Ok;
+    }
+    if (path == "systemInfo.registeredName")
+    {
+        cfg.systemInfo.registeredName = text;
+        return BindResult::Ok;
+    }
+    if (path == "systemInfo.registeredOrg")
+    {
+        cfg.systemInfo.registeredOrg = text;
         return BindResult::Ok;
     }
     if (path == "optimization.ipMode")
@@ -606,6 +697,61 @@ void addTamperEntry(DialogState& state, HWND wnd)
         ::SetWindowTextW(tipEdit, L"");
     }
     say("已加入 " + entry.path + "（MD5 " + digest + "）");
+}
+
+// 按绑定路径找本页的输入框（浏览按钮与被它填的框就是这么配对的）
+HWND findBoundEdit(DialogState& state, const std::string& binding)
+{
+    if (state.current < 0)
+    {
+        return nullptr;
+    }
+    const TabSpec* tabSpec = kTabs[state.current];
+    TabPageState& page = state.pages[static_cast<std::size_t>(state.current)];
+    for (int i = 0; i < tabSpec->controlCount; ++i)
+    {
+        if (tabSpec->controls[i].binding == nullptr)
+        {
+            continue;
+        }
+        if (binding == tabSpec->controls[i].binding)
+        {
+            return page.controls[static_cast<std::size_t>(i)];
+        }
+    }
+    return nullptr;
+}
+
+// OEM 预览：把会写进 oeminfo 的内容按字段逐条列出来。
+// 不假装「预览即将写入的效果图」—— 那需要真实的 oeminfo 渲染，这里给的是数据。
+std::string buildOemPreview(const config::OemSettings& oem, const config::SystemInfo& sys)
+{
+    std::string text;
+    auto line = [&text](const char* label, const std::string& value) {
+        if (value.empty())
+        {
+            return;
+        }
+        text += label;
+        text += value;
+        text += "\n";
+    };
+    if (oem.manufacturer.empty() && oem.model.empty() && oem.supportPhone.empty() && oem.supportUrl.empty() &&
+        oem.supportHours.empty() && oem.logo.empty() && oem.ieTitle.empty())
+    {
+        return "OEM 信息全为空：不会生成 OEM 段（unattend.xml 里不带 OEM 相关节点）。";
+    }
+    text += "将写入 oeminfo / unattend 的内容：\n\n";
+    line("厂商名称：", oem.manufacturer);
+    line("系统型号：", oem.model);
+    line("厂商网址：", oem.supportUrl);
+    line("服务时间：", oem.supportHours);
+    line("服务电话：", oem.supportPhone);
+    line("厂商图片：", oem.logo);
+    line("IE 标题：", oem.ieTitle);
+    line("注册姓名：", sys.registeredName);
+    line("使用单位：", sys.registeredOrg);
+    return text;
 }
 
 void loadTabInto(DialogState& state, int tab)
@@ -1063,6 +1209,54 @@ LRESULT CALLBACK tmffunProc(HWND wnd, UINT message, WPARAM wParam, LPARAM lParam
             }
             return 0;
         }
+        if (action == "browseOemLogo")
+        {
+            // 厂商图片：只选文件，路径写进 oem.logo
+            HWND edit = findBoundEdit(*state, "oem.logo");
+            if (edit != nullptr)
+            {
+                wchar_t path[MAX_PATH * 4] = {};
+                OPENFILENAMEW ofn = {};
+                ofn.lStructSize = sizeof(ofn);
+                ofn.hwndOwner = wnd;
+                ofn.lpstrFile = path;
+                ofn.nMaxFile = MAX_PATH * 4;
+                ofn.lpstrFilter = L"图片\0*.bmp;*.jpg;*.png\0所有文件\0*.*\0";
+                ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                if (::GetOpenFileNameW(&ofn) != FALSE)
+                {
+                    ::SetWindowTextW(edit, path);
+                }
+            }
+            return 0;
+        }
+        if (action == "oemPreview")
+        {
+            // 预览：把当前配置会生成的 OEM 段落原样摆出来，让人自己看
+            std::string error;
+            if (!saveTab(*state, state->current, error))
+            {
+                setStatus(*state, "预览前先修正：" + error);
+                return 0;
+            }
+            const std::string preview = buildOemPreview(state->cfg->oem, state->cfg->systemInfo);
+            osp::ui::showMessageDialog(wnd, preview, osp::ui::MessageKind::Info);
+            return 0;
+        }
+        if (action == "oemClear")
+        {
+            // 清除OEM：只清 OEM 段与 IE 标题，不动注册姓名/单位（那两项属于系统信息页）
+            state->cfg->oem = osp::config::OemSettings{};
+            std::string clearError;
+            if (!saveTab(*state, state->current, clearError))
+            {
+                setStatus(*state, "清除后回写失败：" + clearError);
+                return 0;
+            }
+            loadTabInto(*state, state->current);
+            setStatus(*state, "已清除 OEM 信息");
+            return 0;
+        }
         if (action == "tamperAdd")
         {
             addTamperEntry(*state, wnd);
@@ -1499,12 +1693,76 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         return false;
     }
 
+    // OEM 页：写回、预览、清除三件事
+    const int oemTab = tmffunTabIndex("MlSkinTabSheet10");
+    if (oemTab < 0)
+    {
+        detail = "找不到 OEM 页";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    state.current = oemTab;
+    HWND oemManufacturer = findBoundEdit(state, "oem.manufacturer");
+    HWND oemModel = findBoundEdit(state, "oem.model");
+    HWND oemPhone = findBoundEdit(state, "oem.supportPhone");
+    HWND oemTitle = findBoundEdit(state, "oem.ieTitle");
+    if (oemManufacturer == nullptr || oemModel == nullptr || oemPhone == nullptr || oemTitle == nullptr)
+    {
+        detail = "OEM 页缺少输入框";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    ::SetWindowTextW(oemManufacturer, L"TestBrand");
+    ::SetWindowTextW(oemModel, L"Model-X");
+    ::SetWindowTextW(oemPhone, L"400-000-0000");
+    ::SetWindowTextW(oemTitle, L"TestBrand 定制系统");
+    if (!saveTab(state, oemTab, error))
+    {
+        detail = "保存 OEM 页失败：" + error;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    if (cfg.oem.manufacturer != "TestBrand" || cfg.oem.model != "Model-X" ||
+        cfg.oem.supportPhone != "400-000-0000" || cfg.oem.ieTitle != "TestBrand 定制系统")
+    {
+        detail = "OEM 字段没写回：manufacturer=" + cfg.oem.manufacturer + " model=" + cfg.oem.model;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
+    // 预览文本必须带上刚才填的内容，空配置时要说清「不会生成」
+    const std::string preview = buildOemPreview(cfg.oem, cfg.systemInfo);
+    if (preview.find("TestBrand") == std::string::npos || preview.find("400-000-0000") == std::string::npos)
+    {
+        detail = "OEM 预览没带上已填内容";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    const std::string emptyPreview = buildOemPreview(config::OemSettings{}, config::SystemInfo{});
+    if (emptyPreview.find("不会生成") == std::string::npos)
+    {
+        detail = "OEM 全空时预览没有说明不生成";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
+    // 清除OEM 之后 oem 段应当全空，但注册姓名不动（那属于系统信息）
+    cfg.systemInfo.registeredName = "保留我";
+    cfg.oem = config::OemSettings{};
+    loadTabInto(state, oemTab);
+    if (!cfg.oem.manufacturer.empty() || cfg.systemInfo.registeredName != "保留我")
+    {
+        detail = "清除OEM 的行为不对";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
     detail = "客户区 " + std::to_string(width) + "x" + std::to_string(height) + "，" +
         std::to_string(kTabCount) + " 个页签，" + std::to_string(kTabs[documents]->controlCount) + "/" +
         std::to_string(kTabs[favorites]->controlCount) + "/" + std::to_string(kTabs[pagefile]->controlCount) +
         "/" + std::to_string(kTabs[ipTab]->controlCount) + "/" +
-        std::to_string(kTabs[lockTab]->controlCount) +
-        " 个控件，保存回写、大小校验、随机网段、防篡改 MD5 都对";
+        std::to_string(kTabs[lockTab]->controlCount) + "/" + std::to_string(kTabs[oemTab]->controlCount) +
+        " 个控件，保存回写、大小校验、随机网段、防篡改 MD5、OEM 预览与清除都对";
     ::DestroyWindow(dialog);
     return true;
 }

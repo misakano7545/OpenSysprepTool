@@ -112,6 +112,34 @@ const ControlSpec kControlsSheet7[] = {
 };
 const int kControlCountSheet7 = static_cast<int>(sizeof(kControlsSheet7) / sizeof(kControlsSheet7[0]));
 
+const ControlSpec kControlsSheet10[] = {
+    {"Gb_Sysattribute", "group", "系统属性信息:", 8, 3, 501, 231, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_OemManufacturer", "label", "厂商名称:", 3, 16, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemManufacturer", "edit", "", 64, 11, 105, 26, "oem.manufacturer", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemProduct", "edit", "", 242, 11, 105, 26, "oem.model", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemProduct", "label", "系统型号:", 181, 16, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemUrl", "label", "厂商网址:", 3, 48, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemUrl", "edit", "", 64, 43, 283, 26, "oem.supportUrl", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_Oemservicetime", "label", "服务时间:", 3, 80, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_Oemservicetime", "edit", "", 64, 75, 105, 26, "oem.supportHours", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemTel", "edit", "", 242, 75, 105, 26, "oem.supportPhone", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemTel", "label", "服务电话:", 181, 80, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemLogo", "label", "厂商图片:", 3, 112, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemLogo", "edit", "", 64, 107, 377, 26, "oem.logo", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Btn_OemLogo", "button", "...", 447, 107, 40, 27, "", "", "", "browseOemLogo", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemRegname", "label", "注册姓名:", 3, 144, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemRegname", "edit", "", 64, 139, 166, 26, "systemInfo.registeredName", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_OemRegunit", "label", "使用单位:", 260, 144, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_OemRegunit", "edit", "", 321, 139, 166, 26, "systemInfo.registeredOrg", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Lab_Oemietitle", "label", "IE标题栏:", 3, 176, 55, 21, "", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Ed_Oemietitle", "edit", "", 64, 171, 166, 26, "oem.ieTitle", "", "", "", "", nullptr, 0, "Gb_Sysattribute"},
+    {"Gb_Supportinfo", "group", "技术支持信息:", 8, 240, 724, 68, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Btn_OemPreview", "button", "预览(&P)", 548, 313, 89, 27, "", "", "", "oemPreview", "", nullptr, 0, nullptr},
+    {"Btn_OemSave", "button", "设置(&S)", 643, 313, 89, 27, "", "", "", "save", "", nullptr, 0, nullptr},
+    {"Btn_OemClear", "button", "清除OEM(&C)", 8, 313, 89, 27, "", "", "", "oemClear", "", nullptr, 0, nullptr},
+};
+const int kControlCountSheet10 = static_cast<int>(sizeof(kControlsSheet10) / sizeof(kControlsSheet10[0]));
+
 const ControlSpec kControlsSheet12[] = {
     {"Lv_Tampering", "list", "", 16, 4, 705, 222, "", "", "", "", "tamperList", nullptr, 0, nullptr},
     {"Lab_Tampering", "label", "File:", 16, 236, 82, 18, "", "", "", "", "", nullptr, 0, nullptr},
@@ -199,9 +227,9 @@ const TabSpec kTabSheet9 = {
 const TabSpec kTabSheet10 = {
     "MlSkinTabSheet10",
     "OEM",
-    "OEM：主窗体已能配置，这里的详细页待下一轮",
-    nullptr,
-    0,
+    "OEM：系统属性 / 技术支持两组；开始菜单组不做（见 exclude）",
+    kControlsSheet10,
+    kControlCountSheet10,
 };
 
 const TabSpec kTabSheet11 = {

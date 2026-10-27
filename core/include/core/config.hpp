@@ -200,6 +200,10 @@ struct OemSettings
     std::string supportPhone;    // -> <SupportPhone>（Win7）
     std::string supportProvider; // -> <SupportProvider>（Win10+ 显示名）
     std::string supportUrl;      // -> <SupportURL>
+    // TMFFUN「OEM」页里图纸有、但写进 oeminfo 之外的几项：
+    std::string
+        logo; // Ed_OemLogo：厂商图片，复制进 %SystemRoot%\System32\oobe\info\backgrounds 类位置前先用用户自己的图
+    std::string ieTitle; // Ed_Oemietitle：IE 窗口标题（不是主页，主页是 §7 红线）
     // SC 的 SA_Lab_oembgpic「遇品牌电脑则设置相应品牌桌面壁纸」：
     // 用户自己的图片，复制进映像后写进默认用户的桌面壁纸设置。
     // 本仓库不含任何品牌素材（宪章 §5 / §7），路径必须由用户提供。

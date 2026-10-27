@@ -209,11 +209,29 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 | 转移虚拟内存 | 20 | `pageFileSmart` / `pageFileDrive` / `pageFileSizeMode` + 四个数值 |
 | 预置IP | 26 | `ipMode` / `ipAddress` / `ipRandomBase` / `ipRandomOctetStart·End` / 掩码·网关·两个 DNS |
 | 文件锁定 | 8 | `deploy.tamperFiles`（path + MD5 + 说明），`verifyIntegrity` 随之打开 |
+| OEM | 24 | `oem` 六项 + `oem.logo`（→ unattend `<Logo>`）+ `oem.ieTitle`（→ IE 窗口标题）+ 注册姓名/单位 |
 
 **预置IP 页带出一处修正**：SC 的随机 IP 是「`Ed_ips` 三段基址 + `Ed_Startip`/`Ed_Endip`
 末段范围」，随机时只换末段。早先的实现没有这两项，只能在本机当前 /24 里随机 ——
 那是我们的取舍而非 SC 的行为，现在按 SC 的语义补上了（`ipRandomBase` /
 `ipRandomOctetStart` / `ipRandomOctetEnd`），原来的兜底逻辑仅在既没给基址时使用。
+
+**OEM 页做了 24 个控件，另有 7 个不做**（都在 `tools/ui_bindings/tmffun.json` 的
+`excludeControls` 里写了原因）：
+
+| 不做的控件 | 原因 |
+|---|---|
+| `Gb_Startmenuattribute` 整组（菜单名称/链接说明/右键说明/链接动作/菜单图标） | 这是往开始菜单里拉一个自定义入口、链接动作可指向任意 URL／程序的位置，正是 SC 投放推广入口的地方（§7）。我们没有创建快捷方式的模块，也不提供半成品入口 |
+| `Cb_OemManufacturerlist` + 它的标签 | 「预设品牌标识」下拉：SC 自带合作品牌清单，属 §5 不搬运范围；要预设只能让用户自己导入 |
+| `Lab_Loadusesoem` | 「加载上一次使用的OEM信息」：得先定义「上一次」存在哪，本轮不做 |
+| `Ed_Oemiebottom` + 标签 | 「IE底部」：图纸只有 Caption，查不到写进哪个键/文件，没有依据不猜 |
+| `MM_Supportinfo` | 「技术支持信息」多行框：oeminfo 里没有对应元素，写到哪里没有证据，不猜 |
+
+**两项新增字段是真的落地的**：`oem.logo` 进 unattend 的 `<OEMInformation><Logo>`（文档
+字母序里排在 Manufacturer 之后、Model 之前）；`oem.ieTitle` 由 `--prepare` 写进默认用户
+配置单元的 `Software\Microsoft\Internet Explorer\Main` 的 `Window Title`
+（`tolerateFailure`，Win10+ 对该键的部分值会拒绝写入）。IE 标题属 OEM 品牌字样，
+§7 禁止的是改主页/默认搜索，不是标题栏。
 
 **文件锁定页是嵌套页**：图纸里这一页套着一个 `Page_Tn` 页签控件，里面三层
 `Page_Tampering` / `Page_Nodelfile` / `Page_Nodelreg`。生成器现在只把直接挂在

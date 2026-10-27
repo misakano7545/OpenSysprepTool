@@ -1989,6 +1989,31 @@ Plan build(const config::Config& cfg, const Options& options)
         }
     }
 
+    // IE 窗口标题（SC 的 Ed_Oemietitle）。这是 OEM 品牌字样，不是主页/默认搜索 ——
+    // §7 禁止的是改主页，改窗口标题不在其中。
+    // 写到默认用户的 NTUSER.DAT；Win10+ 上这个键对对某些值拒绝写入，故 tolerateFailure。
+    if (!cfg.oem.ieTitle.empty())
+    {
+        Action action = makeRegistryAction(
+            ActionKind::HiveSet,
+            "oem.ieTitle",
+            "OEM 信息",
+            "设置 IE 窗口标题",
+            "oem.ieTitle",
+            "HKU",
+            "Software\\Microsoft\\Internet Explorer\\Main",
+            "Window Title",
+            "sz"
+        );
+        action.text = cfg.oem.ieTitle;
+        // 与下面「我的文档/收藏夹」用的落点算法一致：配置给了就用配置，否则取默认用户配置单元
+        action.hiveFile = cfg.optimization.defaultUserHive.empty()
+            ? joinPath(opt.defaultUserProfile, "NTUSER.DAT")
+            : cfg.optimization.defaultUserHive;
+        action.tolerateFailure = true;
+        plan.actions.push_back(std::move(action));
+    }
+
     if (!cfg.optimization.sysTweaks.empty())
     {
         // SC 的系统优化项：数据表在 core/tweaks，这里只负责翻译成动作。
