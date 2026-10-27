@@ -643,6 +643,7 @@ PlanResult build(const osp::config::Config& cfg, const DriveTable& drives)
     plan.checks.blockVirtualMachine = deploy.blockVirtualMachine;
     plan.checks.hijackMode = deploy.hijackMode.empty() ? "terminate" : deploy.hijackMode;
     plan.checks.hijackTip = deploy.hijackTip;
+    plan.checks.hijackShowTip = deploy.hijackShowTip;
     plan.checks.tamperFiles = deploy.tamperFiles;
     // SC 的防篡改是「锁定文件列表 + MD5」，所以两者必须成对出现：
     // 开了校验却没有清单，等于什么都没校验。
@@ -870,6 +871,7 @@ std::string toJson(const PlanResult& plan)
     checks["blockVirtualMachine"] = plan.checks.blockVirtualMachine;
     checks["hijackMode"] = plan.checks.hijackMode;
     checks["hijackTip"] = plan.checks.hijackTip;
+    checks["hijackShowTip"] = plan.checks.hijackShowTip;
     json tamper = json::array();
     for (const auto& entry : plan.checks.tamperFiles)
     {

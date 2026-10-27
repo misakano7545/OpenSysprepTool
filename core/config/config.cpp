@@ -101,6 +101,7 @@ json encode(const Config& cfg)
         {"verifyIntegrity", dp.verifyIntegrity},
         {"hijackMode", dp.hijackMode},
         {"hijackTip", dp.hijackTip},
+        {"hijackShowTip", dp.hijackShowTip},
         {"enableAdministrator", dp.enableAdministrator},
     };
 
@@ -153,6 +154,7 @@ json encode(const Config& cfg)
         {"supportUrl", om.supportUrl},
         {"logo", om.logo},
         {"ieTitle", om.ieTitle},
+        {"autoBrandInfo", om.autoBrandInfo},
         {"wallpaper", om.wallpaper},
         {"deployImage", om.deployImage},
         {"source", om.source},
@@ -315,6 +317,7 @@ ParseResult fromJson(const std::string& text)
             cfg.deploy.verifyIntegrity = dp.value("verifyIntegrity", false);
             cfg.deploy.hijackMode = dp.value("hijackMode", std::string("terminate"));
             cfg.deploy.hijackTip = dp.value("hijackTip", std::string{});
+            cfg.deploy.hijackShowTip = dp.value("hijackShowTip", true);
             cfg.deploy.tamperFiles.clear();
             if (dp.contains("tamperFiles") && dp["tamperFiles"].is_array())
             {
@@ -367,6 +370,7 @@ ParseResult fromJson(const std::string& text)
             cfg.oem.supportUrl = om.value("supportUrl", std::string{});
             cfg.oem.logo = om.value("logo", std::string{});
             cfg.oem.ieTitle = om.value("ieTitle", std::string{});
+            cfg.oem.autoBrandInfo = om.value("autoBrandInfo", false);
             cfg.oem.wallpaper = om.value("wallpaper", std::string{});
             cfg.oem.deployImage = om.value("deployImage", std::string{});
             cfg.oem.source = om.value("source", std::string{});

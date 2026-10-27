@@ -160,6 +160,7 @@ struct DeploySettings
     // 被劫持策略（SC 的 SA_Rb_hijack_type1/type2）：continue / terminate
     std::string hijackMode = "terminate";
     std::string hijackTip;            // 被劫持时弹给用户的提示（SA_Lab_ShowTip）
+    bool hijackShowTip = true;        // SA_Swb_Showbox：被劫持时是否弹提示（关 = 只记录不弹窗）
     bool enableAdministrator = false; // 开启 administrator（Cb_Admin）
 };
 
@@ -204,6 +205,9 @@ struct OemSettings
     std::string
         logo; // Ed_OemLogo：厂商图片，复制进 %SystemRoot%\System32\oobe\info\backgrounds 类位置前先用用户自己的图
     std::string ieTitle; // Ed_Oemietitle：IE 窗口标题（不是主页，主页是 §7 红线）
+    // SA_Swb_oemlogo「遇品牌电脑则设置相应品牌计算机属性」。
+    // SC 自带品牌库；我们没有品牌素材，改为用 SMBIOS 读到的厂商/型号补空字段（同一意图）。
+    bool autoBrandInfo = false;
     // SC 的 SA_Lab_oembgpic「遇品牌电脑则设置相应品牌桌面壁纸」：
     // 用户自己的图片，复制进映像后写进默认用户的桌面壁纸设置。
     // 本仓库不含任何品牌素材（宪章 §5 / §7），路径必须由用户提供。

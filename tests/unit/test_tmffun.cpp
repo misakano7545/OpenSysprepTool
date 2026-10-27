@@ -5,6 +5,7 @@
 #include "core/config.hpp"
 #include "core/prepare.hpp"
 #include "core/unattend.hpp"
+#include "core/deploy.hpp"
 #include "tmffun.hpp"
 
 // TMFFUN 高级设置窗体：页签集合、三个已排页签的绑定、虚拟内存大小换算。
@@ -373,4 +374,57 @@ TEST_CASE("IE 窗口标题：不填时不产生动作")
     {
         CHECK(action.valueName != "Window Title");
     }
+}
+
+TEST_CASE("部署被劫持：hijackShowTip 关掉时 tip 为空、原因照给")
+{
+    osp::deploy::Plan plan;
+    plan.controllerMd5 = "0123456789abcdef0123456789abcdef"; // 与自身摘要必定不符
+    plan.hijackMode = "terminate";
+    plan.hijackShowTip = false;
+    plan.hijackTip = "自定义提示";
+
+    const osp::deploy::PreflightResult result = osp::deploy::preflight(plan);
+    CHECK(result.blocked);
+    CHECK(result.tip.empty());                         // 不弹窗
+    CHECK(result.reason == std::string("自定义提示")); // 但要说清为什么中止
+}
+
+TEST_CASE("部署被劫持：开关打开时 tip 就是用户文案")
+{
+    osp::deploy::Plan plan;
+    plan.controllerMd5 = "0123456789abcdef0123456789abcdef";
+    plan.hijackMode = "continue";
+    plan.hijackShowTip = true;
+    plan.hijackTip = "自定义提示";
+
+    const osp::deploy::PreflightResult result = osp::deploy::preflight(plan);
+    CHECK_FALSE(result.blocked);
+    CHECK(result.tip == std::string("自定义提示"));
+}
+
+TEST_CASE("OEM 智能识别：开关打开且厂商为空时用 SMBIOS 补")
+{
+    osp::config::Config cfg;
+    cfg.systemInfo.computerName = "PC-";
+    cfg.systemInfo.computerNameMode = "prefixRandom";
+    cfg.oem.autoBrandInfo = true;
+
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    // 本机 SMBIOS 有厂商值；CI 上若读不到，则不应生成空的 OEM 段
+    if (generated.xml.find("<OEMInformation>") != std::string::npos)
+    {
+        CHECK(generated.xml.find("<Manufacturer></Manufacturer>") == std::string::npos);
+    }
+}
+
+TEST_CASE("OEM 智能识别：开关关掉时不动厂商字段")
+{
+    osp::config::Config cfg;
+    cfg.systemInfo.computerName = "PC-";
+    cfg.systemInfo.computerNameMode = "prefixRandom";
+    const auto generated = osp::unattend::generate(cfg);
+    REQUIRE(generated.ok);
+    CHECK(generated.xml.find("<OEMInformation>") == std::string::npos);
 }

@@ -177,6 +177,7 @@ struct DeployChecks
     // SC 的 SA_Rb_hijack_type1/type2：部署主控被劫持时继续还是终止
     std::string hijackMode = "terminate";
     std::string hijackTip;
+    bool hijackShowTip = true;
     // 部署主控（osptd.exe）的 MD5，生成计划时写入
     std::string controllerMd5;
 };

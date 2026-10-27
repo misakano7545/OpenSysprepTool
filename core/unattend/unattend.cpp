@@ -1,5 +1,7 @@
 #include "core/unattend.hpp"
 
+#include "core/oem.hpp"
+
 #include <pugixml.hpp>
 
 #include <windows.h>
@@ -569,39 +571,55 @@ GenResult generate(const osp::config::Config& cfg)
         }
 
         // OEM 信息：文档字母序里排在 LogonCommands 与 OOBE 之间
-        if (hasOemContent(cfg.oem))
+        // SA_Swb_oemlogo：遇品牌电脑用 SMBIOS 读到的厂商/型号补空字段。
+        // SC 靠它自己的品牌库；我们用机器自己报的值，不需要品牌素材（§5）。
+        osp::config::OemSettings oemInfo = cfg.oem;
+        if (oemInfo.autoBrandInfo && (oemInfo.manufacturer.empty() || oemInfo.model.empty()))
+        {
+            const ::osp::oem::BiosInfo bios = ::osp::oem::readBios();
+            if (oemInfo.manufacturer.empty() && !bios.manufacturer.empty())
+            {
+                oemInfo.manufacturer = bios.manufacturer;
+            }
+            if (oemInfo.model.empty() && !bios.productName.empty())
+            {
+                oemInfo.model = bios.productName;
+            }
+        }
+
+        if (hasOemContent(oemInfo))
         {
             pugi::xml_node oem = addChild(component, "OEMInformation");
             // 顺序按 oemInformationChildOrder()
-            if (!cfg.oem.manufacturer.empty())
+            if (!oemInfo.manufacturer.empty())
             {
-                addTextChild(oem, "Manufacturer", cfg.oem.manufacturer);
+                addTextChild(oem, "Manufacturer", oemInfo.manufacturer);
             }
-            if (!cfg.oem.model.empty())
+            if (!oemInfo.model.empty())
             {
-                addTextChild(oem, "Model", cfg.oem.model);
+                addTextChild(oem, "Model", oemInfo.model);
             }
             // 厂商图片（DFM 的 Ed_OemLogo / Pic_Logo）。unattend 的 OEMInformation
             // 支持 <Logo>，指向 BMP。路径由用户给，我们不预置任何品牌素材（宪章 §5）。
-            if (!cfg.oem.logo.empty())
+            if (!oemInfo.logo.empty())
             {
-                addTextChild(oem, "Logo", cfg.oem.logo);
+                addTextChild(oem, "Logo", oemInfo.logo);
             }
-            if (!cfg.oem.supportHours.empty())
+            if (!oemInfo.supportHours.empty())
             {
-                addTextChild(oem, "SupportHours", cfg.oem.supportHours);
+                addTextChild(oem, "SupportHours", oemInfo.supportHours);
             }
-            if (!cfg.oem.supportPhone.empty())
+            if (!oemInfo.supportPhone.empty())
             {
-                addTextChild(oem, "SupportPhone", cfg.oem.supportPhone);
+                addTextChild(oem, "SupportPhone", oemInfo.supportPhone);
             }
-            if (!cfg.oem.supportProvider.empty())
+            if (!oemInfo.supportProvider.empty())
             {
-                addTextChild(oem, "SupportProvider", cfg.oem.supportProvider);
+                addTextChild(oem, "SupportProvider", oemInfo.supportProvider);
             }
-            if (!cfg.oem.supportUrl.empty())
+            if (!oemInfo.supportUrl.empty())
             {
-                addTextChild(oem, "SupportURL", cfg.oem.supportUrl);
+                addTextChild(oem, "SupportURL", oemInfo.supportUrl);
             }
         }
 

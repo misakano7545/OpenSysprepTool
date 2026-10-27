@@ -532,6 +532,87 @@
           "action": "oemClear"
         }
       }
+    },
+    "MlSkinTabSheet15": {
+      "note": "封装高级设置：自动登录 / 部署被劫持 / OEM 智能识别",
+      "controls": {
+        "SA_Gb_UserLogin": {
+          "kind": "group",
+          "text": "自动登录"
+        },
+        "SA_Swb_AdminAutoLogon": {
+          "kind": "check",
+          "text": "",
+          "binding": "sysprep.autoLogon"
+        },
+        "SA_Lab_AdminAutoLogon": {
+          "kind": "label",
+          "text": "当目标计算机启动,自动作为Administrator[含密码]登录"
+        },
+        "SA_Lab_Adminpw": {
+          "kind": "label",
+          "text": "Administrator密码:"
+        },
+        "SA_Ed_Adminpw": {
+          "kind": "edit",
+          "text": "",
+          "binding": "sysprep.autoLogonPassword"
+        },
+        "SA_Lab_Lnum": {
+          "kind": "label",
+          "text": "自动登录的次数:"
+        },
+        "SA_Se_Lnum": {
+          "kind": "number",
+          "text": "",
+          "binding": "sysprep.autoLogonCount"
+        },
+        "SA_Gb_hijack": {
+          "kind": "group",
+          "text": "部署被劫持"
+        },
+        "SA_Rb_hijack_type1": {
+          "kind": "radio",
+          "text": "部署主程序被劫持继续安装过程【防流氓封装方式可反劫持】",
+          "group": "hijackMode",
+          "binding": "deploy.hijackMode",
+          "value": "continue"
+        },
+        "SA_Rb_hijack_type2": {
+          "kind": "radio",
+          "text": "部署主程序被劫持终止安装过程",
+          "group": "hijackMode",
+          "binding": "deploy.hijackMode",
+          "value": "terminate"
+        },
+        "SA_Swb_Showbox": {
+          "kind": "check",
+          "text": "",
+          "binding": "deploy.hijackShowTip"
+        },
+        "SA_Lab_ShowTip": {
+          "kind": "label",
+          "text": "劫持弹出提示告之用户："
+        },
+        "SA_Ed_ShowTip": {
+          "kind": "edit",
+          "text": "",
+          "binding": "deploy.hijackTip"
+        },
+        "SA_Gb_oem": {
+          "kind": "group",
+          "text": "OEM智能识别"
+        },
+        "SA_Swb_oemlogo": {
+          "kind": "check",
+          "text": "",
+          "binding": "oem.autoBrandInfo"
+        },
+        "SA_Lab_oemlogo": {
+          "kind": "label",
+          "text": "遇品牌电脑则设置相应品牌计算机属性"
+        }
+      }
     }
   },
   "unimplemented": {
@@ -542,8 +623,7 @@
     "MlSkinTabSheet9": "取消固定：同上",
     "MlSkinTabSheet11": "选择网络：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet13": "登录：SC 这一页是「登录系统总裁装机联盟」+ VIP 特权（计费ID/生成授权文件/退出当前用户），属宪章 §7 禁止的联盟账户体系，整页不做",
-    "MlSkinTabSheet14": "图片部署：主窗体已能配置，这里的详细页待下一轮",
-    "MlSkinTabSheet15": "封装高级设置：待下一轮",
+    "MlSkinTabSheet14": "图片部署：这一页是 SC 图形化部署外壳的皮肤设置（进度条样式/字体颜色/取色/快捷键启动程序/已用时间/系统时间）。我们的部署端是命令行 + 结构化进度通道，没有那个外壳，做出来也是存了不生效的设置 —— 等真做图形化部署（宪章里 Direct2D 自绘后置）再来",
     "MlSkinTabSheet16": "补丁安装：本工具不做补丁安装（MSI/MSU 安装与回滚是独立一块），此页留空",
     "TrueTrans": "TrueTrans 是 SC 的会员版部署模式，本工具不做",
     "MlSkinTabSheet17": "End：SC 的内部结束页，没有界面内容",
@@ -562,6 +642,10 @@
     "Lab_Loadusesoem": "「加载上一次使用的OEM信息」：SC 把上次的值存在它自己的配置里；我们要做得先定义「上一次」存在哪，本轮不做",
     "Ed_Oemiebottom": "「IE底部」：图纸只有 Caption，查不到它写进哪个键/哪个文件，没有依据就不做（不猜）",
     "Lab_Oemiebottom": "随上面的字段一起去掉",
-    "MM_Supportinfo": "「技术支持信息」多行框：图纸只有这个控件，查不到 SC 把它写到哪份文件/哪个键（oeminfo 里没有对应元素），没有依据就不做（不猜）；要写支持信息请用服务时间/服务电话两项"
+    "MM_Supportinfo": "「技术支持信息」多行框：图纸只有这个控件，查不到 SC 把它写到哪份文件/哪个键（oeminfo 里没有对应元素），没有依据就不做（不猜）；要写支持信息请用服务时间/服务电话两项",
+    "SA_Swb_oembgpic": "「遇品牌电脑则设置相应品牌桌面壁纸」：按品牌换图要先有全套品牌素材，本仓库不含任何品牌素材（宪章 §5）；壁纸在 OEM 页直接给一张图即可，不需要这个开关",
+    "SA_Lab_oembgpic": "随上面的开关一起去掉",
+    "SA_Swb_oemDeploy": "「遇品牌电脑则改变相应品牌部署图片」：同上，按品牌换部署图要先有素材；部署图片在部署过程页直接给路径",
+    "SA_Lab_oemDeploy": "随上面的开关一起去掉"
   }
 }

@@ -266,6 +266,7 @@ Plan load(const std::string& utf8Directory)
         plan.blockVirtualMachine = checks.value("blockVirtualMachine", false);
         plan.hijackMode = checks.value("hijackMode", std::string("terminate"));
         plan.hijackTip = checks.value("hijackTip", std::string{});
+        plan.hijackShowTip = checks.value("hijackShowTip", true);
         plan.controllerMd5 = checks.value("controllerMd5", std::string{});
         plan.tamperFiles.clear();
         if (checks.contains("tamperFiles") && checks["tamperFiles"].is_array())

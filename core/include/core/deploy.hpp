@@ -69,6 +69,7 @@ struct Plan
     bool blockVirtualMachine = false;
     std::string hijackMode = "terminate";
     std::string hijackTip;
+    bool hijackShowTip = true;
     std::string controllerMd5; // 生成计划时 osptd 自身的 MD5，用于判断主控是否被替换
     std::vector<std::string> warnings;
 };

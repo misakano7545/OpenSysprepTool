@@ -164,6 +164,41 @@ BindResult readBinding(const std::string& path, const config::Config& cfg, std::
         out = cfg.optimization.pageFileSizeMode;
         return BindResult::Ok;
     }
+    if (path == "sysprep.autoLogon")
+    {
+        flag = cfg.sysprep.autoLogon;
+        return BindResult::Ok;
+    }
+    if (path == "sysprep.autoLogonPassword")
+    {
+        out = cfg.sysprep.autoLogonPassword;
+        return BindResult::Ok;
+    }
+    if (path == "sysprep.autoLogonCount")
+    {
+        out = std::to_string(cfg.sysprep.autoLogonCount);
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackMode")
+    {
+        out = cfg.deploy.hijackMode;
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackShowTip")
+    {
+        flag = cfg.deploy.hijackShowTip;
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackTip")
+    {
+        out = cfg.deploy.hijackTip;
+        return BindResult::Ok;
+    }
+    if (path == "oem.autoBrandInfo")
+    {
+        flag = cfg.oem.autoBrandInfo;
+        return BindResult::Ok;
+    }
     if (path == "oem.manufacturer")
     {
         out = cfg.oem.manufacturer;
@@ -280,6 +315,41 @@ BindResult readBinding(const std::string& path, const config::Config& cfg, std::
 BindResult
 writeBinding(const std::string& path, const std::string& text, bool flag, bool hasFlag, config::Config& cfg)
 {
+    if (path == "sysprep.autoLogon")
+    {
+        cfg.sysprep.autoLogon = flag;
+        return BindResult::Ok;
+    }
+    if (path == "sysprep.autoLogonPassword")
+    {
+        cfg.sysprep.autoLogonPassword = text;
+        return BindResult::Ok;
+    }
+    if (path == "sysprep.autoLogonCount")
+    {
+        cfg.sysprep.autoLogonCount = toInt(text, cfg.sysprep.autoLogonCount);
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackMode")
+    {
+        cfg.deploy.hijackMode = text;
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackShowTip")
+    {
+        cfg.deploy.hijackShowTip = flag;
+        return BindResult::Ok;
+    }
+    if (path == "deploy.hijackTip")
+    {
+        cfg.deploy.hijackTip = text;
+        return BindResult::Ok;
+    }
+    if (path == "oem.autoBrandInfo")
+    {
+        cfg.oem.autoBrandInfo = flag;
+        return BindResult::Ok;
+    }
     if (path == "optimization.myDocumentsTarget")
     {
         cfg.optimization.myDocumentsTarget = text;
@@ -497,6 +567,11 @@ HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* grou
         {
             style |= ES_NUMBER;
         }
+    }
+    else if (kind == "check")
+    {
+        cls = L"BUTTON";
+        style |= BS_AUTOCHECKBOX;
     }
     else if (kind == "radio")
     {
@@ -790,6 +865,14 @@ void loadTabInto(DialogState& state, int tab)
                 ::SetWindowTextW(handle, wide(value.c_str()).c_str());
             }
         }
+        else if (kind == "check")
+        {
+            bool flag = false;
+            std::string ignored;
+            const bool bound = spec.binding != nullptr && *spec.binding != '\0' &&
+                readBinding(spec.binding, *state.cfg, ignored, flag) == BindResult::Ok;
+            ::SendMessageW(handle, BM_SETCHECK, bound && flag ? BST_CHECKED : BST_UNCHECKED, 0);
+        }
         else if (kind == "radio")
         {
             std::string value;
@@ -874,6 +957,11 @@ bool saveTab(DialogState& state, int tab, std::string& error)
                 return false;
             }
             writeBinding(spec.binding, value, false, false, staged);
+        }
+        else if (kind == "check")
+        {
+            const bool checked = ::SendMessageW(handle, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            writeBinding(spec.binding, std::string(), checked, true, staged);
         }
         else if (kind == "radio")
         {
@@ -1757,12 +1845,84 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         return false;
     }
 
+    // 封装高级设置页：自动登录开关与次数、劫持方式、提示开关、OEM 智能识别
+    const int advTab = tmffunTabIndex("MlSkinTabSheet15");
+    if (advTab < 0)
+    {
+        detail = "找不到封装高级设置页";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    state.current = advTab;
+    HWND autoLogon = nullptr;
+    HWND logonCount = nullptr;
+    HWND hijackTerminate = nullptr;
+    HWND showTip = nullptr;
+    HWND brandInfo = nullptr;
+    for (int i = 0; i < kTabs[advTab]->controlCount; ++i)
+    {
+        const std::string id = kTabs[advTab]->controls[i].id;
+        HWND handle = state.pages[static_cast<std::size_t>(advTab)].controls[static_cast<std::size_t>(i)];
+        if (id == "SA_Swb_AdminAutoLogon")
+        {
+            autoLogon = handle;
+        }
+        else if (id == "SA_Se_Lnum")
+        {
+            logonCount = handle;
+        }
+        else if (id == "SA_Rb_hijack_type2")
+        {
+            hijackTerminate = handle;
+        }
+        else if (id == "SA_Swb_Showbox")
+        {
+            showTip = handle;
+        }
+        else if (id == "SA_Swb_oemlogo")
+        {
+            brandInfo = handle;
+        }
+    }
+    if (autoLogon == nullptr || logonCount == nullptr || hijackTerminate == nullptr || showTip == nullptr ||
+        brandInfo == nullptr)
+    {
+        detail = "封装高级设置页缺少控件";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    ::SendMessageW(autoLogon, BM_SETCHECK, BST_CHECKED, 0);
+    ::SetWindowTextW(logonCount, L"3");
+    ::SendMessageW(hijackTerminate, BM_SETCHECK, BST_CHECKED, 0);
+    ::SendMessageW(showTip, BM_SETCHECK, BST_UNCHECKED, 0);
+    ::SendMessageW(brandInfo, BM_SETCHECK, BST_CHECKED, 0);
+    if (!saveTab(state, advTab, error))
+    {
+        detail = "保存封装高级设置页失败：" + error;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    if (!cfg.sysprep.autoLogon || cfg.sysprep.autoLogonCount != 3)
+    {
+        detail = "自动登录没写回：on=" + std::string(cfg.sysprep.autoLogon ? "1" : "0") +
+            " count=" + std::to_string(cfg.sysprep.autoLogonCount);
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    if (cfg.deploy.hijackMode != "terminate" || cfg.deploy.hijackShowTip || !cfg.oem.autoBrandInfo)
+    {
+        detail = "劫持/品牌开关没写回：mode=" + cfg.deploy.hijackMode;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
     detail = "客户区 " + std::to_string(width) + "x" + std::to_string(height) + "，" +
         std::to_string(kTabCount) + " 个页签，" + std::to_string(kTabs[documents]->controlCount) + "/" +
         std::to_string(kTabs[favorites]->controlCount) + "/" + std::to_string(kTabs[pagefile]->controlCount) +
         "/" + std::to_string(kTabs[ipTab]->controlCount) + "/" +
         std::to_string(kTabs[lockTab]->controlCount) + "/" + std::to_string(kTabs[oemTab]->controlCount) +
-        " 个控件，保存回写、大小校验、随机网段、防篡改 MD5、OEM 预览与清除都对";
+        "/" + std::to_string(kTabs[advTab]->controlCount) +
+        " 个控件，保存回写、大小校验、随机网段、防篡改 MD5、OEM 预览与清除、高设开关都对";
     ::DestroyWindow(dialog);
     return true;
 }

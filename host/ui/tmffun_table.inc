@@ -152,6 +152,26 @@ const ControlSpec kControlsSheet12[] = {
 };
 const int kControlCountSheet12 = static_cast<int>(sizeof(kControlsSheet12) / sizeof(kControlsSheet12[0]));
 
+const ControlSpec kControlsSheet15[] = {
+    {"SA_Gb_UserLogin", "group", "自动登录", 47, 19, 642, 102, "", "", "", "", "", nullptr, 0, nullptr},
+    {"SA_Lab_Adminpw", "label", "Administrator密码:", 35, 48, 127, 21, "", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Ed_Adminpw", "edit", "", 168, 41, 169, 26, "sysprep.autoLogonPassword", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Lab_Lnum", "label", "自动登录的次数:", 384, 48, 113, 21, "", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Se_Lnum", "number", "", 511, 41, 74, 26, "sysprep.autoLogonCount", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Swb_AdminAutoLogon", "check", "", 3, 14, 34, 18, "sysprep.autoLogon", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Lab_AdminAutoLogon", "label", "当目标计算机启动,自动作为Administrator[含密码]登录", 43, 14, 542, 21, "", "", "", "", "", nullptr, 0, "SA_Gb_UserLogin"},
+    {"SA_Gb_hijack", "group", "部署被劫持", 47, 127, 642, 98, "", "", "", "", "", nullptr, 0, nullptr},
+    {"SA_Swb_Showbox", "check", "", 3, 51, 34, 18, "deploy.hijackShowTip", "", "", "", "", nullptr, 0, "SA_Gb_hijack"},
+    {"SA_Lab_ShowTip", "label", "劫持弹出提示告之用户：", 43, 51, 134, 21, "", "", "", "", "", nullptr, 0, "SA_Gb_hijack"},
+    {"SA_Ed_ShowTip", "edit", "", 183, 46, 402, 26, "deploy.hijackTip", "", "", "", "", nullptr, 0, "SA_Gb_hijack"},
+    {"SA_Rb_hijack_type1", "radio", "部署主程序被劫持继续安装过程【防流氓封装方式可反劫持】", 3, 11, 366, 17, "deploy.hijackMode", "hijackMode", "continue", "", "", nullptr, 0, "SA_Gb_hijack"},
+    {"SA_Rb_hijack_type2", "radio", "部署主程序被劫持终止安装过程", 384, 11, 201, 17, "deploy.hijackMode", "hijackMode", "terminate", "", "", nullptr, 0, "SA_Gb_hijack"},
+    {"SA_Gb_oem", "group", "OEM智能识别", 47, 231, 642, 102, "", "", "", "", "", nullptr, 0, nullptr},
+    {"SA_Swb_oemlogo", "check", "", 3, 14, 34, 18, "oem.autoBrandInfo", "", "", "", "", nullptr, 0, "SA_Gb_oem"},
+    {"SA_Lab_oemlogo", "label", "遇品牌电脑则设置相应品牌计算机属性", 43, 14, 254, 21, "", "", "", "", "", nullptr, 0, "SA_Gb_oem"},
+};
+const int kControlCountSheet15 = static_cast<int>(sizeof(kControlsSheet15) / sizeof(kControlsSheet15[0]));
+
 const TabSpec kTabSheet1 = {
     "MlSkinTabSheet1",
     "模块1设置",
@@ -267,7 +287,7 @@ const TabSpec kTabSheet12 = {
 const TabSpec kTabSheet14 = {
     "MlSkinTabSheet14",
     "图片部署",
-    "图片部署：主窗体已能配置，这里的详细页待下一轮",
+    "图片部署：这一页是 SC 图形化部署外壳的皮肤设置（进度条样式/字体颜色/取色/快捷键启动程序/已用时间/系统时间）。我们的部署端是命令行 + 结构化进度通道，没有那个外壳，做出来也是存了不生效的设置 —— 等真做图形化部署（宪章里 Direct2D 自绘后置）再来",
     nullptr,
     0,
 };
@@ -275,9 +295,9 @@ const TabSpec kTabSheet14 = {
 const TabSpec kTabSheet15 = {
     "MlSkinTabSheet15",
     "封装高级设置",
-    "封装高级设置：待下一轮",
-    nullptr,
-    0,
+    "封装高级设置：自动登录 / 部署被劫持 / OEM 智能识别",
+    kControlsSheet15,
+    kControlCountSheet15,
 };
 
 const TabSpec kTabSheet16 = {

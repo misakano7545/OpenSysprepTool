@@ -154,17 +154,20 @@ PreflightResult preflight(const Plan& plan)
             {
                 const bool terminate = plan.hijackMode != "continue";
                 result.controllerHijacked = true;
-                result.tip = plan.hijackTip.empty()
+                const std::string text = plan.hijackTip.empty()
                     ? "部署主程序已被修改（可能被劫持）：期望 " + plan.controllerMd5 + "，实际 " + actual
                     : plan.hijackTip;
+                // SA_Swb_Showbox 关掉时只记录不弹窗（tip 空 = 部署端不弹）；
+                // 终止分支仍要一句原因，所以 reason 照写。
+                result.tip = plan.hijackShowTip ? text : std::string();
                 if (terminate)
                 {
                     result.blocked = true;
-                    result.reason = result.tip;
+                    result.reason = text;
                     return result;
                 }
                 // 提示文案可能已经写明「按设置继续」，别重复追加
-                result.warnings.push_back(result.tip);
+                result.warnings.push_back(text);
             }
             else
             {
