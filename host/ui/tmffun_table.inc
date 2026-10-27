@@ -32,6 +32,36 @@ const ControlSpec kControlsSheet4[] = {
 };
 const int kControlCountSheet4 = static_cast<int>(sizeof(kControlsSheet4) / sizeof(kControlsSheet4[0]));
 
+const ControlSpec kControlsSheet6[] = {
+    {"Rb_Setip", "radio", "指定一个固定IP地址：", 11, 29, 142, 17, "optimization.ipMode", "ipMode", "fixed", "", "", nullptr, 0, nullptr},
+    {"Rb_SetRandomip", "radio", "设置随机IP地址", 11, 76, 142, 17, "optimization.ipMode", "ipMode", "random", "", "", nullptr, 0, nullptr},
+    {"Lab_ips", "label", "指定一个IP段:", 32, 112, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_Startip", "label", "起始IP:", 376, 112, 73, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_Endip", "label", "结束IP:", 555, 112, 73, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_SubntMask", "label", "子网掩码:", 32, 192, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_SubntMask", "edit", "", 159, 187, 210, 26, "optimization.subnetMask", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_DefaultGateway", "label", "默认网关:", 379, 192, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_DefaultGateway", "edit", "", 506, 187, 210, 26, "optimization.gateway", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_PreferredDNS", "label", "首选DNS:", 32, 248, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_PreferredDNS", "edit", "", 159, 243, 210, 26, "optimization.dnsPreferred", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_AltenateDNS", "edit", "", 506, 243, 210, 26, "optimization.dnsAlternate", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_AltenateDNS", "label", "备用DNS:", 379, 248, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Btn_Setip_Save", "button", "保存(&S)", 627, 295, 89, 27, "", "", "", "save", "", nullptr, 0, nullptr},
+    {"Btn_Exit", "button", "退出(&E)", 522, 295, 89, 27, "", "", "", "close", "", nullptr, 0, nullptr},
+    {"MlSkinLabel1", "label", "(192.168.1.100)", 375, 25, 121, 21, "", "", "", "", "", nullptr, 0, nullptr},
+    {"MlSkinLabel2", "label", "(192.168.1)", 249, 89, 121, 16, "", "", "", "", "", nullptr, 0, nullptr},
+    {"MlSkinLabel3", "label", "(2)", 472, 89, 65, 16, "", "", "", "", "", nullptr, 0, nullptr},
+    {"MlSkinLabel4", "label", "(254)", 651, 89, 65, 16, "", "", "", "", "", nullptr, 0, nullptr},
+    {"MlSkinLabel5", "label", "(255.255.255.0)", 265, 167, 105, 17, "", "", "", "", "", nullptr, 0, nullptr},
+    {"MlSkinLabel6", "label", "(192.168.1.1)", 611, 167, 105, 17, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Lab_Tip", "label", "", 32, 304, 468, 17, "", "", "", "", "status", nullptr, 0, nullptr},
+    {"Ed_setip", "edit", "", 159, 25, 210, 26, "optimization.ipAddress", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_ips", "edit", "", 160, 107, 210, 26, "optimization.ipRandomBase", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_Startip", "number", "", 455, 107, 82, 26, "optimization.ipRandomOctetStart", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_Endip", "number", "", 634, 107, 82, 26, "optimization.ipRandomOctetEnd", "", "", "", "", nullptr, 0, nullptr},
+};
+const int kControlCountSheet6 = static_cast<int>(sizeof(kControlsSheet6) / sizeof(kControlsSheet6[0]));
+
 const char* const kItems_Cb_MovePageFileDrive[] = {
     "C:",
     "D:",
@@ -82,6 +112,18 @@ const ControlSpec kControlsSheet7[] = {
 };
 const int kControlCountSheet7 = static_cast<int>(sizeof(kControlsSheet7) / sizeof(kControlsSheet7[0]));
 
+const ControlSpec kControlsSheet12[] = {
+    {"Lv_Tampering", "list", "", 16, 4, 705, 222, "", "", "", "", "tamperList", nullptr, 0, nullptr},
+    {"Lab_Tampering", "label", "File:", 16, 236, 82, 18, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_Tampering", "edit", "", 104, 232, 425, 26, "", "", "", "", "tamperPath", nullptr, 0, nullptr},
+    {"Btn_Tpath", "button", "Browsing(&B)", 537, 232, 89, 27, "", "", "", "browseFile", "", nullptr, 0, nullptr},
+    {"Btn_Tfileadd", "button", "Add(&A)", 632, 232, 89, 27, "", "", "", "tamperAdd", "", nullptr, 0, nullptr},
+    {"Lab_TamperingTip", "label", "Tamper hints:", 16, 276, 82, 18, "", "", "", "", "", nullptr, 0, nullptr},
+    {"Ed_TamperingTip", "edit", "", 104, 272, 617, 26, "", "", "", "", "tamperTip", nullptr, 0, nullptr},
+    {"Lab_TamperinguseTip", "label", "加进来的文件会在部署前校验 MD5，值取自添加时的文件内容。", 16, 304, 705, 28, "", "", "", "", "", nullptr, 0, nullptr},
+};
+const int kControlCountSheet12 = static_cast<int>(sizeof(kControlsSheet12) / sizeof(kControlsSheet12[0]));
+
 const TabSpec kTabSheet1 = {
     "MlSkinTabSheet1",
     "模块1设置",
@@ -125,9 +167,9 @@ const TabSpec kTabSheet5 = {
 const TabSpec kTabSheet6 = {
     "MlSkinTabSheet6",
     "预置IP",
-    "预置IP：主窗体已能配置，这里的详细页待下一轮",
-    nullptr,
-    0,
+    "预置IP：固定 IP 或「随机 IP = 网段基址 + 末段范围」",
+    kControlsSheet6,
+    kControlCountSheet6,
 };
 
 const TabSpec kTabSheet7 = {
@@ -181,7 +223,7 @@ const TabSpec kTabTrueTrans = {
 const TabSpec kTabSheet13 = {
     "MlSkinTabSheet13",
     "登录",
-    "登录：自动登录项主窗体已能配置，这里的详细页待下一轮",
+    "登录：SC 这一页是「登录系统总裁装机联盟」+ VIP 特权（计费ID/生成授权文件/退出当前用户），属宪章 §7 禁止的联盟账户体系，整页不做",
     nullptr,
     0,
 };
@@ -189,17 +231,9 @@ const TabSpec kTabSheet13 = {
 const TabSpec kTabSheet12 = {
     "MlSkinTabSheet12",
     "文件锁定",
-    "文件锁定：防篡改清单页待下一轮",
-    nullptr,
-    0,
-};
-
-const TabSpec kTabPage_Tampering = {
-    "Page_Tampering",
-    "Page_Tampering",
-    "防篡改清单页：机制已实现（deploy.tamperFiles），清单编辑界面待下一轮",
-    nullptr,
-    0,
+    "文件锁定：防篡改清单（SC 这一页内嵌三层子页，另外两层是 §7 红线，已整页删掉）",
+    kControlsSheet12,
+    kControlCountSheet12,
 };
 
 const TabSpec kTabSheet14 = {
@@ -257,7 +291,6 @@ const TabSpec* const kTabs[] = {
     &kTabTrueTrans,
     &kTabSheet13,
     &kTabSheet12,
-    &kTabPage_Tampering,
     &kTabSheet14,
     &kTabSheet15,
     &kTabSheet16,

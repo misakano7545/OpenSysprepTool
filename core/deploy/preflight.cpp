@@ -120,8 +120,10 @@ PreflightResult preflight(const Plan& plan)
             if (actual != entry.md5)
             {
                 result.blocked = true;
-                result.reason =
-                    "文件被篡改：" + entry.path + "（期望 " + entry.md5 + "，实际 " + actual + "）";
+                // 有用户填的说明就先摆出说明（SC 的 Ed_TamperingTip 就是这个用途），
+                // 后面仍附上路径与两个摘要 —— 光有「部署已中止」帮不了排查。
+                result.reason = (entry.tip.empty() ? std::string("文件被篡改：") : entry.tip + "：") +
+                    entry.path + "（期望 " + entry.md5 + "，实际 " + actual + "）";
                 result.tamperedFile = entry.path;
                 return result;
             }

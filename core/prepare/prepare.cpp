@@ -2237,9 +2237,40 @@ Plan build(const config::Config& cfg, const Options& options)
                     chosen = netcfg::pickInRange(startIp, endIp, options.ipRandomSeed);
                     address = netcfg::formatIpv4(chosen);
                 }
+                else if (!cfg.optimization.ipRandomBase.empty())
+                {
+                    // SC 的随机 IP：Ed_ips 给三段基址，Ed_Startip/Ed_Endip 给末段范围。
+                    // 拼成两个完整地址再走同一个拾取函数，边界校验收敛到一处。
+                    std::string base = cfg.optimization.ipRandomBase;
+                    while (!base.empty() && (base.back() == '.' || base.back() == ' '))
+                    {
+                        base.pop_back();
+                    }
+                    const int low = cfg.optimization.ipRandomOctetStart;
+                    const int high = cfg.optimization.ipRandomOctetEnd;
+                    std::uint32_t fromIp = 0;
+                    std::uint32_t toIp = 0;
+                    const std::string fromText = base + "." + std::to_string(low);
+                    const std::string toText = base + "." + std::to_string(high);
+
+                    if (low < 1 || high > 254 || low > high || !netcfg::parseIpv4(fromText, fromIp) ||
+                        !netcfg::parseIpv4(toText, toIp))
+                    {
+                        plan.warnings.push_back(
+                            "自动设置 IP：随机模式的网段/末段范围不合法，已跳过：" + fromText + " - " + toText
+                        );
+                        address.clear();
+                    }
+                    else
+                    {
+                        chosen = netcfg::pickInRange(fromIp, toIp, options.ipRandomSeed);
+                        address = netcfg::formatIpv4(chosen);
+                    }
+                }
                 else
                 {
-                    // 随机模式没有给网段：在本机当前地址的同一 /24 里取，保证网关仍可达。
+                    // 随机模式既没给网段也没给基址：在本机当前地址的同一 /24 里取，
+                    // 保证网关仍可达。这是本实现的兜底，SC 的界面里其实总要填 Ed_ips。
                     // 这是本实现的取舍，SC 的原始算法未在产物中体现，已在文档中注明。
                     std::uint32_t current = currentAdapterAddress(ifName);
                     if (current == 0)

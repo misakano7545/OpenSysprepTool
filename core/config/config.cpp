@@ -135,6 +135,10 @@ json encode(const Config& cfg)
             nlohmann::json item;
             item["path"] = entry.path;
             item["md5"] = entry.md5;
+            if (!entry.tip.empty())
+            {
+                item["tip"] = entry.tip;
+            }
             tamper.push_back(std::move(item));
         }
         j["deploy"]["tamperFiles"] = std::move(tamper);
@@ -255,6 +259,9 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.gateway = op.value("gateway", std::string{});
             cfg.optimization.dnsPreferred = op.value("dnsPreferred", std::string{});
             cfg.optimization.dnsAlternate = op.value("dnsAlternate", std::string{});
+            cfg.optimization.ipRandomBase = op.value("ipRandomBase", std::string{});
+            cfg.optimization.ipRandomOctetStart = op.value("ipRandomOctetStart", 0);
+            cfg.optimization.ipRandomOctetEnd = op.value("ipRandomOctetEnd", 0);
             cfg.optimization.autoNetworkLocation = op.value("autoNetworkLocation", false);
             cfg.optimization.networkLocation = op.value("networkLocation", std::string{});
             cfg.optimization.clearSrsDrivers = op.value("clearSrsDrivers", false);
@@ -314,6 +321,7 @@ ParseResult fromJson(const std::string& text)
                     osp::config::DeploySettings::TamperEntry entry;
                     entry.path = item.value("path", std::string{});
                     entry.md5 = item.value("md5", std::string{});
+                    entry.tip = item.value("tip", std::string{});
                     if (!entry.path.empty())
                     {
                         cfg.deploy.tamperFiles.push_back(std::move(entry));

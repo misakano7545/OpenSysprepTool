@@ -275,6 +275,7 @@ Plan load(const std::string& utf8Directory)
                 osp::config::DeploySettings::TamperEntry entry;
                 entry.path = item.value("path", std::string{});
                 entry.md5 = item.value("md5", std::string{});
+                entry.tip = item.value("tip", std::string{});
                 if (!entry.path.empty())
                 {
                     plan.tamperFiles.push_back(std::move(entry));

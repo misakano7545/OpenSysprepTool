@@ -200,13 +200,25 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 生成器按页签输出控件表，**先控件表后页签表**（C++ 先声明后使用），
 组框里的控件坐标相对组框（与 DFM 语义一致）。
 
-**本轮已做**（2026-10-26，`host/ui/tmffun.cpp`）：窗体框架 + 三个纯配置页签
+**已做**（`host/ui/tmffun.cpp`）：窗体框架 + 五个页签
 
 | 页签 | 控件 | 落到 |
 |---|---|---|
 | 转移文档 | 10 | `optimization.documentsSmart` / `myDocumentsTarget` |
 | 转移收藏夹 | 10 | `optimization.favoritesSmart` / `favoritesTarget` |
 | 转移虚拟内存 | 20 | `pageFileSmart` / `pageFileDrive` / `pageFileSizeMode` + 四个数值 |
+| 预置IP | 26 | `ipMode` / `ipAddress` / `ipRandomBase` / `ipRandomOctetStart·End` / 掩码·网关·两个 DNS |
+| 文件锁定 | 8 | `deploy.tamperFiles`（path + MD5 + 说明），`verifyIntegrity` 随之打开 |
+
+**预置IP 页带出一处修正**：SC 的随机 IP 是「`Ed_ips` 三段基址 + `Ed_Startip`/`Ed_Endip`
+末段范围」，随机时只换末段。早先的实现没有这两项，只能在本机当前 /24 里随机 ——
+那是我们的取舍而非 SC 的行为，现在按 SC 的语义补上了（`ipRandomBase` /
+`ipRandomOctetStart` / `ipRandomOctetEnd`），原来的兜底逻辑仅在既没给基址时使用。
+
+**文件锁定页是嵌套页**：图纸里这一页套着一个 `Page_Tn` 页签控件，里面三层
+`Page_Tampering` / `Page_Nodelfile` / `Page_Nodelreg`。生成器现在只把直接挂在
+`Mfpage` 下的当顶层页签（19 个），嵌套子页按 `subSheet` 摊平成一级坐标。
+只取 `Page_Tampering`（防篡改清单，机制我们已有），另两层是 §7 红线，整页删掉。
 
 **图纸里的页签是 22 个**（18 个编号页 + `TrueTrans` + `Page_Tampering` +
 `Page_Nodelfile` + `Page_Nodelreg`），处理分三类：
@@ -214,8 +226,10 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 | 类别 | 页签 | 处理 |
 |---|---|---|
 | 本轮已排 | 转移文档 / 转移收藏夹 / 转移虚拟内存 | 按 DFM 坐标摆控件 |
-| 未做但保留 | 其余 17 个（模块设置、预置IP、OEM、登录、文件锁定、图片部署…） | 页签仍在，点进去写明未做的原因 |
+| 未做但保留 | 其余 14 个（模块设置、新增用户、固定/取消固定、OEM、选择网络、图片部署、封装高级设置…） | 页签仍在，点进去写明未做的原因 |
 | **整页删掉** | `Page_Nodelfile`、`Page_Nodelreg` | 宪章 §7 红线：SC 用内核驱动锁住文件/注册表不让删。连页签都不出现，不给它留入口 |
+| **整页不做** | 「登录」页 | 查清后才发现这一页不是自动登录，而是「登录系统总裁装机联盟」+ VIP 特权（计费ID、生成授权文件、退出当前用户、购买特权）。这是宪章 §7 禁止的联盟账户体系，留在界面上等于给它留入口 |
+| 不做（已定） | 「补丁安装」页 | 补丁安装（MSI/MSU 安装与回滚）是独立一大块，本工具不做，页签保留并写明 |
 
 删掉而不是标「未实现」的理由：标未实现等于告诉用户「这里本该有个功能」，
 而这两个功能我们**永远不做**，留着页签就是留一个未来可能被填上的坑。

@@ -95,6 +95,12 @@ struct Optimization
     std::string gateway;      // 默认网关（Lab_DefaultGateway）
     std::string dnsPreferred; // 首选 DNS（Lab_PreferredDNS）
     std::string dnsAlternate; // 备用 DNS（Lab_AltenateDNS）
+    // TMFFUN「预置IP」页的随机模式：SC 的 Ed_ips 是三段基址（如 192.168.1），
+    // Ed_Startip / Ed_Endip 是末段范围（如 2 / 254），随机时只换末段。
+    // 早先的实现没有这三项，只能在本机当前 /24 里随机 —— 那是猜的，这里补上。
+    std::string ipRandomBase;   // Ed_ips
+    int ipRandomOctetStart = 0; // Ed_Startip
+    int ipRandomOctetEnd = 0;   // Ed_Endip
     // SC 的 Cb_SetNetWork 只有一个勾选框「自动设置网络位置」，勾了就设为工作网络。
     // networkLocation 保留给命令行/高级用法（home / work / public）。
     bool autoNetworkLocation = false;
@@ -146,6 +152,9 @@ struct DeploySettings
     {
         std::string path; // 绝对路径或相对计划目录
         std::string md5;  // 32 位小写十六进制
+        // 校验失败时给用户看的说明（SC 的 Ed_TamperingTip「Tamper hints:」）。
+        // 空则退回只报路径与期望值。
+        std::string tip;
     };
     std::vector<TamperEntry> tamperFiles;
     // 被劫持策略（SC 的 SA_Rb_hijack_type1/type2）：continue / terminate

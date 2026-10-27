@@ -55,11 +55,32 @@ def tab_controls(controls, sheet):
     return top, children
 
 
+def nested_controls(controls, parent_sheet, sub_sheet):
+    """取嵌套子页里的控件（路径 .../<parent>/Page_Tn/<sub>/<控件>）。"""
+    prefix = f"/{parent_sheet}/"
+    out = []
+    for row in controls:
+        parts = row["path"].split("/")
+        if sub_sheet not in parts:
+            continue
+        if prefix not in row["path"]:
+            continue
+        if parts[-1] == sub_sheet and len(parts) >= 1:
+            continue
+        out.append(row)
+    return out
+
+
 def main():
     layout = json.loads(LAYOUT.read_text(encoding="utf-8"))
     bindings = json.loads(BINDINGS.read_text(encoding="utf-8"))
     controls = layout["controls"]
-    visible_tabs = [c for c in controls if c["class"] == "TMlSkinTabSheet"]
+    # 只有直接挂在 Mfpage 下的才是顶层页签。文件锁定页里还嵌着一层 Page_Tn，
+    # 它下面的 Page_Tampering / Page_Nodelfile / Page_Nodelreg 是子页，不是顶层页签。
+    visible_tabs = [
+        c for c in controls
+        if c["class"] == "TMlSkinTabSheet" and len(c["path"].split("/")) == 3
+    ]
 
     lines = []
     lines.append("// 本文件由 tools/gen_tmffun.py 生成，不要手改。")
@@ -84,6 +105,27 @@ def main():
             tab_entries.append((sheet, caption, spec, [], {}))
             continue
         top, children = tab_controls(controls, sheet)
+        sub = spec.get("subSheet")
+        if sub:
+            # 嵌套子页（文件锁定 → Page_Tn → Page_Tampering）：子页控件的坐标是相对子页的，
+            # 这里加上 Page_Tn 在页签里的位置，摊平成一级坐标，运行期就不用再算偏移。
+            offset_x, offset_y = 0, 0
+            for row in controls:
+                if row["class"] == "TMlSkinPageControl" and row["path"].startswith(f"MFfun/Mfpage/{sheet}/"):
+                    offset_x = row.get("left") or 0
+                    offset_y = row.get("top") or 0
+            nested = []
+            for row in controls:
+                parts = row["path"].split("/")
+                if len(parts) < 5 or parts[1] != "Mfpage" or parts[2] != sheet or sub not in parts:
+                    continue
+                if row["class"] == "TMlSkinTabSheet" or row.get("left") is None:
+                    continue
+                shifted = dict(row)
+                shifted["left"] = (row["left"] or 0) + offset_x
+                shifted["top"] = (row["top"] or 0) + offset_y
+                nested.append(shifted)
+            top, children = nested, {}
         tab_entries.append((sheet, caption, spec, top, children))
 
     # 控件表

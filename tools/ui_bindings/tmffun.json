@@ -249,29 +249,195 @@
           "action": "close"
         }
       }
+    },
+    "MlSkinTabSheet6": {
+      "note": "预置IP：固定 IP 或「随机 IP = 网段基址 + 末段范围」",
+      "controls": {
+        "Rb_Setip": {
+          "kind": "radio",
+          "text": "指定一个固定IP地址：",
+          "group": "ipMode",
+          "binding": "optimization.ipMode",
+          "value": "fixed"
+        },
+        "Rb_SetRandomip": {
+          "kind": "radio",
+          "text": "设置随机IP地址",
+          "group": "ipMode",
+          "binding": "optimization.ipMode",
+          "value": "random"
+        },
+        "Ed_setip": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.ipAddress"
+        },
+        "MlSkinLabel1": {
+          "kind": "label",
+          "text": "(192.168.1.100)"
+        },
+        "Lab_ips": {
+          "kind": "label",
+          "text": "指定一个IP段:"
+        },
+        "Ed_ips": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.ipRandomBase"
+        },
+        "MlSkinLabel2": {
+          "kind": "label",
+          "text": "(192.168.1)"
+        },
+        "Lab_Startip": {
+          "kind": "label",
+          "text": "起始IP:"
+        },
+        "Ed_Startip": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.ipRandomOctetStart"
+        },
+        "MlSkinLabel3": {
+          "kind": "label",
+          "text": "(2)"
+        },
+        "Lab_Endip": {
+          "kind": "label",
+          "text": "结束IP:"
+        },
+        "Ed_Endip": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.ipRandomOctetEnd"
+        },
+        "MlSkinLabel4": {
+          "kind": "label",
+          "text": "(254)"
+        },
+        "Lab_SubntMask": {
+          "kind": "label",
+          "text": "子网掩码:"
+        },
+        "Ed_SubntMask": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.subnetMask"
+        },
+        "MlSkinLabel5": {
+          "kind": "label",
+          "text": "(255.255.255.0)"
+        },
+        "Lab_DefaultGateway": {
+          "kind": "label",
+          "text": "默认网关:"
+        },
+        "Ed_DefaultGateway": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.gateway"
+        },
+        "MlSkinLabel6": {
+          "kind": "label",
+          "text": "(192.168.1.1)"
+        },
+        "Lab_PreferredDNS": {
+          "kind": "label",
+          "text": "首选DNS:"
+        },
+        "Ed_PreferredDNS": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.dnsPreferred"
+        },
+        "Lab_AltenateDNS": {
+          "kind": "label",
+          "text": "备用DNS:"
+        },
+        "Ed_AltenateDNS": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.dnsAlternate"
+        },
+        "Lab_Tip": {
+          "kind": "label",
+          "text": "",
+          "role": "status"
+        },
+        "Btn_Setip_Save": {
+          "kind": "button",
+          "text": "保存(&S)",
+          "action": "save"
+        },
+        "Btn_Exit": {
+          "kind": "button",
+          "text": "退出(&E)",
+          "action": "close"
+        }
+      }
+    },
+    "MlSkinTabSheet12": {
+      "note": "文件锁定：防篡改清单（SC 这一页内嵌三层子页，另外两层是 §7 红线，已整页删掉）",
+      "subSheet": "Page_Tampering",
+      "controls": {
+        "Lv_Tampering": {
+          "kind": "list",
+          "text": "",
+          "role": "tamperList"
+        },
+        "Lab_Tampering": {
+          "kind": "label",
+          "text": "File:"
+        },
+        "Ed_Tampering": {
+          "kind": "edit",
+          "text": "",
+          "role": "tamperPath"
+        },
+        "Btn_Tpath": {
+          "kind": "button",
+          "text": "Browsing(&B)",
+          "action": "browseFile"
+        },
+        "Btn_Tfileadd": {
+          "kind": "button",
+          "text": "Add(&A)",
+          "action": "tamperAdd"
+        },
+        "Lab_TamperingTip": {
+          "kind": "label",
+          "text": "Tamper hints:"
+        },
+        "Ed_TamperingTip": {
+          "kind": "edit",
+          "text": "",
+          "role": "tamperTip"
+        },
+        "Lab_TamperinguseTip": {
+          "kind": "label",
+          "text": "加进来的文件会在部署前校验 MD5，值取自添加时的文件内容。"
+        }
+      }
     }
   },
   "unimplemented": {
     "MlSkinTabSheet1": "模块1设置的控件尚未逐个核对（见 docs/SC窗体对照.md §4.4），本轮不做",
     "MlSkinTabSheet2": "模块2设置同上，本轮不做",
     "MlSkinTabSheet5": "新增用户：账号/组/密码的落地方式待定，本轮不做",
-    "MlSkinTabSheet6": "预置IP：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet8": "固定文件：主窗体字段已实现，这里的清单页待下一轮",
     "MlSkinTabSheet9": "取消固定：同上",
     "MlSkinTabSheet10": "OEM：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet11": "选择网络：主窗体已能配置，这里的详细页待下一轮",
-    "MlSkinTabSheet12": "文件锁定：防篡改清单页待下一轮",
-    "MlSkinTabSheet13": "登录：自动登录项主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet13": "登录：SC 这一页是「登录系统总裁装机联盟」+ VIP 特权（计费ID/生成授权文件/退出当前用户），属宪章 §7 禁止的联盟账户体系，整页不做",
     "MlSkinTabSheet14": "图片部署：主窗体已能配置，这里的详细页待下一轮",
     "MlSkinTabSheet15": "封装高级设置：待下一轮",
     "MlSkinTabSheet16": "补丁安装：本工具不做补丁安装（MSI/MSU 安装与回滚是独立一块），此页留空",
     "TrueTrans": "TrueTrans 是 SC 的会员版部署模式，本工具不做",
     "MlSkinTabSheet17": "End：SC 的内部结束页，没有界面内容",
-    "MlSkinTabSheet18": "空页（Caption 未本地化），不做",
-    "Page_Tampering": "防篡改清单页：机制已实现（deploy.tamperFiles），清单编辑界面待下一轮"
+    "MlSkinTabSheet18": "空页（Caption 未本地化），不做"
   },
   "excludeTabs": {
-    "Page_Nodelfile": "宪章 §7 红线：SC 用内核驱动锁住文件不让删（取消固定/不能删除清单），本工具不提供",
+    "Page_Nodelfile": "宪章 §7 红线：SC 用内核驱动锁住文件不让删，本工具不提供",
     "Page_Nodelreg": "宪章 §7 红线：同上，锁注册表不让删，本工具不提供"
   }
 }

@@ -7,7 +7,10 @@
 #include <string>
 #include <vector>
 
+#include <commdlg.h>
 #include <shlobj.h>
+
+#include "core/md5.hpp"
 
 namespace osp::ui {
 namespace {
@@ -20,7 +23,7 @@ namespace {
 struct ControlSpec
 {
     const char* id;
-    const char* kind; // label / edit / number / radio / combo / button / group
+    const char* kind; // label / edit / number / radio / combo / button / group / list
     const char* text;
     int x;
     int y;
@@ -71,6 +74,11 @@ std::wstring wide(const char* text)
     ::MultiByteToWideChar(CP_UTF8, 0, text, -1, out.data(), size);
     out.resize(static_cast<std::size_t>(size - 1)); // 去掉结尾的 NUL
     return out;
+}
+
+std::wstring toWide(const char* text)
+{
+    return wide(text);
 }
 
 std::string narrow(const std::wstring& text)
@@ -155,6 +163,51 @@ BindResult readBinding(const std::string& path, const config::Config& cfg, std::
         out = cfg.optimization.pageFileSizeMode;
         return BindResult::Ok;
     }
+    if (path == "optimization.ipMode")
+    {
+        out = cfg.optimization.ipMode;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipAddress")
+    {
+        out = cfg.optimization.ipAddress;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomBase")
+    {
+        out = cfg.optimization.ipRandomBase;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomOctetStart")
+    {
+        out = std::to_string(cfg.optimization.ipRandomOctetStart);
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomOctetEnd")
+    {
+        out = std::to_string(cfg.optimization.ipRandomOctetEnd);
+        return BindResult::Ok;
+    }
+    if (path == "optimization.subnetMask")
+    {
+        out = cfg.optimization.subnetMask;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.gateway")
+    {
+        out = cfg.optimization.gateway;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.dnsPreferred")
+    {
+        out = cfg.optimization.dnsPreferred;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.dnsAlternate")
+    {
+        out = cfg.optimization.dnsAlternate;
+        return BindResult::Ok;
+    }
     if (path == "optimization.pageFileMinMultiplier")
     {
         out = std::to_string(cfg.optimization.pageFileMinMultiplier);
@@ -214,6 +267,51 @@ writeBinding(const std::string& path, const std::string& text, bool flag, bool h
     if (path == "optimization.pageFileSizeMode")
     {
         cfg.optimization.pageFileSizeMode = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipMode")
+    {
+        cfg.optimization.ipMode = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipAddress")
+    {
+        cfg.optimization.ipAddress = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomBase")
+    {
+        cfg.optimization.ipRandomBase = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomOctetStart")
+    {
+        cfg.optimization.ipRandomOctetStart = toInt(text, 0);
+        return BindResult::Ok;
+    }
+    if (path == "optimization.ipRandomOctetEnd")
+    {
+        cfg.optimization.ipRandomOctetEnd = toInt(text, 0);
+        return BindResult::Ok;
+    }
+    if (path == "optimization.subnetMask")
+    {
+        cfg.optimization.subnetMask = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.gateway")
+    {
+        cfg.optimization.gateway = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.dnsPreferred")
+    {
+        cfg.optimization.dnsPreferred = text;
+        return BindResult::Ok;
+    }
+    if (path == "optimization.dnsAlternate")
+    {
+        cfg.optimization.dnsAlternate = text;
         return BindResult::Ok;
     }
     if (path == "optimization.pageFileMinMultiplier")
@@ -324,6 +422,12 @@ HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* grou
         cls = L"BUTTON";
         style |= BS_PUSHBUTTON;
     }
+    else if (kind == "list")
+    {
+        cls = WC_LISTVIEWW;
+        style =
+            WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP;
+    }
 
     HWND handle = ::CreateWindowExW(
         0,
@@ -339,6 +443,23 @@ HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* grou
         ::GetModuleHandleW(nullptr),
         nullptr
     );
+    if (handle != nullptr && kind == "list")
+    {
+        // 防篡改清单三列：文件 / MD5 / 说明。SC 的列头是运行时加的，图纸里看不到，
+        // 这里按实际存的三样东西给列名。
+        const wchar_t* headers[] = {L"文件", L"MD5", L"说明"};
+        for (int i = 0; i < 3; ++i)
+        {
+            LVCOLUMNW column = {};
+            column.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+            column.pszText = const_cast<wchar_t*>(headers[i]);
+            column.cx = i == 0 ? 330 : (i == 1 ? 230 : 130);
+            column.iSubItem = i;
+            ::SendMessageW(
+                handle, LVM_INSERTCOLUMNW, static_cast<WPARAM>(i), reinterpret_cast<LPARAM>(&column)
+            );
+        }
+    }
     if (handle != nullptr && kind == "combo" && spec.items != nullptr)
     {
         for (int i = 0; i < spec.itemCount; ++i)
@@ -353,6 +474,138 @@ HWND createControl(HWND parent, const ControlSpec& spec, const ControlSpec* grou
         ::SetWindowPos(handle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     return handle;
+}
+
+// 防篡改清单：把 cfg.deploy.tamperFiles 填进 ListView
+void fillTamperList(HWND list, const config::Config& cfg)
+{
+    if (list == nullptr)
+    {
+        return;
+    }
+    ::SendMessageW(list, LVM_DELETEALLITEMS, 0, 0);
+    int row = 0;
+    for (const config::DeploySettings::TamperEntry& entry : cfg.deploy.tamperFiles)
+    {
+        LVITEMW item = {};
+        item.mask = LVIF_TEXT;
+        item.iItem = row;
+        item.iSubItem = 0;
+        std::wstring path = toWide(entry.path.c_str());
+        item.pszText = path.data();
+        ::SendMessageW(list, LVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&item));
+
+        std::wstring md5 = toWide(entry.md5.c_str());
+        LVITEMW sub = {};
+        sub.iItem = row;
+        sub.iSubItem = 1;
+        sub.mask = LVIF_TEXT;
+        sub.pszText = md5.data();
+        ::SendMessageW(list, LVM_SETITEMW, 0, reinterpret_cast<LPARAM>(&sub));
+
+        std::wstring tip = toWide(entry.tip.c_str());
+        sub.iSubItem = 2;
+        sub.pszText = tip.data();
+        ::SendMessageW(list, LVM_SETITEMW, 0, reinterpret_cast<LPARAM>(&sub));
+        ++row;
+    }
+}
+
+// 防篡改清单的一行：读文件算 MD5 再收进配置。
+// 加不进去的三种情况分别给原因（没填路径 / 读不到文件 / 已经在了），不静默失败。
+void addTamperEntry(DialogState& state, HWND wnd)
+{
+    if (state.current < 0 || state.cfg == nullptr)
+    {
+        return;
+    }
+    HWND pathEdit = nullptr;
+    HWND tipEdit = nullptr;
+    HWND list = nullptr;
+    HWND status = nullptr;
+    const TabSpec* tabSpec = kTabs[state.current];
+    TabPageState& page = state.pages[static_cast<std::size_t>(state.current)];
+    for (int i = 0; i < tabSpec->controlCount; ++i)
+    {
+        const std::string role =
+            tabSpec->controls[i].role == nullptr ? std::string() : tabSpec->controls[i].role;
+        HWND handle = page.controls[static_cast<std::size_t>(i)];
+        if (role == "tamperPath")
+        {
+            pathEdit = handle;
+        }
+        else if (role == "tamperTip")
+        {
+            tipEdit = handle;
+        }
+        else if (role == "tamperList")
+        {
+            list = handle;
+        }
+        else if (role == "status")
+        {
+            status = handle;
+        }
+    }
+    auto say = [status](const std::string& text) {
+        if (status != nullptr)
+        {
+            ::SetWindowTextW(status, toWide(text.c_str()).c_str());
+        }
+    };
+
+    if (pathEdit == nullptr)
+    {
+        return;
+    }
+    wchar_t buffer[MAX_PATH * 4] = {};
+    ::GetWindowTextW(pathEdit, buffer, MAX_PATH * 4);
+    const std::string path = narrow(buffer);
+    if (path.empty())
+    {
+        say("先填要锁定的文件路径");
+        return;
+    }
+    for (const config::DeploySettings::TamperEntry& entry : state.cfg->deploy.tamperFiles)
+    {
+        if (entry.path == path)
+        {
+            say("这个文件已经在清单里了");
+            return;
+        }
+    }
+
+    std::string error;
+    const std::string digest = osp::crypto::md5File(path, error);
+    if (digest.empty())
+    {
+        // 读不到就别加 —— 加一条空摘要，部署时会永远「校验失败」，比不加更难查
+        say("读不到文件，未加入：" + error);
+        return;
+    }
+
+    config::DeploySettings::TamperEntry entry;
+    entry.path = path;
+    entry.md5 = digest;
+    if (tipEdit != nullptr)
+    {
+        wchar_t tipBuffer[512] = {};
+        ::GetWindowTextW(tipEdit, tipBuffer, 512);
+        entry.tip = narrow(tipBuffer);
+    }
+    state.cfg->deploy.tamperFiles.push_back(entry);
+    // 清单非空就意味着要校验：SC 的 Cb_Tampering 与这份清单是一件事
+    state.cfg->deploy.verifyIntegrity = true;
+    state.saved = true;
+    page.dirty = true;
+
+    fillTamperList(list, *state.cfg);
+    ::SetWindowTextW(pathEdit, L"");
+    if (tipEdit != nullptr)
+    {
+        ::SetWindowTextW(tipEdit, L"");
+    }
+    say("已加入 " + entry.path + "（MD5 " + digest + "）");
 }
 
 void loadTabInto(DialogState& state, int tab)
@@ -377,7 +630,11 @@ void loadTabInto(DialogState& state, int tab)
             continue;
         }
         const std::string kind = spec.kind;
-        if (kind == "edit" || kind == "number")
+        if (kind == "list")
+        {
+            fillTamperList(handle, *state.cfg);
+        }
+        else if (kind == "edit" || kind == "number")
         {
             std::string value;
             bool flag = false;
@@ -777,6 +1034,40 @@ LRESULT CALLBACK tmffunProc(HWND wnd, UINT message, WPARAM wParam, LPARAM lParam
             }
             return 0;
         }
+        if (action == "browseFile")
+        {
+            // 选一个文件写进本页的 Ed_Tampering（role=tamperPath）
+            HWND edit = nullptr;
+            for (int i = 0; i < kTabs[state->current]->controlCount; ++i)
+            {
+                if (std::string(kTabs[state->current]->controls[i].role) == "tamperPath")
+                {
+                    edit = state->pages[static_cast<std::size_t>(state->current)]
+                               .controls[static_cast<std::size_t>(i)];
+                }
+            }
+            if (edit != nullptr)
+            {
+                wchar_t path[MAX_PATH * 4] = {};
+                OPENFILENAMEW ofn = {};
+                ofn.lStructSize = sizeof(ofn);
+                ofn.hwndOwner = wnd;
+                ofn.lpstrFile = path;
+                ofn.nMaxFile = MAX_PATH * 4;
+                ofn.lpstrFilter = L"所有文件\0*.*\0";
+                ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                if (::GetOpenFileNameW(&ofn) != FALSE)
+                {
+                    ::SetWindowTextW(edit, path);
+                }
+            }
+            return 0;
+        }
+        if (action == "tamperAdd")
+        {
+            addTamperEntry(*state, wnd);
+            return 0;
+        }
         if (action == "browse")
         {
             // 浏览按钮和同页第一个 edit 配对（图纸里就是这个布局）
@@ -1077,10 +1368,143 @@ bool smokeTmffunDialog(void* ownerHwnd, config::Config& cfg, std::string& detail
         return false;
     }
 
+    // 预置IP 页：随机模式的网段基址与末段范围要落回配置
+    const int ipTab = tmffunTabIndex("MlSkinTabSheet6");
+    if (ipTab < 0)
+    {
+        detail = "找不到预置IP页";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    const TabPageState& ipPage = state.pages[static_cast<std::size_t>(ipTab)];
+    HWND radioRandom = nullptr;
+    HWND editBase = nullptr;
+    HWND editFrom = nullptr;
+    HWND editTo = nullptr;
+    for (int i = 0; i < kTabs[ipTab]->controlCount; ++i)
+    {
+        const std::string id = kTabs[ipTab]->controls[i].id;
+        HWND handle = ipPage.controls[static_cast<std::size_t>(i)];
+        if (id == "Rb_SetRandomip")
+        {
+            radioRandom = handle;
+        }
+        else if (id == "Ed_ips")
+        {
+            editBase = handle;
+        }
+        else if (id == "Ed_Startip")
+        {
+            editFrom = handle;
+        }
+        else if (id == "Ed_Endip")
+        {
+            editTo = handle;
+        }
+    }
+    if (radioRandom == nullptr || editBase == nullptr || editFrom == nullptr || editTo == nullptr)
+    {
+        detail = "预置IP页缺少随机模式相关控件";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    ::SendMessageW(radioRandom, BM_SETCHECK, BST_CHECKED, 0);
+    ::SetWindowTextW(editBase, L"192.168.1");
+    ::SetWindowTextW(editFrom, L"2");
+    ::SetWindowTextW(editTo, L"254");
+    state.current = ipTab;
+    if (!saveTab(state, ipTab, error))
+    {
+        detail = "保存预置IP页失败：" + error;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    if (cfg.optimization.ipMode != "random" || cfg.optimization.ipRandomBase != "192.168.1" ||
+        cfg.optimization.ipRandomOctetStart != 2 || cfg.optimization.ipRandomOctetEnd != 254)
+    {
+        detail = "预置IP页没写回：mode=" + cfg.optimization.ipMode + " base=" + cfg.optimization.ipRandomBase;
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
+    // 文件锁定页：加一条防篡改记录，MD5 要真的算出来
+    const int lockTab = tmffunTabIndex("MlSkinTabSheet12");
+    if (lockTab < 0)
+    {
+        detail = "找不到文件锁定页";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    const TabPageState& lockPage = state.pages[static_cast<std::size_t>(lockTab)];
+    HWND pathEdit = nullptr;
+    HWND list = nullptr;
+    for (int i = 0; i < kTabs[lockTab]->controlCount; ++i)
+    {
+        const std::string role =
+            kTabs[lockTab]->controls[i].role == nullptr ? std::string() : kTabs[lockTab]->controls[i].role;
+        if (role == "tamperPath")
+        {
+            pathEdit = lockPage.controls[static_cast<std::size_t>(i)];
+        }
+        else if (role == "tamperList")
+        {
+            list = lockPage.controls[static_cast<std::size_t>(i)];
+        }
+    }
+    if (pathEdit == nullptr || list == nullptr)
+    {
+        detail = "文件锁定页缺少清单或路径框";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
+    // 用自身可执行文件当样本：它一定存在、一定能读
+    wchar_t selfPath[MAX_PATH] = {};
+    if (::GetModuleFileNameW(nullptr, selfPath, MAX_PATH) == 0)
+    {
+        detail = "取不到自身路径，无法验防篡改添加";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    ::SetWindowTextW(pathEdit, selfPath);
+    state.current = lockTab;
+    const std::size_t before = cfg.deploy.tamperFiles.size();
+    addTamperEntry(state, dialog);
+    if (cfg.deploy.tamperFiles.size() != before + 1)
+    {
+        detail = "防篡改条目没加上（当前 " + std::to_string(cfg.deploy.tamperFiles.size()) + " 条）";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    const std::string digest = cfg.deploy.tamperFiles.back().md5;
+    if (digest.size() != 32)
+    {
+        detail = "算出来的 MD5 长度 " + std::to_string(digest.size()) + "，期望 32";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    // 重复添加要被拦住
+    ::SetWindowTextW(pathEdit, selfPath);
+    addTamperEntry(state, dialog);
+    if (cfg.deploy.tamperFiles.size() != before + 1)
+    {
+        detail = "同一个文件被重复加入清单";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+    if (::SendMessageW(list, LVM_GETITEMCOUNT, 0, 0) != static_cast<LRESULT>(before + 1))
+    {
+        detail = "清单里显示的行数与配置不一致";
+        ::DestroyWindow(dialog);
+        return false;
+    }
+
     detail = "客户区 " + std::to_string(width) + "x" + std::to_string(height) + "，" +
         std::to_string(kTabCount) + " 个页签，" + std::to_string(kTabs[documents]->controlCount) + "/" +
         std::to_string(kTabs[favorites]->controlCount) + "/" + std::to_string(kTabs[pagefile]->controlCount) +
-        " 个控件，保存回写与大小校验都对";
+        "/" + std::to_string(kTabs[ipTab]->controlCount) + "/" +
+        std::to_string(kTabs[lockTab]->controlCount) +
+        " 个控件，保存回写、大小校验、随机网段、防篡改 MD5 都对";
     ::DestroyWindow(dialog);
     return true;
 }

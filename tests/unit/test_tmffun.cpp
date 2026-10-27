@@ -179,3 +179,85 @@ TEST_CASE("prepare: 大小配置不完整时跳过并给出原因")
     }
     CHECK(warned);
 }
+
+TEST_CASE("预置IP 随机模式：基址 + 末段范围，同一台机器上结果稳定")
+{
+    osp::config::Config cfg;
+    cfg.optimization.autoSetIp = true;
+    cfg.optimization.ipMode = "random";
+    cfg.optimization.ipRandomBase = "192.168.1";
+    cfg.optimization.ipRandomOctetStart = 2;
+    cfg.optimization.ipRandomOctetEnd = 254;
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.ipInterface = "假网卡";
+    options.ipRandomSeed = 12345;
+
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+    std::string address;
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        // netsh 命令行形如：interface ipv4 set address name="X" static <ip> <mask>
+        if (action.program == "netsh" && action.arguments.find("set address") != std::string::npos)
+        {
+            const std::size_t at = action.arguments.find(" static ");
+            if (at != std::string::npos)
+            {
+                const std::size_t from = at + 8;
+                const std::size_t to = action.arguments.find(' ', from);
+                address = action.arguments.substr(from, to == std::string::npos ? to : to - from);
+            }
+        }
+    }
+    REQUIRE(!address.empty());
+    CHECK(address.rfind("192.168.1.", 0) == 0);
+    const int octet = std::stoi(address.substr(10));
+    CHECK(octet >= 2);
+    CHECK(octet <= 254);
+}
+
+TEST_CASE("预置IP 随机模式：末段范围非法时跳过并给原因")
+{
+    osp::config::Config cfg;
+    cfg.optimization.autoSetIp = true;
+    cfg.optimization.ipMode = "random";
+    cfg.optimization.ipRandomBase = "192.168.1";
+    cfg.optimization.ipRandomOctetStart = 200;
+    cfg.optimization.ipRandomOctetEnd = 10; // 反了
+
+    osp::prepare::Options options = osp::prepare::defaultOptions();
+    options.ipInterface = "假网卡";
+    const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
+
+    for (const osp::prepare::Action& action : plan.actions)
+    {
+        CHECK(action.program != "netsh");
+    }
+    bool warned = false;
+    for (const std::string& warning : plan.warnings)
+    {
+        if (warning.find("末段范围不合法") != std::string::npos)
+        {
+            warned = true;
+        }
+    }
+    CHECK(warned);
+}
+
+TEST_CASE("防篡改条目带说明：JSON 往返不丢")
+{
+    osp::config::Config cfg;
+    osp::config::DeploySettings::TamperEntry entry;
+    entry.path = "C:\\Windows\\explorer.exe";
+    entry.md5 = "0123456789abcdef0123456789abcdef";
+    entry.tip = "explorer 被替换会劫持主页";
+    cfg.deploy.tamperFiles.push_back(entry);
+
+    const std::string json = osp::config::toJson(cfg);
+    CHECK(json.find("explorer 被替换会劫持主页") != std::string::npos);
+
+    const osp::config::ParseResult parsed = osp::config::fromJson(json);
+    REQUIRE(parsed.ok);
+    REQUIRE(parsed.config.deploy.tamperFiles.size() == 1);
+    CHECK(parsed.config.deploy.tamperFiles[0].tip == std::string("explorer 被替换会劫持主页"));
+}

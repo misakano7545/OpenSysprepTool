@@ -876,6 +876,10 @@ std::string toJson(const PlanResult& plan)
         json item;
         item["path"] = entry.path;
         item["md5"] = entry.md5;
+        if (!entry.tip.empty())
+        {
+            item["tip"] = entry.tip;
+        }
         tamper.push_back(std::move(item));
     }
     checks["tamperFiles"] = std::move(tamper);
