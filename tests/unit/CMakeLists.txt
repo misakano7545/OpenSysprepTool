@@ -26,6 +26,7 @@ add_executable(osp_unit_tests
   test_deploy_progress.cpp
   test_popups.cpp
   test_task_dialog.cpp
+  test_tmffun.cpp
 )
 
 # 界面数据层（页面与字段）被单测直接覆盖：它不依赖窗口，也不依赖 ATL/WTL，
@@ -35,6 +36,7 @@ target_sources(osp_unit_tests PRIVATE
   # TSBOX 弹窗：单测要能直接调 smokeChoiceDialog 验尺寸与返回值
   ${CMAKE_SOURCE_DIR}/host/ui/popups.cpp
   ${CMAKE_SOURCE_DIR}/host/ui/task_dialog.cpp
+  ${CMAKE_SOURCE_DIR}/host/ui/tmffun.cpp
 )
 target_include_directories(osp_unit_tests PRIVATE ${CMAKE_SOURCE_DIR}/host/ui)
 

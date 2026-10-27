@@ -25,6 +25,8 @@ add_executable(ospt
   ui/popups.cpp
   # M10：SC 的任务对话框 TTLMF（添加任务）
   ui/task_dialog.cpp
+  # M10：SC 的高级设置总窗体 TMFFUN（18 个页签，本轮排前三页）
+  ui/tmffun.cpp
 )
 
 target_link_options(ospt PRIVATE

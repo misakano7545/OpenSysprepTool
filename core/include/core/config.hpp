@@ -67,10 +67,21 @@ struct Optimization
     std::string defaultUserHive;
     std::string pageFileTarget; // 空表示不转移
     // 智能转移虚拟内存（对齐 SC 的 Rb_SmartMovePageFile：自动选剩余空间最大的分区）。
-    // 注意这**不是**「算大小」：SC 的 MovePageFile 只搬位置，大小仍交给系统管理
-    // （`0 0`）。证据见 15_spec/功能规格.md §二「智能转移…虚拟内存（智能选最大剩余分区
-    // 或 指定目录）」与 Cb_MovePageFileDrive / Rb_SmartMovePageFile。
     bool autoPagefileDrive = false;
+    // --- TMFFUN「转移虚拟内存」页的细节（SC 的四个单选 + 两个盘符/四组数值框）---
+    // 先纠正一处早先的错误判断：曾经按 15_spec 的简述写成「SC 的 MovePageFile 只搬位置，
+    // 大小仍交给系统管理（0 0）」。查语言文件后发现这是错的 —— SC 明确给了两个单选
+    // 「指定虚拟内存值为物理内存的倍数」与「指定虚拟内存固定值」，各带最小/最大值：
+    //   Rb_PageFilevarValue   + Ed_PageFileVMinisize / Ed_PageFileVMaxsize
+    //   Rb_PageFileconstValue + Ed_PageFileCMinisize / Ed_PageFileCMaxsize
+    // 所以大小是要设的。不选任何单选时仍按 `0 0`（系统管理），与 SC 的默认一致。
+    bool pageFileSmart = true;     // Rb_SmartMovePageFile / Rb_DiyMovePageFile
+    std::string pageFileDrive;     // Cb_MovePageFileDrive，形如 "D:"
+    std::string pageFileSizeMode;  // system（默认）/ multiplier / fixed
+    int pageFileMinMultiplier = 0; // Ed_PageFileVMinisize：物理内存的倍数
+    int pageFileMaxMultiplier = 0; // Ed_PageFileVMaxsize
+    int pageFileMinFixedMb = 0;    // Ed_PageFileCMinisize：固定值（MB）
+    int pageFileMaxFixedMb = 0;    // Ed_PageFileCMaxsize
     // SC 的系统优化项（33 条里的 27 条有原始数据，见 docs/SC功能对照.md）。
     // 空 = 一项都不做；里面是 tweaks::Tweak::id。
     std::vector<std::string> sysTweaks;

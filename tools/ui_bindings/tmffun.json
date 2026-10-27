@@ -1,0 +1,277 @@
+{
+  "_comment": [
+    "TMFFUN（SC 的「高级设置」总窗体，740x400，18 个页签）的控件绑定表。",
+    "坐标不写在这里 —— tools/gen_tmffun.py 只从 docs/sc_layout/TMFFUN.json 取坐标，",
+    "这里只写「控件是什么类型、显示什么字、落到哪个配置项」。",
+    "kind 取值：label / edit / number / check / radio / combo / button / group / image。",
+    "exclude 里登记不做的控件与原因，生成器会跳过它们。"
+  ],
+  "tabs": {
+    "MlSkinTabSheet3": {
+      "note": "转移文档：SC 用两个单选区分「智能转移目录」与「指定转移目录」",
+      "controls": {
+        "Rb_SmartMoveDocuments": {
+          "kind": "radio",
+          "text": "智能转移目录",
+          "group": "moveDocuments",
+          "binding": "optimization.documentsSmart",
+          "value": "smart"
+        },
+        "Rb_DiyMoveDocuments": {
+          "kind": "radio",
+          "text": "指定转移目录",
+          "group": "moveDocuments",
+          "binding": "optimization.documentsSmart",
+          "value": "diy"
+        },
+        "Lab_SmartMoveDocumentsTip": {
+          "kind": "label",
+          "text": "说明:自动扫描目标系统最大剩余容量的分区，如果条件不成立则不转移。"
+        },
+        "Lab_DiyMoveDocumentsTip": {
+          "kind": "label",
+          "text": "说明:转移到指定目录，如果条件不成立则执行智能转移目录机制。"
+        },
+        "Lab_MoveDocumentsPath": {
+          "kind": "label",
+          "text": "转移目录:"
+        },
+        "Ed_MovePath": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.myDocumentsTarget"
+        },
+        "Btn_MoveDocuments_Open": {
+          "kind": "button",
+          "text": "浏览(&O)",
+          "action": "browse"
+        },
+        "Lab_Tip_MoveDocuments": {
+          "kind": "label",
+          "text": "",
+          "role": "status"
+        },
+        "Btn_MoveDocuments_Save": {
+          "kind": "button",
+          "text": "保存(&S)",
+          "action": "save"
+        },
+        "Btn_MoveDocuments_Exit": {
+          "kind": "button",
+          "text": "退出(&E)",
+          "action": "close"
+        }
+      }
+    },
+    "MlSkinTabSheet4": {
+      "note": "转移收藏夹：与转移文档同构",
+      "controls": {
+        "Rb_SmartMoveFavorites": {
+          "kind": "radio",
+          "text": "智能转移目录",
+          "group": "moveFavorites",
+          "binding": "optimization.favoritesSmart",
+          "value": "smart"
+        },
+        "Rb_DiyMoveFavorites": {
+          "kind": "radio",
+          "text": "指定转移目录",
+          "group": "moveFavorites",
+          "binding": "optimization.favoritesSmart",
+          "value": "diy"
+        },
+        "Lab_SmartMoveFavoritesTip": {
+          "kind": "label",
+          "text": "说明:自动扫描目标系统最大剩余容量的分区，如果条件不成立则不转移。"
+        },
+        "Lab_DiyMoveFavoritesTip": {
+          "kind": "label",
+          "text": "说明:转移到指定目录，如果条件不成立则执行智能转移目录机制。"
+        },
+        "Lab_MoveFavoritesPath": {
+          "kind": "label",
+          "text": "转移目录:"
+        },
+        "Ed_MoveFavorites_Path": {
+          "kind": "edit",
+          "text": "",
+          "binding": "optimization.favoritesTarget"
+        },
+        "Btn_MoveFavorites_Open": {
+          "kind": "button",
+          "text": "浏览(&O)",
+          "action": "browse"
+        },
+        "Lab_Tip_MoveFavorites": {
+          "kind": "label",
+          "text": "",
+          "role": "status"
+        },
+        "Btn_MoveFavorites_Save": {
+          "kind": "button",
+          "text": "保存(&S)",
+          "action": "save"
+        },
+        "Btn_MoveFavorites_Exit": {
+          "kind": "button",
+          "text": "退出(&E)",
+          "action": "close"
+        }
+      }
+    },
+    "MlSkinTabSheet7": {
+      "note": "转移虚拟内存：智能/指定盘符 + 大小（按物理内存倍数 或 固定值）",
+      "controls": {
+        "Rb_SmartMovePageFile": {
+          "kind": "radio",
+          "text": "智能转移",
+          "group": "movePageFile",
+          "binding": "optimization.pageFileSmart",
+          "value": "smart"
+        },
+        "Rb_DiyMovePageFile": {
+          "kind": "radio",
+          "text": "指定转移",
+          "group": "movePageFile",
+          "binding": "optimization.pageFileSmart",
+          "value": "diy"
+        },
+        "Lab_SmartMovePageFileTip": {
+          "kind": "label",
+          "text": "说明:自动扫描目标系统最大剩余容量的分区，如果条件不成立则不转移。"
+        },
+        "Gb_DiyMovePageFile": {
+          "kind": "group",
+          "text": ""
+        },
+        "Lab_MovePageFileDrive": {
+          "kind": "label",
+          "text": "指定转移到的盘符:"
+        },
+        "Cb_MovePageFileDrive": {
+          "kind": "combo",
+          "text": "",
+          "binding": "optimization.pageFileDrive",
+          "items": [
+            "C:",
+            "D:",
+            "E:",
+            "F:",
+            "G:",
+            "H:",
+            "I:",
+            "J:",
+            "K:",
+            "L:",
+            "M:",
+            "N:",
+            "O:",
+            "P:",
+            "Q:",
+            "R:",
+            "S:",
+            "T:",
+            "U:",
+            "V:",
+            "W:",
+            "X:",
+            "Y:",
+            "Z:"
+          ]
+        },
+        "Lab_MovePageFileDriveTip": {
+          "kind": "label",
+          "text": "说明: 如果目标系统不存在你选择的盘符则执行智能转移机制。"
+        },
+        "Rb_PageFilevarValue": {
+          "kind": "radio",
+          "text": "指定虚拟内存值为物理内存的倍数",
+          "group": "pageFileSize",
+          "binding": "optimization.pageFileSizeMode",
+          "value": "multiplier"
+        },
+        "Rb_PageFileconstValue": {
+          "kind": "radio",
+          "text": "指定虚拟内存固定值",
+          "group": "pageFileSize",
+          "binding": "optimization.pageFileSizeMode",
+          "value": "fixed"
+        },
+        "Lab_PageFileVMinisize": {
+          "kind": "label",
+          "text": "虚拟内存最小值倍数:"
+        },
+        "Ed_PageFileVMinisize": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.pageFileMinMultiplier"
+        },
+        "Lab_PageFileVMaxsize": {
+          "kind": "label",
+          "text": "虚拟内存最大值倍数:"
+        },
+        "Ed_PageFileVMaxsize": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.pageFileMaxMultiplier"
+        },
+        "Lab_PageFileCMinisize": {
+          "kind": "label",
+          "text": "虚拟内存最小固定值:"
+        },
+        "Ed_PageFileCMinisize": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.pageFileMinFixedMb"
+        },
+        "Lab_PageFileCMaxsize": {
+          "kind": "label",
+          "text": "虚拟内存最大固定值:"
+        },
+        "Ed_PageFileCMaxsize": {
+          "kind": "number",
+          "text": "",
+          "binding": "optimization.pageFileMaxFixedMb"
+        },
+        "Lab_Tip_MovePagefile": {
+          "kind": "label",
+          "text": "",
+          "role": "status"
+        },
+        "Btn_MovePageFile_Save": {
+          "kind": "button",
+          "text": "保存(&S)",
+          "action": "save"
+        },
+        "Btn_MovePageFile_Exit": {
+          "kind": "button",
+          "text": "退出(&E)",
+          "action": "close"
+        }
+      }
+    }
+  },
+  "unimplemented": {
+    "MlSkinTabSheet1": "模块1设置的控件尚未逐个核对（见 docs/SC窗体对照.md §4.4），本轮不做",
+    "MlSkinTabSheet2": "模块2设置同上，本轮不做",
+    "MlSkinTabSheet5": "新增用户：账号/组/密码的落地方式待定，本轮不做",
+    "MlSkinTabSheet6": "预置IP：主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet8": "固定文件：主窗体字段已实现，这里的清单页待下一轮",
+    "MlSkinTabSheet9": "取消固定：同上",
+    "MlSkinTabSheet10": "OEM：主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet11": "选择网络：主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet12": "文件锁定：防篡改清单页待下一轮",
+    "MlSkinTabSheet13": "登录：自动登录项主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet14": "图片部署：主窗体已能配置，这里的详细页待下一轮",
+    "MlSkinTabSheet15": "封装高级设置：待下一轮",
+    "MlSkinTabSheet16": "补丁安装：本工具不做补丁安装（MSI/MSU 安装与回滚是独立一块），此页留空",
+    "TrueTrans": "TrueTrans 是 SC 的会员版部署模式，本工具不做",
+    "MlSkinTabSheet17": "End：SC 的内部结束页，没有界面内容",
+    "MlSkinTabSheet18": "空页（Caption 未本地化），不做",
+    "Page_Tampering": "防篡改清单页：机制已实现（deploy.tamperFiles），清单编辑界面待下一轮"
+  },
+  "excludeTabs": {
+    "Page_Nodelfile": "宪章 §7 红线：SC 用内核驱动锁住文件不让删（取消固定/不能删除清单），本工具不提供",
+    "Page_Nodelreg": "宪章 §7 红线：同上，锁注册表不让删，本工具不提供"
+  }
+}

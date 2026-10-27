@@ -19,7 +19,7 @@
 | 3 | `TSCUBOX` | `TScubox` | 300×136 | 小弹窗：`Lab_pwub` + `Ed_Unpwub`（密码）+ `Btn_Okub` / `Btn_Ubox_Exit` | ⛔ 语言文件里查不到对应文案，用途无法确认 |
 | 4 | `TAPPMSGFORM` | `TAppMsgForm` | 480×242 | 通用提示框：`lbTip` 正文 + 单按钮（`Btn_Bigok`）或双按钮（`Btn_Exit`/`Btn_Ok`） | ✅ `showMessageDialog` |
 | 5 | `TTLMF` | `TTlmf` | 740×400 | 「任务」对话框：任务类型 / 五个阶段按钮 / 运行方式与等待 / 执行路径与参数 / 善后处理 / 状态行 | ✅ `host/ui/task_dialog.cpp` |
-| 6 | `TMFFUN` | `TMFfun` | 740×400 | **高级设置总窗体**：18 个页签（模块1/2设置、转移文档/收藏夹/虚拟内存、新增用户、预置IP、固定/取消固定文件、OEM、选择网络、TrueTrans、登录、文件锁定、图片部署、封装高级设置、补丁安装、End），约 370 个控件 | ⬜ 未做（见 §4.4） |
+| 6 | `TMFFUN` | `TMFfun` | 740×400 | **高级设置总窗体**：图纸里 22 个 `TMlSkinTabSheet`、约 370 个控件 | 🟡 窗体 + 前三页已做；§7 红线两页整页删掉；其余 17 页标未做（见 §4.4） |
 | 7 | `TMLSKINRESDM` | — | — | 皮肤资源（2 个控件，无界面语义） | — 不适用 |
 
 ---
@@ -173,7 +173,7 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 **保留系统对话框的一处**：退出时「是 / 否 / 取消」三选。图纸只有两个按钮，做不出第三键，
 所以那一处仍用 `MessageBox`，并在代码注释里写明原因。
 
-## 4.4 TMFFUN 高级设置总窗体（未做，单独一轮）
+## 4.4 TMFFUN 高级设置总窗体（窗体 + 前三页已做）
 
 这是 SC 的「高级设置」总窗体，740×400，18 个页签，约 370 个控件：
 
@@ -194,9 +194,40 @@ SC 是「居中大图 + 居中说明 + 底部双进度条」和「居中结果�
 | 补丁安装 | 14 | **无对应**：SC 的补丁安装我们没做 |
 | TrueTrans / End / 两个空页 | 3 / 1 / 1 | 内部页 |
 
-**为什么没有硬塞进这一轮**：370 个控件的坐标转写 + 逐页验证是独立一轮的工作量，
-而且其中「补丁安装」在我们这边没有对应功能，需要先决定做不做。做法和前面一样：
-`tools/ui_bindings/` 加一份 `tmffun.json`，按页签生成坐标表，再逐页接。
+**做法**（和主窗体那边一致，坐标不手抄）：
+`tools/ui_bindings/tmffun.json` 写绑定，`tools/gen_tmffun.py` 从
+`docs/sc_layout/TMFFUN.json` 取坐标，生成 `host/ui/tmffun_table.inc`。
+生成器按页签输出控件表，**先控件表后页签表**（C++ 先声明后使用），
+组框里的控件坐标相对组框（与 DFM 语义一致）。
+
+**本轮已做**（2026-10-26，`host/ui/tmffun.cpp`）：窗体框架 + 三个纯配置页签
+
+| 页签 | 控件 | 落到 |
+|---|---|---|
+| 转移文档 | 10 | `optimization.documentsSmart` / `myDocumentsTarget` |
+| 转移收藏夹 | 10 | `optimization.favoritesSmart` / `favoritesTarget` |
+| 转移虚拟内存 | 20 | `pageFileSmart` / `pageFileDrive` / `pageFileSizeMode` + 四个数值 |
+
+**图纸里的页签是 22 个**（18 个编号页 + `TrueTrans` + `Page_Tampering` +
+`Page_Nodelfile` + `Page_Nodelreg`），处理分三类：
+
+| 类别 | 页签 | 处理 |
+|---|---|---|
+| 本轮已排 | 转移文档 / 转移收藏夹 / 转移虚拟内存 | 按 DFM 坐标摆控件 |
+| 未做但保留 | 其余 17 个（模块设置、预置IP、OEM、登录、文件锁定、图片部署…） | 页签仍在，点进去写明未做的原因 |
+| **整页删掉** | `Page_Nodelfile`、`Page_Nodelreg` | 宪章 §7 红线：SC 用内核驱动锁住文件/注册表不让删。连页签都不出现，不给它留入口 |
+
+删掉而不是标「未实现」的理由：标未实现等于告诉用户「这里本该有个功能」，
+而这两个功能我们**永远不做**，留着页签就是留一个未来可能被填上的坑。
+
+**入口**：菜单「工具 → 高级设置(&A)…」（对应 SC 的 `Btn_Sysprepaset`）与
+「工具 → 高级设置：OEM(&M)…」（对应 `Btn_OemSet`，直接落在 OEM 页）。
+
+**一处事实纠正**：早先按 `15_spec/功能规格.md` 的简述写成「SC 的 MovePageFile 只搬位置，
+大小仍交给系统管理（`0 0`）」。查 `LANGS_SCCHS_2052.bin` 后发现这是错的 ——
+语言文件明确有 `Rb_PageFilevarValue`「指定虚拟内存值为物理内存的倍数」与
+`Rb_PageFileconstValue`「指定虚拟内存固定值」，各带最小/最大值。所以大小是要设的；
+不选任何一个单选时才回落 `0 0`。已按此实现 `pageFileSizeFields()`。
 
 ## 5. 与 DFM 有关的三条硬规矩（写进代码注释与测试）
 

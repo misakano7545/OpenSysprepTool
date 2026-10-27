@@ -15,6 +15,7 @@
 
 #include "deploy_runner.hpp"
 #include "popups.hpp"
+#include "tmffun.hpp"
 #include "task_dialog.hpp"
 #include "ui.hpp"
 
@@ -161,6 +162,8 @@ constexpr int kIdcMenuSaveConfigAs = 9101;
 constexpr int kIdcMenuExit = 9102;
 constexpr int kIdcMenuScanNow = 9103;   // 与母盘系统页的「封装体检」同一个动作
 constexpr int kIdcMenuRunDeploy = 9104; // 运行部署（拉起 osptd，进度进「运行」页）
+constexpr int kIdcMenuTmffun = 9105;    // 高级设置（SC 的 Btn_Sysprepaset）
+constexpr int kIdcMenuTmffunOem = 9106; // 高级设置 → OEM 页（SC 的 Btn_OemSet）
 
 // 部署线程 -> 界面线程的自定义消息（回调里 new 一个对象传过来，界面线程负责 delete）
 constexpr UINT kMsgDeployProgress = WM_APP + 11;
@@ -1621,6 +1624,11 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
         ::AppendMenuW(toolMenu, MF_SEPARATOR, 0, nullptr);
         // 运行部署：与 SC 的「运行」页对应 —— 跑起来后进度进那一页
         ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuRunDeploy, L"运行部署(&D)...");
+        ::AppendMenuW(toolMenu, MF_SEPARATOR, 0, nullptr);
+        // 高级设置：SC 在主窗体上有两个入口（Btn_Sysprepaset / Btn_OemSet），都开 TMFFUN，
+        // 只是初始页签不同。这里用菜单承载，初始页也照 SC 分开。
+        ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuTmffun, L"高级设置(&A)...");
+        ::AppendMenuW(toolMenu, MF_STRING, kIdcMenuTmffunOem, L"高级设置：OEM(&M)...");
         ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(toolMenu), L"工具(&T)");
 
         ::SetMenu(m_hWnd, menu);
@@ -1805,6 +1813,18 @@ LRESULT MainFrame::OnCommand(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
         case kIdcMenuExit:
             SendMessageW(WM_CLOSE, 0, 0);
             return 0;
+        case kIdcMenuTmffun:
+        case kIdcMenuTmffunOem: {
+            const int initialTab = wParam == kIdcMenuTmffunOem
+                ? osp::ui::tmffunTabIndex("MlSkinTabSheet10") // OEM 页
+                : osp::ui::tmffunTabIndex("MlSkinTabSheet3"); // 转移文档（SC 的第一个可用页）
+            if (osp::ui::showTmffunDialog(m_hWnd, cfg, initialTab))
+            {
+                configDirty = true;
+                refreshStatus();
+            }
+            return 0;
+        }
         case kIdcMenuRunDeploy: {
             std::string error;
             if (!startDeployment(error))
@@ -2502,11 +2522,20 @@ SmokeResult runSmokeTest(bool visible)
         context.record(ok, "TTLMF 任务对话框", detail);
     }
 
+    // TMFFUN 高级设置窗体（不上屏）：740x400、页签数、三页控件、保存回写、大小校验
+    {
+        osp::config::Config scratch = context.frame.cfg;
+        std::string detail;
+        const bool ok = osp::ui::smokeTmffunDialog(context.frame.m_hWnd, scratch, detail);
+        // 验收脚本按 PASS 行里的数字核对，所以把 detail 并进标题（PASS 行不带 detail）
+        context.record(ok, "TMFFUN 高级设置窗体：" + detail);
+    }
+
     // TAPPMSGFORM 提示框（不上屏）：尺寸 480x242、正文回显、确定返回确认
     {
         std::string detail;
         const bool ok = osp::ui::smokeMessageDialog(context.frame.m_hWnd, detail);
-        context.record(ok, "TAPPMSGFORM 提示框", detail);
+        context.record(ok, "TAPPMSGFORM 提示框：" + detail);
     }
 
     // 退出无崩溃：销毁窗口并确认进程仍能继续

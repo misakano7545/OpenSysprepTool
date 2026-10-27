@@ -135,6 +135,9 @@ struct Options
     std::string ipInterface;
     // 随机/网段模式的选择种子。0 = 真随机；非 0 = 同种子同结果，单测据此钉住行为。
     std::uint64_t ipRandomSeed = 0;
+    // 物理内存 MB，供「虚拟内存按物理内存倍数」计算。0 = 现场取 GlobalMemoryStatusEx。
+    // 做成可注入同样是为了让倍数换算能被单测钉住，不依赖跑测试那台机器的内存大小。
+    int physicalMemoryMb = 0;
 };
 
 // 从环境变量取默认值；空字段会被填上。
@@ -149,6 +152,13 @@ struct Plan
     std::vector<std::string> warnings;
     std::vector<std::string> blockers; // 非空 = 拒绝 --execute
 };
+
+// 虚拟内存大小字段（PagingFiles 的 `<initial> <maximum>` 两段）：
+//   mode=system     -> "0 0"，由系统管理（SC 不选两个单选时的默认）
+//   mode=multiplier -> 物理内存 MB × 倍数
+//   mode=fixed      -> 配置里的固定 MB
+// 返回空字符串表示「配置不完整，调用方应报错而不是猜一个值」。
+std::string pageFileSizeFields(const config::Optimization& opt, int physicalMemoryMb);
 
 // 纯计算：读配置、拼动作，不碰注册表、不碰文件系统（除了读环境变量）。
 Plan build(const config::Config& cfg, const Options& options);

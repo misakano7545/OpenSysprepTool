@@ -1687,6 +1687,68 @@ Options defaultOptions()
 
 // ---------------------------------------------------------------- 构建计划
 
+namespace {
+
+// 现场取物理内存 MB（Options 没给注入值时用）
+int detectPhysicalMemoryMb()
+{
+    MEMORYSTATUSEX status = {};
+    status.dwLength = sizeof(status);
+    if (::GlobalMemoryStatusEx(&status) != FALSE)
+    {
+        return static_cast<int>(status.ullTotalPhys / (1024ull * 1024ull));
+    }
+    return 0;
+}
+
+} // namespace
+
+std::string pageFileSizeFields(const config::Optimization& opt, int physicalMemoryMb)
+{
+    const std::string mode = opt.pageFileSizeMode.empty() ? "system" : opt.pageFileSizeMode;
+
+    if (mode == "system")
+    {
+        // SC 的两个单选都不选：交给系统管理
+        return "0 0";
+    }
+
+    if (mode == "multiplier")
+    {
+        if (opt.pageFileMinMultiplier <= 0 || opt.pageFileMaxMultiplier <= 0)
+        {
+            return std::string();
+        }
+        if (opt.pageFileMinMultiplier > opt.pageFileMaxMultiplier)
+        {
+            return std::string();
+        }
+        if (physicalMemoryMb <= 0)
+        {
+            return std::string();
+        }
+        const long long minMb = static_cast<long long>(physicalMemoryMb) * opt.pageFileMinMultiplier;
+        const long long maxMb = static_cast<long long>(physicalMemoryMb) * opt.pageFileMaxMultiplier;
+        return std::to_string(minMb) + " " + std::to_string(maxMb);
+    }
+
+    if (mode == "fixed")
+    {
+        if (opt.pageFileMinFixedMb <= 0 || opt.pageFileMaxFixedMb <= 0)
+        {
+            return std::string();
+        }
+        if (opt.pageFileMinFixedMb > opt.pageFileMaxFixedMb)
+        {
+            return std::string();
+        }
+        return std::to_string(opt.pageFileMinFixedMb) + " " + std::to_string(opt.pageFileMaxFixedMb);
+    }
+
+    // 认不出的模式不猜
+    return std::string();
+}
+
 Plan build(const config::Config& cfg, const Options& options)
 {
     Plan plan;
@@ -1836,21 +1898,40 @@ Plan build(const config::Config& cfg, const Options& options)
         plan.actions.push_back(std::move(ui));
     }
 
-    if (!cfg.optimization.pageFileTarget.empty() || cfg.optimization.autoPagefileDrive)
+    // 转移虚拟内存：启用条件是三个入口任一（主窗体 Cb_MovePageFile = 智能转移，
+    // 或 TMFFUN 页里指定了盘符/目录）。三者都没有就整段不做。
+    const bool pageFileEnabled = !cfg.optimization.pageFileTarget.empty() ||
+        cfg.optimization.autoPagefileDrive || !cfg.optimization.pageFileDrive.empty();
+    if (pageFileEnabled)
     {
-        // SC 的两个单选：Rb_DiyMovePageFile（指定分区）与 Rb_SmartMovePageFile
-        // （智能选剩余最大的分区）。两者同时给时以「指定」为准，并提示一句 ——
-        // 静默二选一最容易让人觉得配置没生效。
+        // 目标优先级：显式目录 > 指定盘符（pageFileSmart=false）> 智能选最大剩余分区。
         std::string rawTarget = cfg.optimization.pageFileTarget;
-        if (!rawTarget.empty() && cfg.optimization.autoPagefileDrive)
+        std::string sizeSource;
+        const std::string sizeFields = pageFileSizeFields(
+            cfg.optimization,
+            options.physicalMemoryMb > 0 ? options.physicalMemoryMb : detectPhysicalMemoryMb()
+        );
+
+        if (!rawTarget.empty())
         {
-            plan.warnings.push_back(
-                "optimization.pageFileTarget 与 optimization.autoPagefileDrive 同时开启，"
-                "按指定分区处理：" +
-                rawTarget
-            );
+            if (cfg.optimization.autoPagefileDrive ||
+                (!cfg.optimization.pageFileSmart && !cfg.optimization.pageFileDrive.empty()))
+            {
+                plan.warnings.push_back(
+                    "optimization.pageFileTarget 与 TMFFUN 里的转移方式同时开启，"
+                    "按 pageFileTarget 处理：" +
+                    rawTarget
+                );
+            }
+            sizeSource = "optimization.pageFileTarget";
         }
-        if (rawTarget.empty())
+        else if (!cfg.optimization.pageFileSmart && !cfg.optimization.pageFileDrive.empty())
+        {
+            // Rb_DiyMovePageFile + Cb_MovePageFileDrive：指定盘符
+            rawTarget = cfg.optimization.pageFileDrive;
+            sizeSource = "optimization.pageFileDrive";
+        }
+        else
         {
             const std::vector<PagefileCandidate> candidates = options.pagefileCandidates.empty()
                 ? enumeratePagefileCandidates(options.systemDrive)
@@ -1867,6 +1948,7 @@ Plan build(const config::Config& cfg, const Options& options)
             {
                 rawTarget = picked;
             }
+            sizeSource = "optimization.autoPagefileDrive";
         }
 
         const std::string target = normalizeDir(rawTarget);
@@ -1874,30 +1956,35 @@ Plan build(const config::Config& cfg, const Options& options)
         {
             plan.warnings.push_back("虚拟内存目标不是盘符路径，已跳过：" + rawTarget);
         }
+        else if (sizeFields.empty())
+        {
+            // 配置不完整（倍数/固定值缺失或大小关系反了）时不猜一个值，如实报出来
+            plan.warnings.push_back(
+                "虚拟内存大小配置不完整（pageFileSizeMode=" +
+                (cfg.optimization.pageFileSizeMode.empty() ? std::string("system")
+                                                           : cfg.optimization.pageFileSizeMode) +
+                "），已跳过转移虚拟内存"
+            );
+        }
         else
         {
             Action action = makeRegistryAction(
                 ActionKind::RegistrySet,
-                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
-                    ? "optimization.autoPagefileDrive"
-                    : "optimization.pageFileTarget",
+                sizeSource,
                 "系统优化",
-                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
-                    ? "智能转移虚拟内存到剩余空间最大的分区"
-                    : "把虚拟内存放到指定分区",
-                cfg.optimization.autoPagefileDrive && cfg.optimization.pageFileTarget.empty()
-                    ? "optimization.autoPagefileDrive"
-                    : "optimization.pageFileTarget",
+                "把虚拟内存放到 " + target + "（" + sizeFields + "）",
+                "optimization.pageFileTarget",
                 "HKLM",
                 "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Memory Management",
                 "PagingFiles",
                 "multiSz"
             );
-            // 只搬位置，大小仍交给系统管理：SC 的 MovePageFile 也只做这件事，
-            // 手写具体 MB 数反而会在不同内存的机器上变成新问题。
-            action.multi = {target + "pagefile.sys 0 0"};
+            action.multi = {target + "pagefile.sys " + sizeFields};
             action.requiresReboot = true;
-            action.note = "0 0 = 由系统管理大小；重启后生效";
+            action.note = cfg.optimization.pageFileSizeMode == "multiplier"
+                ? "大小 = 物理内存 × 倍数"
+                : (cfg.optimization.pageFileSizeMode == "fixed" ? "大小 = 配置的固定值（MB）"
+                                                                : "0 0 = 由系统管理大小；重启后生效");
             plan.actions.push_back(std::move(action));
         }
     }

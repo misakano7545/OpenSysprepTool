@@ -49,6 +49,14 @@ json encode(const Config& cfg)
         {"closeRebootDialog", op.closeRebootDialog},
         {"myDocumentsTarget", op.myDocumentsTarget},
         {"pageFileTarget", op.pageFileTarget},
+        {"autoPagefileDrive", op.autoPagefileDrive},
+        {"pageFileSmart", op.pageFileSmart},
+        {"pageFileDrive", op.pageFileDrive},
+        {"pageFileSizeMode", op.pageFileSizeMode},
+        {"pageFileMinMultiplier", op.pageFileMinMultiplier},
+        {"pageFileMaxMultiplier", op.pageFileMaxMultiplier},
+        {"pageFileMinFixedMb", op.pageFileMinFixedMb},
+        {"pageFileMaxFixedMb", op.pageFileMaxFixedMb},
         {"autoSetIp", op.autoSetIp},
         {"ipMode", op.ipMode},
         {"networkLocation", op.networkLocation},
@@ -230,6 +238,13 @@ ParseResult fromJson(const std::string& text)
             cfg.optimization.defaultUserHive = op.value("defaultUserHive", std::string{});
             cfg.optimization.pageFileTarget = op.value("pageFileTarget", std::string{});
             cfg.optimization.autoPagefileDrive = op.value("autoPagefileDrive", false);
+            cfg.optimization.pageFileSmart = op.value("pageFileSmart", true);
+            cfg.optimization.pageFileDrive = op.value("pageFileDrive", std::string{});
+            cfg.optimization.pageFileSizeMode = op.value("pageFileSizeMode", std::string{});
+            cfg.optimization.pageFileMinMultiplier = op.value("pageFileMinMultiplier", 0);
+            cfg.optimization.pageFileMaxMultiplier = op.value("pageFileMaxMultiplier", 0);
+            cfg.optimization.pageFileMinFixedMb = op.value("pageFileMinFixedMb", 0);
+            cfg.optimization.pageFileMaxFixedMb = op.value("pageFileMaxFixedMb", 0);
             cfg.optimization.sysTweaks = op.value("sysTweaks", std::vector<std::string>{});
             cfg.optimization.autoSetIp = op.value("autoSetIp", false);
             cfg.optimization.ipMode = op.value("ipMode", std::string{});
