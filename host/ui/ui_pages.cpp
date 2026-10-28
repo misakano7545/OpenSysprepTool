@@ -445,12 +445,18 @@ bool applyDfmCoords(Page& page)
     int extensionY = designHeight + 8;
     int extensionX = 36;
     int extensionCount = 0;
+    // 扩展字段统一挪到页面级分组：留在原分组里会被布局再加一次组框原点，
+    // 于是被推到页面右侧、彼此重叠；而减去组框原点会让 x 变负（placed() 判 x>=0）。
+    Group extensionGroup;
     for (Group& group : page.groups)
     {
+        std::vector<Field> keep;
+        keep.reserve(group.fields.size());
         for (Field& field : group.fields)
         {
             if (field.placed())
             {
+                keep.push_back(std::move(field));
                 continue;
             }
             const int width = (std::min)(360, designWidth - 72);
@@ -468,7 +474,13 @@ bool applyDfmCoords(Page& page)
                 extensionY += 28;
                 ++extensionCount;
             }
+            extensionGroup.fields.push_back(std::move(field));
         }
+        group.fields = std::move(keep);
+    }
+    if (!extensionGroup.fields.empty())
+    {
+        page.groups.push_back(std::move(extensionGroup));
     }
 
     page.dfmLayout = true;

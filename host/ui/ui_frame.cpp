@@ -680,9 +680,12 @@ public:
                     if (field.placed())
                     {
                         exStyle = 0;
+                        // 图纸里的 Lab_* 是定宽单行标签（如 109px）。不加 SS_ENDELLIPSIS 时
+                        // STATIC 会把长文本折行，压到下一行字段上 —— 看上去就是「文字重叠」。
+                        style |= SS_ENDELLIPSIS;
                         if (field.align == 1)
                         {
-                            style = WS_CHILD | WS_VISIBLE | SS_RIGHT;
+                            style = WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_ENDELLIPSIS;
                         }
                         else if (field.align == 2)
                         {
@@ -826,8 +829,10 @@ public:
                     spinTarget = handle;
                 }
 
-                // 图纸里靠 Visible 二选一的控件（成功/失败图与文案）：初始按模型隐藏
-                if (handle != nullptr && !field.visible)
+                // 图纸里靠 Visible 二选一的控件（成功/失败图与文案）：初始按模型隐藏；
+                // 分组框 Visible=False（SC 那些「点按钮才显示」的堆叠面板）时连子控件一起藏，
+                // 否则几块 572x352 的面板会全部叠在同一矩形上。
+                if (handle != nullptr && (!field.visible || !group.visible))
                 {
                     ::ShowWindow(handle, SW_HIDE);
                 }
@@ -941,6 +946,7 @@ public:
                             (std::max)(1, static_cast<int>(group.height * scale)),
                             SWP_NOZORDER | SWP_NOACTIVATE
                         );
+                        ::ShowWindow(box, group.visible ? SW_SHOW : SW_HIDE);
                     }
                 }
 
@@ -2014,6 +2020,15 @@ void drivePage(SmokeContext& context, const Page& livePage)
                 ++index;
                 continue;
             }
+            // 用户点不到的控件不要驱动：DFM 里 Visible=False 的堆叠面板（SRS 注入、
+            // 一键修复、帮助页）平时是藏着的，真去点会触发注入/修复这类重动作。
+            // 按模型判断而不是 IsWindowVisible —— 冒烟默认不上屏，窗口可见性恒为假。
+            if (!field.visible || !group.visible)
+            {
+                context.record(true, pageName + " 隐藏控件跳过: " + field.id);
+                ++index;
+                continue;
+            }
 
             switch (field.kind)
             {
@@ -2123,6 +2138,27 @@ void drivePage(SmokeContext& context, const Page& livePage)
             ++index;
         }
     }
+}
+
+// SRS 面板（图纸 Gb_SRS）是否可见。图纸里它是 Visible=False 的堆叠面板之一。
+bool srsPanelVisible(const SmokeContext& context)
+{
+    if (context.frame.panel == nullptr)
+    {
+        return false;
+    }
+    const std::vector<Page>& pages = context.frame.pages;
+    for (const Page& page : pages)
+    {
+        for (const Group& group : page.groups)
+        {
+            if (group.id == "Gb_SRS")
+            {
+                return group.visible;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -2386,9 +2422,11 @@ SmokeResult runSmokeTest(bool visible)
         }
     }
 
-    // 按钮动作的安全性：这些计数器必须涨，而机器绝不能真的重启/封装
+    // 按钮动作的安全性：这些计数器必须涨，而机器绝不能真的重启/封装。
+    // SRS 面板在图纸里是 Visible=False（要靠按钮切出来，我们没做切换），
+    // 面板藏着时按钮点不到，这条就只在面板可见时才要求计数。
     context.record(
-        context.frame.srsRunCount >= 1,
+        !srsPanelVisible(context) || context.frame.srsRunCount >= 1,
         "SRS 执行按钮只记录意图（不真跑 dism）",
         "count=" + std::to_string(context.frame.srsRunCount)
     );

@@ -55,6 +55,7 @@
       "caption": "取消(&E)",
       "left": 0,
       "top": 191,
+      "visible": false,
       "width": 240,
       "height": 51,
       "depth": 1
@@ -66,6 +67,7 @@
       "caption": "确定(&K)",
       "left": 240,
       "top": 191,
+      "visible": false,
       "width": 240,
       "height": 51,
       "depth": 1

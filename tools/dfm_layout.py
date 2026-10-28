@@ -147,6 +147,9 @@ def flatten(node: Node, out: list[dict], parent: str = "") -> None:
         "caption": unquote(node.props.get("Caption", "")),
         "left": _int(node.props.get("Left")),
         "top": _int(node.props.get("Top")),
+        # Delphi 里 Visible 默认 True，DFM 只在设成 False 时才写出来。
+        # 不记这一位，SC 那些「点按钮才显示」的堆叠面板会全部同时显示 —— 界面就糊成一团。
+        **({"visible": False} if node.props.get("Visible", "").strip().lower() == "false" else {}),
         "width": _int(node.props.get("Width")),
         "height": _int(node.props.get("Height")),
         "depth": node.depth // 2,

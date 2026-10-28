@@ -108,8 +108,13 @@ def emit(layout: dict, out_path: str, model_ids: dict[str, set[str]]) -> int:
                 entry = page_rows[owner]
                 group_offset_x = entry.get("left") or 0
                 group_offset_y = entry.get("top") or 0
+            # x/y 只累加了父容器，控件自身的 Left/Top 必须加上 ——
+            # 早先漏了这一步，组框内的控件全被摆到 (0,0)，整页堆成一坨。
+            own_x = row["left"]
+            own_y = row["top"]
             lines.append(
-                f'    {{"{page}", "{owner}", "{name}", {x - group_offset_x}, {y - group_offset_y}, '
+                f'    {{"{page}", "{owner}", "{name}", '
+                f'{x + own_x - group_offset_x}, {y + own_y - group_offset_y}, '
                 f'{row.get("width")}, {row.get("height")}, true}},'
             )
             mapped += 1

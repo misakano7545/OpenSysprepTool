@@ -165,6 +165,7 @@
       "caption": "",
       "left": 0,
       "top": 201,
+      "visible": false,
       "width": 16,
       "height": 16,
       "depth": 4
@@ -528,6 +529,7 @@
       "caption": "",
       "left": 20,
       "top": 11,
+      "visible": false,
       "width": 533,
       "height": 310,
       "depth": 4
@@ -572,6 +574,7 @@
       "caption": "",
       "left": 16,
       "top": 9,
+      "visible": false,
       "width": 572,
       "height": 352,
       "depth": 3
@@ -616,6 +619,7 @@
       "caption": "",
       "left": 559,
       "top": 45,
+      "visible": false,
       "width": 10,
       "height": 296,
       "depth": 4
@@ -638,6 +642,7 @@
       "caption": "",
       "left": 16,
       "top": 9,
+      "visible": false,
       "width": 572,
       "height": 352,
       "depth": 3
@@ -693,6 +698,7 @@
       "caption": "",
       "left": 16,
       "top": 9,
+      "visible": false,
       "width": 572,
       "height": 352,
       "depth": 3
@@ -726,6 +732,7 @@
       "caption": "导入磁盘控制器驱动",
       "left": 16,
       "top": 9,
+      "visible": false,
       "width": 572,
       "height": 352,
       "depth": 3
@@ -770,6 +777,7 @@
       "caption": "Unknown",
       "left": 39,
       "top": 174,
+      "visible": false,
       "width": 200,
       "height": 49,
       "depth": 4
@@ -1711,6 +1719,7 @@
       "caption": "",
       "left": 15,
       "top": 227,
+      "visible": false,
       "width": 753,
       "height": 10,
       "depth": 4
@@ -1722,6 +1731,7 @@
       "caption": "",
       "left": 765,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 236,
       "depth": 4
@@ -2052,6 +2062,7 @@
       "caption": "",
       "left": 712,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 141,
       "depth": 4
@@ -2063,6 +2074,7 @@
       "caption": "",
       "left": 0,
       "top": 137,
+      "visible": false,
       "width": 721,
       "height": 10,
       "depth": 4
@@ -2536,6 +2548,7 @@
       "caption": "",
       "left": 331,
       "top": 96,
+      "visible": false,
       "width": 118,
       "height": 96,
       "depth": 4
@@ -2547,6 +2560,7 @@
       "caption": "",
       "left": 152,
       "top": 254,
+      "visible": false,
       "width": 525,
       "height": 8,
       "depth": 4
@@ -2558,6 +2572,7 @@
       "caption": "程序将在10秒后重启计算机，如需取消请点“返回”。",
       "left": 152,
       "top": 268,
+      "visible": false,
       "width": 288,
       "height": 12,
       "depth": 4
@@ -2580,6 +2595,7 @@
       "caption": "Bug",
       "left": 331,
       "top": 268,
+      "visible": false,
       "width": 118,
       "height": 27,
       "depth": 4
@@ -2591,6 +2607,7 @@
       "caption": "关机(&T)",
       "left": 275,
       "top": 242,
+      "visible": false,
       "width": 94,
       "height": 27,
       "depth": 4
@@ -2602,6 +2619,7 @@
       "caption": "重启(&R)",
       "left": 421,
       "top": 242,
+      "visible": false,
       "width": 94,
       "height": 27,
       "depth": 4
@@ -2624,6 +2642,7 @@
       "caption": "",
       "left": 3,
       "top": 3,
+      "visible": false,
       "width": 590,
       "height": 254,
       "depth": 3
@@ -2635,6 +2654,7 @@
       "caption": "",
       "left": 13,
       "top": 102,
+      "visible": false,
       "width": 44,
       "height": 24,
       "depth": 4
@@ -2646,6 +2666,7 @@
       "caption": "",
       "left": 13,
       "top": 11,
+      "visible": false,
       "width": 28,
       "height": 24,
       "depth": 4
@@ -2657,6 +2678,7 @@
       "caption": "",
       "left": 74,
       "top": 113,
+      "visible": false,
       "width": 105,
       "height": 13,
       "depth": 4
@@ -2668,6 +2690,7 @@
       "caption": "",
       "left": 47,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2679,6 +2702,7 @@
       "caption": "",
       "left": 80,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2690,6 +2714,7 @@
       "caption": "",
       "left": 113,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2701,6 +2726,7 @@
       "caption": "",
       "left": 146,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2712,6 +2738,7 @@
       "caption": "",
       "left": 179,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2723,6 +2750,7 @@
       "caption": "",
       "left": 212,
       "top": 11,
+      "visible": false,
       "width": 27,
       "height": 24,
       "depth": 4
@@ -2833,6 +2861,7 @@
       "caption": "",
       "left": 503,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 213,
       "depth": 6
@@ -2844,6 +2873,7 @@
       "caption": "",
       "left": 0,
       "top": 206,
+      "visible": false,
       "width": 510,
       "height": 10,
       "depth": 6
@@ -3295,6 +3325,7 @@
       "caption": "DATAAPI",
       "left": null,
       "top": null,
+      "visible": false,
       "width": null,
       "height": null,
       "depth": 2

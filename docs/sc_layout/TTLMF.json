@@ -330,6 +330,7 @@
       "caption": "",
       "left": 18,
       "top": 366,
+      "visible": false,
       "width": 95,
       "height": 26,
       "depth": 1
@@ -341,6 +342,7 @@
       "caption": "",
       "left": 130,
       "top": 366,
+      "visible": false,
       "width": 95,
       "height": 26,
       "depth": 1
@@ -352,6 +354,7 @@
       "caption": "",
       "left": 245,
       "top": 366,
+      "visible": false,
       "width": 95,
       "height": 26,
       "depth": 1
@@ -363,6 +366,7 @@
       "caption": "",
       "left": 357,
       "top": 366,
+      "visible": false,
       "width": 95,
       "height": 26,
       "depth": 1

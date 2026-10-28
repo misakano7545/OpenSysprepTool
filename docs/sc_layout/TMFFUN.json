@@ -1241,6 +1241,7 @@
       "caption": "",
       "left": 3,
       "top": 287,
+      "visible": false,
       "width": 734,
       "height": 10,
       "depth": 3
@@ -1905,6 +1906,7 @@
       "caption": "",
       "left": 727,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 278,
       "depth": 3
@@ -1916,6 +1918,7 @@
       "caption": "",
       "left": 3,
       "top": 279,
+      "visible": false,
       "width": 734,
       "height": 10,
       "depth": 3
@@ -1982,6 +1985,7 @@
       "caption": "",
       "left": 727,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 278,
       "depth": 3
@@ -1993,6 +1997,7 @@
       "caption": "",
       "left": 3,
       "top": 279,
+      "visible": false,
       "width": 734,
       "height": 10,
       "depth": 3
@@ -2466,6 +2471,7 @@
       "caption": "",
       "left": 714,
       "top": 0,
+      "visible": false,
       "width": 10,
       "height": 43,
       "depth": 4
@@ -2477,6 +2483,7 @@
       "caption": "",
       "left": 0,
       "top": 43,
+      "visible": false,
       "width": 724,
       "height": 10,
       "depth": 4
@@ -2543,6 +2550,7 @@
       "caption": "加载上一次使用的oem信息",
       "left": 361,
       "top": 319,
+      "visible": false,
       "width": 181,
       "height": 21,
       "depth": 3
@@ -2818,6 +2826,7 @@
       "caption": "",
       "left": 3,
       "top": 3,
+      "visible": false,
       "width": 734,
       "height": 326,
       "depth": 3
@@ -2840,6 +2849,7 @@
       "caption": "",
       "left": 698,
       "top": 72,
+      "visible": false,
       "width": 36,
       "height": 18,
       "depth": 4
@@ -3005,6 +3015,7 @@
       "caption": "",
       "left": 567,
       "top": 39,
+      "visible": false,
       "width": 146,
       "height": 69,
       "depth": 4
@@ -3016,6 +3027,7 @@
       "caption": "",
       "left": 567,
       "top": 127,
+      "visible": false,
       "width": 146,
       "height": 69,
       "depth": 4
@@ -3027,6 +3039,7 @@
       "caption": "",
       "left": 567,
       "top": 209,
+      "visible": false,
       "width": 146,
       "height": 69,
       "depth": 4
@@ -3049,6 +3062,7 @@
       "caption": "生成次数:",
       "left": 219,
       "top": 192,
+      "visible": false,
       "width": 119,
       "height": 21,
       "depth": 4
@@ -3060,6 +3074,7 @@
       "caption": "Unknown",
       "left": 344,
       "top": 192,
+      "visible": false,
       "width": 337,
       "height": 21,
       "depth": 4
@@ -3192,6 +3207,7 @@
       "caption": "",
       "left": 708,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 222,
       "depth": 5
@@ -3203,6 +3219,7 @@
       "caption": "",
       "left": 13,
       "top": 215,
+      "visible": false,
       "width": 705,
       "height": 10,
       "depth": 5
@@ -3236,6 +3253,7 @@
       "caption": "",
       "left": 13,
       "top": 239,
+      "visible": false,
       "width": 705,
       "height": 10,
       "depth": 5
@@ -3247,6 +3265,7 @@
       "caption": "",
       "left": 708,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 246,
       "depth": 5
@@ -3280,6 +3299,7 @@
       "caption": "Browsing(&B)",
       "left": 534,
       "top": 263,
+      "visible": false,
       "width": 89,
       "height": 27,
       "depth": 5
@@ -3335,6 +3355,7 @@
       "caption": "",
       "left": 13,
       "top": 247,
+      "visible": false,
       "width": 705,
       "height": 10,
       "depth": 5
@@ -3346,6 +3367,7 @@
       "caption": "",
       "left": 708,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 254,
       "depth": 5
@@ -4114,6 +4136,7 @@
       "caption": "",
       "left": 728,
       "top": 3,
+      "visible": false,
       "width": 10,
       "height": 282,
       "depth": 3
@@ -4125,6 +4148,7 @@
       "caption": "",
       "left": 3,
       "top": 275,
+      "visible": false,
       "width": 734,
       "height": 10,
       "depth": 3
@@ -4169,6 +4193,7 @@
       "caption": "Restart(&R)",
       "left": 643,
       "top": 313,
+      "visible": false,
       "width": 89,
       "height": 27,
       "depth": 3
@@ -4180,6 +4205,7 @@
       "caption": "OsDrive:",
       "left": 456,
       "top": 318,
+      "visible": false,
       "width": 75,
       "height": 18,
       "depth": 3
@@ -4191,6 +4217,7 @@
       "caption": "",
       "left": 537,
       "top": 314,
+      "visible": false,
       "width": 100,
       "height": 26,
       "depth": 3,

@@ -127,10 +127,18 @@ TEST_CASE("每个页面的字段与走查名单一致，且字段名互不重复
         const std::vector<osp::ui::Field> fields = fieldsOf(page);
 
         CHECK(fields.size() == expected.size());
-        for (std::size_t i = 0; i < std::min(fields.size(), expected.size()); ++i)
+        // 只比集合，不比顺序：坐标表是生成的，且「我方扩展字段」固定被挪到页面末尾
+        // （留在原分组里会被多加一次组框原点偏移）。顺序在 DFM 那边由生成器保证。
+        std::vector<std::string> actualIds;
+        actualIds.reserve(fields.size());
+        for (const osp::ui::Field& field : fields)
         {
-            CHECK(fields[i].id == expected[i]);
+            actualIds.push_back(field.id);
         }
+        std::vector<std::string> sortedExpected = expected;
+        std::sort(sortedExpected.begin(), sortedExpected.end());
+        std::sort(actualIds.begin(), actualIds.end());
+        CHECK(actualIds == sortedExpected);
         for (const osp::ui::Field& field : fields)
         {
             // 控件名不能跨页重复，否则走查与冒烟驱动都会认错控件
