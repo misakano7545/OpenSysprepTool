@@ -64,6 +64,34 @@ jobs:
           .\build\bin\Release\ospt.exe --version | Out-Host
           exit $LASTEXITCODE
 
+      # M2 增量（宪章 §9.7）：验证过体检脚本本身，却没让它进流水线 ——
+      # verify_checkup.py 在 ci.yml 里 0 次命中，M2 的验收只在作者本机跑过一次。
+      # 没人跑的验收脚本等于没有，这里补上：真跑 --checkup，再让脚本拿
+      # cmd /c ver 与 shutil.disk_usage 当独立来源对照版本号与分区容量。
+      - name: 系统体检验收
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $work = 'build\m2'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+          & '.\build\bin\Release\ospt.exe' --checkup --json (Join-Path $work 'checkup.json') | Out-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::--checkup 退出码 $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          python tests\integration\verify_checkup.py (Join-Path $work 'checkup.json') |
+            Tee-Object -FilePath checkup-verify.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content checkup-verify.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
       # M3 增量（宪章 §9.7）：用固定 fixture 生成 unattend.xml，再按离线参考校验。
       # 失败时把校验脚本的 FAIL 行打成 annotation，匿名访问也能定位。
       # 注意：不要给原生命令加 2>&1 —— PowerShell 5.1 会把 stderr 变成 ErrorRecord，

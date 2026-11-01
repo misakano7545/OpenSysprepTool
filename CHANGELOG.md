@@ -7,6 +7,23 @@
 
 ### Fixed
 
+- **13 条 C4xxx 编译警告清零，并打开 `/WX`**：宪章 M8 矩阵里那句「构建 0 error 0 warning」
+  在此之前只是声明 —— CI 日志里实际躺着 13 条（`C4305`/`C4309` 截断、`C4456` 变量遮蔽、
+  `C4100` 未引用形参、`C4129` 非法转义），因为工程只有 `/W4` 没有 `/WX`，全绿照发
+  - `core/config/ini.cpp` 想查的是 U+FFFD，却写成字符字面量 `'\uFFFD'` → 截断成单字节
+    0xFD，语义本身就是空的；改为按 UTF-8 三字节 `EF BF BD` 查
+  - `core/prepare/prepare.cpp` 壁纸动作的 `defaultHive` 遮蔽了同函数前面的同名变量，
+    改名 `wallpaperHive`；`host/ui/ui_frame.cpp` 的 `RECT rect` 同理改 `controlRect`
+  - `deploy/main.cpp` 与 `host/ui/tmffun.cpp` 的未引用形参加 `[[maybe_unused]]`；
+    `host/cli_oem.cpp` 的 `profileToJsonText` 删掉从未被用过的 `indent` 形参
+  - `tests/unit/test_prepare.cpp` 六处 `"D:\Docs"` 这类单反斜杠路径改为 `"D:\\Docs"`
+    （`\D` 是非法转义，值实际被吃成 `DDocs`；两侧用同一个字面量所以测试一直没暴露）
+  - 新开关 `OSP_WERROR`（默认 ON）→ `add_compile_options(/WX)`：从此想留一条警告，
+    只能显式传 `-DOSP_WERROR=OFF`，这一步会进 diff、会被 review
+- **体检验收脚本进流水线**：`tests/integration/verify_checkup.py` 一直在仓库里，但
+  `ci.yml` 里 0 次命中 —— M2 的验收只在作者本机跑过一次。CI 新增「系统体检验收」步骤，
+  真跑 `ospt --checkup --json` 再用脚本拿 `cmd /c ver` 与 `shutil.disk_usage` 独立对照
+
 - **七个页签全部按 SC 的 DFM 坐标摆放**：目标系统、母盘系统、计划任务、部署过程、
   封装过程、运行、完成，共 111 个控件逐控件核对（`GetWindowRect` 与图纸坐标差 ≤2px）
   - 坐标由 `tools/gen_ui_coords.py` 从 `docs/sc_layout/TSCMF.json` 生成成表
