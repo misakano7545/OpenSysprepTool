@@ -822,6 +822,64 @@ done
 
 ---
 
+## 9.8 独立验收与「放手」三原则（2026-11-01 追加，优先级等同第 7 节）
+
+这一节是因为一次复核加的：当时的结论是「工程纪律真实，但放手只做到 1.5 步」——
+证据链能核验，可**没有任何东西拦得住不合格代码进 main**，也没有第二双眼睛。
+
+### 三条不可让步的原则
+
+| # | 原则 | 落地物 | 判据 |
+|---|---|---|---|
+| 1 | **AI 自己验证**，人只给目标与验收标准 | 各里程碑的 `verify_*.py` + 单元测试 | 第 8 节每条验收命令都能在 CI 里真跑 |
+| 2 | **系统自动纠错**，不靠人反复提醒 | `/WX`、负例闸门、矩阵写回 | 不合格就红，红了必须改 |
+| 3 | **独立 AI 验收**，写代码的不能自己宣布完成 | `.github/workflows/review.yml` + `tools/independent_review.py` | 判决来自**另一个模型**，输入是**真实 CI 日志** |
+
+### 硬规则
+
+- `main` **必须开分支保护**，required checks = CI + Lint + Independent Review。
+  CI 只是通知的时候，「不合格代码无法合并」就是一句空话。
+- 改动走 PR。直接推 main 只允许一种情况：分支保护还没配上时的第一次引导提交。
+- 评审模型必须与写代码的模型**不同族**。`independent_review.py` 会拒绝含
+  `deepseek` 的评审模型（本仓库历来的实现模型），不给「换个名字假装独立」留口子。
+- **判决三档必须分清楚**：pass 合入 / reject 退回 / uncertain 交给人。
+  拿不到证据是 uncertain，不是 reject —— 否则第一次引入评审链路时谁也进不来。
+- 评审者要能看见**真实执行证据**。`tools/collect_ci_evidence.py` 从 actions API 拉
+  日志原文（`RESULT:` / `warning C` / `tests passed`），不接受「CI 结论：success」这种口头结论。
+- **负例是闸门的一部分**。任何新增闸门都要配一份「把东西改坏，确认闸门变红」的脚本
+  （参考 `verify_win7_compat_negative.py`、`verify_ui_layout_negative.py`）。
+  一个永远 return 0 的检查也是全绿。
+
+### 矩阵记录不许是常量
+
+`acceptance-matrix-<tag>.json` 的每一格必须能追到真实执行记录，见
+`docs/acceptance/README.md`。判据只有一条：**换一个版本来跑，文件内容必须会变。**
+字节数一模一样的「验收记录」等于没有记录。
+
+### 判闸门真假的四条命令
+
+接手的人不用读文档，直接跑：
+
+```bash
+# 1. 验收脚本有没有真的接进流水线
+ls tests/integration/verify_*.py | wc -l
+grep -oh 'verify_[a-z0-9_]*\.py' .github/workflows/*.yml | sort -u | wc -l
+
+# 2. 分支保护到底开没开（公开仓库不需要 token）
+curl -s https://api.github.com/repos/misakano7545/OpenSysprepTool/branches/main \
+  | grep -o '"enforcement_level":"[^"]*"'
+
+# 3. 最近多少次运行是红在 main 上的
+curl -s 'https://api.github.com/repos/misakano7545/OpenSysprepTool/actions/runs?per_page=100' \
+  | grep -o '"event":"[^"]*"' | sort | uniq -c
+
+# 4. 矩阵是不是真读记录
+python tests/integration/verify_release.py --emit-matrix /tmp/m.json --tag main
+python -c "import json;d=json.load(open('/tmp/m.json'));print(d['executedCells'],'/',d['matrixSize'])"
+```
+
+---
+
 ## 10. 已知的坑（来自逆向分析）
 
 | 坑 | 说明 |
