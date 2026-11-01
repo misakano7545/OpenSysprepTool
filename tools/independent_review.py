@@ -467,11 +467,10 @@ def main(argv: list[str]) -> int:
             _say(f"  {verdict_code.upper()}  {item}")
         result = {
             "verdict": verdict_code,
-            "summary": (
-                "确定性闸门拦下：改动削弱了既有验收"
-                if verdict_code == "reject"
-                else "确定性闸门无法确认：缺少可用的证据，交给人处理"
-            ),
+            # 结论直接用第一条原因，别写一句笼统的固定话术 ——
+            # 「改动了规则书」和「没给证据」是两种完全不同的处理方式，
+            # 混成一句话会让人照着错的去修。
+            "summary": (reasons[0] if reasons else "确定性闸门拦下"),
             "must_fix": reasons,
             "evidence_cited": [],
             "confidence": 1.0,
