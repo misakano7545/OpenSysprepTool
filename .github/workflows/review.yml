@@ -1,0 +1,152 @@
+name: Independent Review
+
+# 宪章补充条款（2026-11-01）：写代码的那个 AI 不能自己宣布完成。
+# 每个 PR 都要过一道「另一个模型」的验收，输入是**真实 CI 日志**，不是自述。
+#
+# 判决三种：
+#   pass      → 允许合并（配合 main 分支保护的 required checks）
+#   reject    → 退回修改
+#   uncertain → 停止并交给人（含：评审模型不可用、输出不合规、拿不到 CI 日志）
+#
+# 这个作业本身不构建任何东西：它只读证据、下判断。构建由 ci.yml 负责，
+# 它跑完与否由 collect_ci_evidence.py 轮询确认 —— 所以两边不抢资源也不互相阻塞。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 用 merge-base 起算，diff 里不会混进主干自己的改动
+      - name: 生成 PR diff
+        run: |
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          # 拿不到两端就直接失败：diff 是这次验收唯一的输入，缺了它不能「凑合过」
+          if ! git fetch --no-tags origin "$base" "$head"; then
+            echo "::error::fetch 失败，取不到 $base / $head，无法生成 diff"
+            exit 1
+          fi
+          git diff "$base...$head" > pr.diff
+          echo "diff 行数: $(wc -l < pr.diff)"
+          changed=$(grep -c '^+++ b/' pr.diff || echo 0)
+          echo "改动文件: ${changed:-0}"
+          if [ ! -s pr.diff ]; then
+            echo "::error::diff 为空：没有改动就没有可验收的东西"
+            exit 1
+          fi
+
+      # 证据必须是真实日志。这一步会等 ci.yml 跑完（最多 25 分钟）。
+      # 只认 CI 与 Lint 两个工作流：评审自己也在同一个 sha 上跑，把它算进来会永远等不到
+      # 「全部完成」。--exclude-workflow 是显式的第二道保险（脚本也会用 GITHUB_WORKFLOW 自动排除）。
+      - name: 收集 CI 真实日志证据
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 收集失败**不等于**验收失败：拿不到证据是「无法确认」，要交给人，
+          # 不能在这里把整个 job 打断（那样连结论都不会生成，也没人知道为什么）。
+          set +e
+          python tools/collect_ci_evidence.py \
+            --repo "${{ github.repository }}" \
+            --sha '${{ github.event.pull_request.head.sha }}' \
+            --out evidence.txt \
+            --conclusion conclusion.txt \
+            --json ci-evidence.json \
+            --only-workflow CI \
+            --only-workflow Lint \
+            --exclude-workflow "Independent Review" \
+            --wait-minutes 25
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] || [ ! -f conclusion.txt ]; then
+            echo "error" > conclusion.txt
+            printf '%s\n' "证据收集失败（collect_ci_evidence.py 退出码 $code）" > evidence.txt
+            echo "::warning::CI 证据收集失败（code=$code），按「无法确认」交给人"
+          fi
+          echo "总结论: $(cat conclusion.txt)"
+          head -20 evidence.txt
+
+      - name: 独立验收（异模型）
+        id: verdict
+        env:
+          OSPT_REVIEW_API_KEY: ${{ secrets.OSPT_REVIEW_API_KEY }}
+          OSPT_REVIEW_MODEL: ${{ vars.OSPT_REVIEW_MODEL || 'tw-intl:gpt-5.4' }}
+          OSPT_REVIEW_BASE_URL: ${{ vars.OSPT_REVIEW_BASE_URL || 'https://ai.misakano.kdns.fr/v1' }}
+        run: |
+          set +e
+          python tools/independent_review.py \
+            --diff pr.diff \
+            --ci-conclusion "$(cat conclusion.txt)" \
+            --evidence evidence.txt \
+            --out review.json \
+            --summary review.md
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 判决原文贴进 job summary，匿名访问也能看到
+          if [ -f review.md ]; then
+            cat review.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "独立验收在写出结论前就退出了（code=$code），请查看本步骤日志。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 这一步只负责收集判决，真正的落闸在后面的「按判决落闸」步骤：
+          # 用 set +e 是因为默认 shell 是 bash -e，不关掉会在这里就断掉，
+          # 后面贴评论和落闸都执行不到。判决码原样传下去，不做任何转换。
+          exit 0
+
+      - name: 把结论贴到 PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 评论发不出去不该把验收结论掩盖掉：记一条 warning 继续走
+          if [ -f review.md ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file review.md ||
+              echo "::warning::结论评论发送失败，结论仍以 job 状态与 artifact 为准"
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body "独立验收没有产出结论（脚本异常退出），按「无法确认」处理，请人工介入。" ||
+              echo "::warning::兜底评论发送失败，结论仍以 job 状态为准"
+          fi
+
+      # 结论本身决定 job 成败 —— 它被 main 分支保护当成 required check，
+      # 所以 reject / uncertain 会真的把合并按钮按灰。
+      - name: 按判决落闸
+        run: |
+          code="${{ steps.verdict.outputs.code }}"
+          case "$code" in
+            0) echo "::notice::独立验收通过" ; exit 0 ;;
+            1) echo "::error::独立验收驳回，见 PR 评论与 review.json" ; exit 1 ;;
+            *) echo "::error::独立验收无法确认（缺 key / 模型不可用 / 输出不合规），交给人处理" ; exit 2 ;;
+          esac
+
+      - name: 保存结论
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-review
+          path: |
+            review.json
+            review.md
+            evidence.txt
+          if-no-files-found: warn
