@@ -95,7 +95,7 @@ CI_FAIL = "failure"
 CI_MISSING = "missing"
 
 
-def run_tool_against_stub(model_content: str, tool) -> tuple[int, str]:
+def run_tool_against_stub(model_content: str, tool, model: str = "tw-intl:stub-reviewer") -> tuple[int, str]:
     """起一个假的 OpenAI 兼容服务，把评审器当子进程跑，返回 (退出码, 细节)
 
     这一层验的是真实链路：HTTP 请求 → 响应解析 → 判决 → 退出码。
@@ -109,7 +109,27 @@ def run_tool_against_stub(model_content: str, tool) -> tuple[int, str]:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802 —— http.server 的固定接口名
             length = int(self.headers.get("Content-Length") or 0)
-            self.rfile.read(length)
+            raw = self.rfile.read(length)
+            try:
+                requested = _json.loads(raw.decode("utf-8", errors="replace")).get("model", "")
+            except Exception:  # noqa: BLE001 —— 畸形请求当普通请求处理
+                requested = ""
+            # 名字里带 broken 就当「这个池子配额用尽」，用来验多候选降级
+            if "broken" in requested:
+                body = _json.dumps(
+                    {
+                        "error": {
+                            "message": "all accounts unavailable (cooling/disabled)",
+                            "code": "no_healthy_account",
+                        }
+                    }
+                ).encode("utf-8")
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             payload = {
                 "choices": [{"message": {"role": "assistant", "content": model_content}}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1},
@@ -149,7 +169,7 @@ def run_tool_against_stub(model_content: str, tool) -> tuple[int, str]:
                 "--ci-conclusion", CI_OK,
                 "--evidence", evidence_path,
                 "--out", out_path,
-                "--model", "tw-intl:stub-reviewer",
+                "--model", model,
                 "--base-url", f"http://127.0.0.1:{port}/v1",
                 "--timeout", "30",
             ],
@@ -299,6 +319,21 @@ def main(argv: list[str]) -> int:
     ]:
         code, detail = run_tool_against_stub(content, tool)
         check(f"{label}", code == want, f"实际 exit={code}；{detail}")
+
+    # 上游单池冷却时不能把 PR 永远卡死：第一个候选 503，第二个顶上就该判出来
+    code, detail = run_tool_against_stub(
+        '{"verdict":"pass","summary":"第二个池子接上了","must_fix":[],"evidence_cited":[],"confidence":0.8}',
+        tool,
+        model="tw-intl:broken-pool,wb-cn:glm-5.3",
+    )
+    check("第一个候选 503 时自动降级到下一个", code == 0, f"实际 exit={code}；{detail}")
+
+    code, detail = run_tool_against_stub(
+        '{"verdict":"pass","summary":"x","must_fix":[],"evidence_cited":[],"confidence":0.5}',
+        tool,
+        model="tw-intl:broken-a,tw-intl:broken-b",
+    )
+    check("所有候选都 503 → uncertain（exit 2），不是假 pass", code == 2, f"实际 exit={code}；{detail}")
 
     _say("")
     if _failures:

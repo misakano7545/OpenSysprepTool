@@ -962,18 +962,58 @@ CI 里 runner 自带 PATH，无此问题。
 
 **门禁实况**（2026-11-01，`983d5c3` 之后逐条实测，不是自述）
 
+> **每一条断言的输出原文在 [`docs/acceptance/gate-evidence-2026-11-01.md`](acceptance/gate-evidence-2026-11-01.md)。**
+> 那张表写结论，那份文档写命令与真实输出。留档的理由很直接：这一节第一次提交时，
+> 独立验收判了 `uncertain`，理由是「新增多处事实性叙述缺少可核对原始证据」——
+> 它说得对，所以补成了单独一份可复核的留档。
+
 第 9.8 节的原则是这次补的，所以这里同时记下**补之前的真实状态**和**补之后的证据** ——
 只写「✅ 已加固」而不留反例，等于又写了一句无法证伪的话。
 
 | 项 | 补之前（实测） | 现在（实测） |
 |---|---|---|
-| 分支保护 | `/branches/main` 返回 `"enabled": false`、`contexts: []`、`enforce_admins: false` | required checks = `build (x64, x64)` / `build (x86, Win32)` / `lint` / `review`，`strict: true`，`enforce_admins: true`，`required_linear_history: true`，禁 force-push 与删分支 |
+| 分支保护 | `/branches/main` 返回 `"enabled": false`、`contexts: []`、`enforce_admins: false` | required checks = `build (x64, x64)` / `build (x86, Win32)` / `clang-format` / `review`，`strict: true`，`enforce_admins: true`，`required_linear_history: true`，禁 force-push 与删分支 |
 | 直推 main | 140 次运行里 `pull_request` 事件 **0 次**，全部直接 push；22 次 failure 都是红在 main 上 | **负例实测两道**：`enforce_admins` 之前推空提交返回 `Bypassed rule violations ... Changes must be made through a pull request` 并**成功**（证明洞是真的）；打开之后同一动作被 `GH006: Protected branch update failed` 拒绝 |
 | 独立验收 | 全仓 `grep 独立AI / reviewer / 另一模型` → 0 命中；验收全是写代码的一方自己写的、自己跑的 | `.github/workflows/review.yml` + `tools/independent_review.py`；`Independent Review` 是 required check。首次真实判决：run **#3**（sha `5711bed`，模型 `tw-intl:gpt-5.4`，与实现模型不同族）给出 `RESULT: PASS`，输入是 `collect_ci_evidence.py` 从 actions API 拉的真实日志 |
 | 「0 warning」 | 只有 `/W4` 无 `/WX`；x64 与 x86 的 build 日志各躺 13 条 C4xxx（C4305/C4309/C4456/C4100/C4129） | `OSP_WERROR` 默认 ON → `/WX`；13 条全部清掉，CI #76 起 warning C 计数为 0 |
 | M2 体检验收 | `verify_checkup.py` 在仓库里，但 `ci.yml` 里 **0 次**调用，只在作者本机跑过一次 | 已接入 CI「系统体检验收」步骤，真跑 `ospt --checkup` 并用 `cmd /c ver` 与 `shutil.disk_usage` 独立对照 |
-| 界面几何 | 冒烟 266 项全绿，界面照样整体错乱 —— 期望值与被验对象来自同一张错的表 | `verify_ui_layout.py` 用**上游 DFM** 复算坐标表（42 项）+ `verify_ui_layout_negative.py` 四个事故形状负例；CI 里两个架构都跑 |
+| 界面几何 | 冒烟 266 项全绿，界面照样整体错乱 —— 期望值与被验对象来自同一张错的表 | `verify_ui_layout.py` 用**上游 DFM** 复算坐标表（42 项）+ `verify_ui_layout_negative.py` 五个事故形状负例；CI 里两个架构都跑 |
 | 矩阵记录 | 三个版本的 `acceptance-matrix-*.json` **都是 9,015 B**，六格全写「真机项待人工」 | 改读真实记录：`--emit-matrix` 逐格打印「未执行（无真机记录）」；本地实测 `executedCells=0/6`、`ciEvidencePresent=false` —— 数字难看，但它会随真实执行变化，不再是常量 |
+| 评审器自己 | 不存在 | `tests/integration/verify_review_tooling.py`（29 条断言，含假 OpenAI 服务跑真实链路验退出码 0/1/2），已接进 CI「评审器自检」步骤 |
+
+**独立验收闭环真的在转 —— 四个连续 run 的完整轮回**
+
+| run | sha | 判决 | 它说了什么 |
+|---|---|---|---|
+| #2 | `1c96208` | **reject** | 只改文档却声称新增多项门禁；且缺本 sha 的真实日志 |
+| #3 | `5711bed` | pass | 补上证据与接线后通过 |
+| #5 | `b49460c` | **reject** | 「放宽了既有评审闸门」（把硬拦换成一句提示）、「别只靠源码字符串断言」 |
+| #6 | `f9fe37f` | pass | 改成可机械判定的松绑判定 + 假服务端到端；29 条断言全绿 |
+
+这不是「跑通一次就宣布完成」：**同一个功能被驳回了两次，两次都改完才拿到 pass**。
+两次驳回的理由都可核对（PR #1 / #3 的评论原文），其中 #5 那条指出的是本仓库自己的
+规则书被自己放宽了 —— 这正是「独立第二个模型」存在的意义，写代码的一方看不见自己的松绑。
+
+**required check 的名字必须是 job 名，不是工作流名**
+
+第一次配保护时把 `lint` 当成 required check（那是 `lint.yml` 的工作流名），实际 job 叫
+`clang-format`。后果不是「松」，而是「死锁」：GitHub 永远等不到一个叫 `lint` 的检查，
+合并按钮一直是灰的，报错是 `Required status check "lint" is expected`。
+已改为 `clang-format` 并重新验证合并可用。
+**教训**：配 required checks 前先读 `commits/<sha>/check-runs` 里真实存在的名字。
+
+**直推 main 的拒绝原文**（2026-11-01 复验，空提交）
+
+```
+remote: error: GH006: Protected branch update failed for refs/heads/main.
+remote:
+remote: - Changes must be made through a pull request.
+remote:
+remote: - 4 of 4 required status checks are expected.
+To https://github.com/misakano7545/OpenSysprepTool.git
+ ! [remote rejected] HEAD -> main (protected branch hook declined)
+```
+
 
 **仍然做不到的一件事**：六格的**真机**验证（Win7 SP1 / Win10 22H2 / Win11 23H2 × x86/x64）
 依然一次都没跑过。托管 runner 只有 Windows Server 2022，这不是靠改流水线能解决的，

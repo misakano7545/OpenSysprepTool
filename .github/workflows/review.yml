@@ -101,7 +101,7 @@ jobs:
         id: verdict
         env:
           OSPT_REVIEW_API_KEY: ${{ secrets.OSPT_REVIEW_API_KEY }}
-          OSPT_REVIEW_MODEL: ${{ vars.OSPT_REVIEW_MODEL || 'tw-intl:gpt-5.4' }}
+          OSPT_REVIEW_MODEL: ${{ vars.OSPT_REVIEW_MODEL || 'tw-intl:gpt-5.4,tw-intl:gemini-3-flash-solo,wb-cn:glm-5.3,wb-global:gpt-5.6-luna' }}
           OSPT_REVIEW_BASE_URL: ${{ vars.OSPT_REVIEW_BASE_URL || 'https://ai.misakano.kdns.fr/v1' }}
         run: |
           set +e
