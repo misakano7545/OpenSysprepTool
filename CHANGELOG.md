@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **独立 AI 验收（第三双眼睛）**：`.github/workflows/review.yml` 在每个 PR 上跑
+  `tools/independent_review.py`，判决由一个与实现模型不同族的模型给出，输入是
+  `tools/collect_ci_evidence.py` 从 actions API 拉回来的**真实日志原文**，不是自述。
+  `Independent Review` 已成为 main 的 required check；判决三档 —— pass 合入 /
+  reject 退回 / uncertain 交给人
+- **界面几何回归闸门**：`tests/integration/verify_ui_layout.py` 拿上游 DFM 的绝对坐标
+  复算坐标表（相对坐标 = 绝对坐标 − 分组框原点、Visible 位、不重不漏、组内不溢出、
+  可见控件互不重叠），42 项；`verify_ui_layout_negative.py` 用四个已知事故形状做反例。
+  这一条防的正是 2026-10-28 那次「冒烟 266 项全绿但界面整体错乱」
+- **矩阵记录改读真实执行证据**：`acceptance-matrix-*` 不再由常量拼出，逐格显示
+  「未执行（无真机记录）」；`docs/acceptance/` 下放真机记录与 CI 证据
+
 ### Fixed
 
 - **13 条 C4xxx 编译警告清零，并打开 `/WX`**：宪章 M8 矩阵里那句「构建 0 error 0 warning」
