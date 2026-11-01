@@ -262,6 +262,23 @@ jobs:
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0
 
+      # 独立验收器自己的验收：改了规则书必须有配套检查（宪章 §9.8）。
+      # 纯静态 + 反射，不调模型、不需要 key，所以放在 CI 里而不是只在本机跑。
+      - name: 评审器自检
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $log = 'review-tooling.log'
+          python tests\integration\verify_review_tooling.py *>&1 | Tee-Object -FilePath $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content $log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
+          exit 0
+
       # 界面几何回归：坐标表必须能由 DFM 原样坐标复算出来。
       # 这一条防的正是 2026-10-28 那次「界面整体错乱」——当时冒烟 266 项全绿，
       # 因为期望值与被验对象来自同一张错的表。本步骤不依赖任何二进制，纯静态比对，

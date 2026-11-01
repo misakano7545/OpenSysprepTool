@@ -53,7 +53,7 @@ GATE_WEAKENING = [
     (r"--no-tests=ignore", "ctest 用了 --no-tests=ignore（零测试也算绿）"),
     (r"\|\|\s*true\s*$", "命令尾部加了 || true（失败被吞）"),
     (r"if\s*:\s*false", "步骤被 if: false 关掉"),
-    (r"OSP_WERROR\s*[=:]\s*OFF", "关掉了 /WX"),
+    (r"(?i)OSP_WERROR[\s=:]*OFF", "关掉了 /WX"),
     (r"(?i)pytest\.mark\.(skip|xfail)", "测试被 skip/xfail 标记"),
     (r"(?i)\bSkip-Test\b", "PowerShell 里跳过测试"),
     (r"@unittest\.skip", "单元测试被 skip 装饰器关掉"),
@@ -87,12 +87,17 @@ SYSTEM_PROMPT = """你是一个独立的代码验收者。你不是写这段代�
    那道门会永远锁死，谁来都进不去。
 7. 证据只给了一部分（有文件被截断）时：如果缺的部分不影响你判断的那几条，照常下判；
    如果影响，uncertain 并点名缺哪个文件。不要因为看不到就默认有罪。
+8. **只改文档的提交**：diff 里只有 `.md` 时，它的作用是记录已经发生的事。如果材料里
+   给出了「本 PR 之前已合入的提交」清单，且文档描述的能力对应这些提交，就不要因为
+   「本次 diff 里没有代码」而 reject；只有当文档写了清单里根本不存在的东西时才 reject。
 
-输出必须是严格 JSON，不要 markdown 代码块，不要任何解释性前后缀：
+输出必须是严格 JSON，不要 markdown 代码块，不要任何解释性前后缀。
+**务必短**：summary 一句话；must_fix 最多 3 条、每条不超过 60 字；evidence_cited 最多 3 条。
+（上一版没限长度，输出被 max_tokens 截断，整段 JSON 变成不可解析 —— 判决再对也读不出来。）
 {"verdict":"pass|reject|uncertain",
  "summary":"一句话中文结论",
- "must_fix":["必须改的具体问题，每条写清文件与行为"],
- "evidence_cited":["你据以判断的具体材料片段，最多 5 条"],
+ "must_fix":["最多 3 条，每条 ≤60 字"],
+ "evidence_cited":["最多 3 条"],
  "confidence":0.0-1.0}"""
 
 
@@ -131,10 +136,13 @@ GATE_BEARING_SUFFIXES = (
 )
 GATE_BEARING_NAMES = ("CMakeLists.txt", "Makefile")
 
-# 规则定义文件自己必然包含这些模式串（它就是用它们来做判定的）。扫它等于每次提交
-# 都自我驳回，所以把它排除。这里只排这一个 —— 加白名单必须走 code review，
-# 不能变成「谁都能把自己塞进来」的漏洞。
-SELF_FILES = ("tools/independent_review.py",)
+# 规则定义与规则测试这两种文件必然包含这些模式串（它们就是拿这些串做断言的），
+# 扫它们等于每次提交都自我驳回。所以排除 —— 但排除名单本身在 PROTECTED_TOOLING
+# 里，改它会被标成「改了规则书」，由评审模型逐条判断是加严还是松绑。
+SELF_FILES = (
+    "tools/independent_review.py",
+    "tests/integration/verify_review_tooling.py",
+)
 
 
 def is_gate_bearing(path: str) -> bool:
@@ -171,6 +179,30 @@ def iter_file_diffs(diff: str):
         yield path, lines
 
 
+def iter_removed_code_lines(diff: str):
+    """把 unified diff 切成 (文件路径, 被删除的代码行)
+
+    「规则书被改」这件事有两种：加严和松绑。加严往往只是新增行，松绑则表现为
+    **删除** —— 删掉一条 check()、删掉一个工作流步骤、删掉一项必检。
+    只看新增行的话，删断言是看不见的。
+    """
+    path = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:].strip()
+            if path.startswith("b/"):
+                path = path[2:]
+            continue
+        if not line.startswith("-") or line.startswith("---"):
+            continue
+        body = line[1:].strip()
+        if not body:
+            continue
+        if body.lower().startswith(COMMENT_PREFIXES):
+            continue
+        yield path, body
+
+
 def all_added_code_lines(diff: str) -> list[str]:
     result: list[str] = []
     for _path, lines in iter_file_diffs(diff):
@@ -178,8 +210,11 @@ def all_added_code_lines(diff: str) -> list[str]:
     return result
 
 
-def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]:
-    """返回 (verdict, reasons)。verdict 非空即直接下判，不调模型。
+def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str], list[str]]:
+    """返回 (verdict, reasons, notes)。
+
+    verdict 非空即直接下判，不调模型；notes 是给评审模型的额外提醒
+    （例如「本次改动包含验收规则书本身」）。
 
     CI 结论分三档，不能混：
       success          → 继续往下查
@@ -188,22 +223,24 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
                         这类要交给人，否则链路第一次上线就永远进不去）
     """
     reasons: list[str] = []
+    notes: list[str] = []
     escaped: list[str] = []
     verdict_ci = ci_conclusion.strip().lower()
 
     if verdict_ci in ("failure", "failed", "red", "cancelled", "timed_out"):
         reasons.append(f"CI 对这个 sha 的结论是「{ci_conclusion}」，不是 success")
-        return "reject", reasons
+        return "reject", reasons, notes
     if verdict_ci not in ("success", "passed", "green"):
         reasons.append(
             f"拿不到可用的 CI 证据（结论「{ci_conclusion}」）：按「无法确认」处理，交给人"
         )
-        return "uncertain", reasons
+        return "uncertain", reasons, notes
 
     for path, lines in iter_file_diffs(diff):
         if path in PROTECTED_TOOLING:
-            # 这不是「驳回」，而是「交给人」：改规则书可能是正当的加严，也可能是
-            # 偷偷松绑。只有人看得出是哪种，模型和写代码的一方都不该自己批。
+            # 不硬拦 —— 硬拦会让「改进验收规则」这件事永远卡在门外（第一版就是这样，
+            # 连给评审模型加个上下文都做不到）。但必须让模型知道它在看的是规则书本身，
+            # 由它逐条判断是加严还是松绑，而这一条不给任何「自动放行」的余地。
             escaped.append(path)
             continue
         if not is_gate_bearing(path):
@@ -219,6 +256,16 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
     files = changed_files(diff)
     if not files:
         reasons.append("diff 里没有任何文件改动")
+
+    # 规则书里的「松绑」几乎都长成删除：删掉一条 check()、删掉一个工作流步骤。
+    # 第一版对规则书是整份硬拦（一律 uncertain 交给人），结果连给评审器加个上下文
+    # 都做不到 —— 规则书永远改不动。现在换成能机械判定的那条：**删断言/删步骤 = reject**，
+    # 其余改动照常交给模型逐条判断加严还是松绑。
+    for path, body in iter_removed_code_lines(diff):
+        if path not in PROTECTED_TOOLING:
+            continue
+        if re.search(r"\bcheck\(|\bREQUIRE\(|\bassert\b|^\s*-\s*name\s*:|^\s*(run|uses|shell)\s*:", body):
+            reasons.append(f"在规则书里删掉了断言或工作流步骤（{path}）：`{body[:120]}`")
 
     touch_ci = [name for name in files if name.startswith(".github/workflows/")]
     touch_tests = [
@@ -243,10 +290,15 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
             )
 
     if reasons:
-        return "reject", reasons
+        return "reject", reasons, notes
     if escaped:
-        return "uncertain", [f"改动了验收规则书本身（{path}），必须由人复核" for path in escaped]
-    return "", []
+        notes.append(
+            "⚠ 本次改动包含**验收规则书本身**：" + "、".join(escaped) +
+            "。逐条核对每一处改动是「加严」还是「松绑」：新增检查、收紧阈值 = 加严；"
+            "删除断言、放宽容差、减少必检项、调高 token/超时上限以外的放水 = 松绑。"
+            "任何一处松绑都必须 reject，并写明是哪一行。"
+        )
+    return "", [], notes
 
 
 def diff_manifest(diff: str) -> tuple[str, dict[str, int]]:
@@ -275,7 +327,9 @@ def diff_manifest(diff: str) -> tuple[str, dict[str, int]]:
     return "\n".join(lines), counts
 
 
-def build_user_prompt(diff: str, ci_conclusion: str, files: list[str], evidence: str) -> str:
+def build_user_prompt(
+    diff: str, ci_conclusion: str, files: list[str], evidence: str, context: str = ""
+) -> str:
     # 第一版把整份 diff 截到前 24000 字符，评审模型当场驳回：「给的是截断的，
     # 无法检查后半段」。截断本身没错，错在没说清缺了什么。现在改成按文件分配预算：
     # 小文件给全文，大文件给前 N 行并**逐文件**标注还剩多少没给。
@@ -329,8 +383,9 @@ def build_user_prompt(diff: str, ci_conclusion: str, files: list[str], evidence:
 
     return (
         f"CI 结论：{ci_conclusion}\n"
-        f"改动文件（{len(files)} 个）：{', '.join(files) if files else '（无）'}\n\n"
-        f"{manifest}"
+        f"改动文件（{len(files)} 个）：{', '.join(files) if files else '（无）'}\n"
+        f"{context}"
+        f"\n{manifest}"
         f"{rules}\n\n--- CI 运行证据（从本次流水线的真实日志里摘出来的原文）---\n"
         f"{evidence.strip()[:12000]}\n--- 证据结束 ---"
         f"\n\n--- diff 开始 ---\n" + "\n\n".join(parts) + f"\n--- diff 结束 ---{note}"
@@ -371,7 +426,7 @@ def call_model(prompt: str, base_url: str, api_key: str, model: str, timeout: in
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0,
-            "max_tokens": 1200,
+            "max_tokens": 3000,
         }
     ).encode("utf-8")
 
@@ -436,6 +491,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument(
+        "--context",
+        default="",
+        help="本次改动之前已合入的提交清单（文件路径）。只改文档的 PR 靠它才能被判对",
+    )
     parser.add_argument("--self-test", action="store_true", help="只跑确定性闸门，不调模型")
     try:
         args = parser.parse_args(argv[1:])
@@ -451,13 +511,21 @@ def main(argv: list[str]) -> int:
     evidence = ""
     if args.evidence and os.path.isfile(args.evidence):
         evidence = load_text(args.evidence)
+    context = ""
+    if args.context and os.path.isfile(args.context):
+        context = load_text(args.context).strip()
+        if context:
+            context = "\n--- 本 PR 之前已合入 main 的提交（文档描述的能力通常在这里）---\n" + context[:4000] + "\n"
 
     _say(f"independent_review: diff {len(diff)} 字符 / {len(files)} 个文件")
     _say(f"CI 结论: {args.ci_conclusion}")
     _say(f"CI 证据: {'%d 字符' % len(evidence) if evidence else '（没有）'}")
+    _say(f"上下文: {'有' if context else '（没有）'}")
 
     section("确定性闸门（不依赖模型）")
-    verdict_code, reasons = deterministic_checks(diff, args.ci_conclusion)
+    verdict_code, reasons, notes = deterministic_checks(diff, args.ci_conclusion)
+    for item in notes:
+        _say(f"  NOTE  {item}")
     if not verdict_code and not evidence.strip():
         # 「声称跑过」不等于「跑过」。没有从真实流水线摘出来的日志，就不给合入。
         verdict_code = "reject"
@@ -531,7 +599,7 @@ def main(argv: list[str]) -> int:
 
     _say(f"  调用 {args.model} …")
     verdict, raw = call_model(
-        build_user_prompt(diff, args.ci_conclusion, files, evidence),
+        build_user_prompt(diff, args.ci_conclusion, files, evidence, context),
         args.base_url,
         args.api_key if hasattr(args, "api_key") else api_key,
         args.model,

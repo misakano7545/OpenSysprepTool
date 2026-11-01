@@ -56,6 +56,16 @@ jobs:
             echo "::error::diff 为空：没有改动就没有可验收的东西"
             exit 1
           fi
+          # 评审模型只看得到 diff，看不到「这些能力是之前哪个提交落地的」。
+          # 只改文档的 PR 会被它判成「声称完成但拿不出证据」—— 实测过一次。
+          # 把 base 一侧最近 30 个提交的标题给它当上下文。
+          # 注意：这里不走「命令加兜底让它永远成功」那条路，那条写法恰好是本仓库
+          # 自己的确定性闸门明令禁止的（失败被吞等于没有闸门）。改成显式判 if。
+          if ! git log --oneline -30 "$base" > merged-context.txt; then
+            : > merged-context.txt
+            echo "::warning::取不到 base 侧的提交历史，评审模型将没有上下文"
+          fi
+          echo "上下文提交数: $(wc -l < merged-context.txt)"
 
       # 证据必须是真实日志。这一步会等 ci.yml 跑完（最多 25 分钟）。
       # 只认 CI 与 Lint 两个工作流：评审自己也在同一个 sha 上跑，把它算进来会永远等不到
@@ -99,6 +109,7 @@ jobs:
             --diff pr.diff \
             --ci-conclusion "$(cat conclusion.txt)" \
             --evidence evidence.txt \
+            --context merged-context.txt \
             --out review.json \
             --summary review.md
           code=$?

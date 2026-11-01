@@ -5,7 +5,36 @@
 
 ## [Unreleased]
 
+### Added
+
+- **独立 AI 验收（第三双眼睛）**：`.github/workflows/review.yml` 在每个 PR 上跑
+  `tools/independent_review.py`，判决由一个与实现模型不同族的模型给出，输入是
+  `tools/collect_ci_evidence.py` 从 actions API 拉回来的**真实日志原文**，不是自述。
+  `Independent Review` 已成为 main 的 required check；判决三档 —— pass 合入 /
+  reject 退回 / uncertain 交给人
+- **界面几何回归闸门**：`tests/integration/verify_ui_layout.py` 拿上游 DFM 的绝对坐标
+  复算坐标表（相对坐标 = 绝对坐标 − 分组框原点、Visible 位、不重不漏、组内不溢出、
+  可见控件互不重叠），42 项；`verify_ui_layout_negative.py` 用四个已知事故形状做反例。
+  这一条防的正是 2026-10-28 那次「冒烟 266 项全绿但界面整体错乱」
+- **矩阵记录改读真实执行证据**：`acceptance-matrix-*` 不再由常量拼出，逐格显示
+  「未执行（无真机记录）」；`docs/acceptance/` 下放真机记录与 CI 证据
+
 ### Fixed
+
+- **评审器修掉两处让它误判的毛病**：PR #3 上它明明给出了 `reject` 判决，却因为
+  `max_tokens=1200` 把 JSON 截断而落成「输出不可解析」→ uncertain，判决再对也读不出来；
+  另外它只看得到 diff，看不到「这些能力是之前哪个提交落地的」，于是把只改文档的 PR
+  判成「声称完成却拿不出证据」。现在：`max_tokens` 提到 3000 并在提示里限定条目长度；
+  `--context` 收下 base 侧最近 30 个提交；改规则书本身不再硬拦（硬拦会让规则书永远
+  改不动），改为在提示里要求逐个判断「加严还是松绑」
+- **规则书里的松绑改成机械判定**：硬拦换成能证的规则 —— 规则书文件里**删掉一条
+  `check(`/`REQUIRE(`/`assert`、或删掉一个工作流步骤**，一律 reject；其余改动照常
+  交给模型。这一条是 PR #5 上评审模型指出「你放宽了闸门」之后补的，
+  比原来那句「一律交给人」更严，而且它是可执行的、不是一句态度
+- **`tests/integration/verify_review_tooling.py`**：改闸门必须有配套验收（宪章 §9.8），
+  这个脚本用 29 条断言覆盖确定性闸门的判决边界、规则书标注、被截断 JSON 的解析行为
+  与工作流接线；已接进 CI「评审器自检」步骤
+
 
 - **13 条 C4xxx 编译警告清零，并打开 `/WX`**：宪章 M8 矩阵里那句「构建 0 error 0 warning」
   在此之前只是声明 —— CI 日志里实际躺着 13 条（`C4305`/`C4309` 截断、`C4456` 变量遮蔽、
