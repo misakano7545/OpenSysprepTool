@@ -397,7 +397,7 @@ public:
         emit(line);
     }
 
-    void phaseFinish(const osp::deploy::Phase& phase, int okCount, int failedCount) override
+    void phaseFinish(const osp::deploy::Phase& phase, [[maybe_unused]] int okCount, int failedCount) override
     {
         nlohmann::json line;
         line["event"] = "phaseFinish";

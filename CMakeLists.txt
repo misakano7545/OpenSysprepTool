@@ -21,6 +21,15 @@ if(MSVC)
   # 宪章 1：静态 /MT，PE 里不能依赖 VC 运行库
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus /EHsc)
+
+  # 宪章 §8 M8 的矩阵里写着「构建 0 error 0 warning」。这句在 2026-11-01 之前只是声明：
+  # 本仓库只有 /W4，没有 /WX，CI 日志里实际躺着 13 条 C4xxx（C4305/C4309/C4456/
+  # C4100/C4129），全绿是因为没人把警告当回事。打开 /WX 之后「0 warning」才变成
+  # 机器约束 —— 想留一条警告，只能显式写 OSP_WERROR=OFF，而这会成为一次可 review 的改动。
+  option(OSP_WERROR "把编译警告当成错误（/WX）" ON)
+  if(OSP_WERROR)
+    add_compile_options(/WX)
+  endif()
   add_compile_definitions(_UNICODE UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
   # ------------------------------------------------------------ Windows 7 SP1
@@ -78,4 +87,5 @@ message(STATUS "  compiler   : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VER
 message(STATUS "  generator  : ${CMAKE_GENERATOR}")
 message(STATUS "  build type : ${CMAKE_BUILD_TYPE}${CMAKE_CONFIGURATION_TYPES}")
 message(STATUS "  tests      : ${OSP_BUILD_TESTS}")
+message(STATUS "  werror     : ${OSP_WERROR}")
 message(STATUS "")

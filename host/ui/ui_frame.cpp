@@ -2282,10 +2282,12 @@ SmokeResult runSmokeTest(bool visible)
                         {
                             continue;
                         }
-                        RECT rect = {};
-                        ::GetWindowRect(control, &rect);
+                        // 叫 controlRect 而不是 rect：函数入口已有一个 RECT rect（窗口矩形），
+                        // 重名是 /W4 的 C4456，开 /WX 就编不过。
+                        RECT controlRect = {};
+                        ::GetWindowRect(control, &controlRect);
                         ::MapWindowPoints(
-                            nullptr, context.frame.panel->m_hWnd, reinterpret_cast<LPPOINT>(&rect), 2
+                            nullptr, context.frame.panel->m_hWnd, reinterpret_cast<LPPOINT>(&controlRect), 2
                         );
                         const int expectedX = originX + static_cast<int>(field.x * scale);
                         const int expectedY = originY + static_cast<int>(field.y * scale);
@@ -2294,16 +2296,17 @@ SmokeResult runSmokeTest(bool visible)
                         // 位置容差 2px；高度容差放宽到 6px —— 下拉框（COMBOBOX）的实际
                         // 高度受字体与 CB_SETITEMHEIGHT 影响，比图纸低/高几像素是系统行为，
                         // 不是错位。位置对不上才是真问题。
-                        const bool closeEnough = std::abs(rect.left - expectedX) <= 2 &&
-                            std::abs(rect.top - expectedY) <= 2 &&
-                            std::abs((rect.right - rect.left) - expectedW) <= 2 &&
-                            std::abs((rect.bottom - rect.top) - expectedH) <= 6;
+                        const bool closeEnough = std::abs(controlRect.left - expectedX) <= 2 &&
+                            std::abs(controlRect.top - expectedY) <= 2 &&
+                            std::abs((controlRect.right - controlRect.left) - expectedW) <= 2 &&
+                            std::abs((controlRect.bottom - controlRect.top) - expectedH) <= 6;
                         context.record(
                             closeEnough,
                             "控件按图纸坐标摆放: " + field.id,
-                            "实际=" + std::to_string(rect.left) + "," + std::to_string(rect.top) + " " +
-                                std::to_string(rect.right - rect.left) + "x" +
-                                std::to_string(rect.bottom - rect.top) +
+                            "实际=" + std::to_string(controlRect.left) + "," +
+                                std::to_string(controlRect.top) + " " +
+                                std::to_string(controlRect.right - controlRect.left) + "x" +
+                                std::to_string(controlRect.bottom - controlRect.top) +
                                 " 期望=" + std::to_string(expectedX) + "," + std::to_string(expectedY) + " " +
                                 std::to_string(expectedW) + "x" + std::to_string(expectedH) +
                                 " 缩放=" + std::to_string(scale)

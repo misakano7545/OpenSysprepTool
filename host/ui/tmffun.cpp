@@ -696,7 +696,9 @@ void fillTamperList(HWND list, const config::Config& cfg)
 
 // 防篡改清单的一行：读文件算 MD5 再收进配置。
 // 加不进去的三种情况分别给原因（没填路径 / 读不到文件 / 已经在了），不静默失败。
-void addTamperEntry(DialogState& state, HWND wnd)
+// wnd 当前用不到（状态栏刷新走 state 里的句柄），但保留形参与调用点一致；
+// 加 [[maybe_unused]] 让 /W4 的 C4100 闭嘴，好让 /WX 能真的开起来。
+void addTamperEntry(DialogState& state, [[maybe_unused]] HWND wnd)
 {
     if (state.current < 0 || state.cfg == nullptr)
     {

@@ -139,7 +139,11 @@ std::string decodeToUtf8(const std::string& bytes)
     // 「ACER£¨ºê³ž£©」这种乱码（CI 的 windows runner 上实测如此）。
     // 用固定 936 而不是跟随系统，是因为「导入 SC 的配置」这件事与宿主语言无关。
     const std::string gbk = decodeWith(936, bytes);
-    if (!gbk.empty() && gbk.find('\uFFFD') == std::string::npos && gbk.find('?') == std::string::npos)
+    // U+FFFD 在 UTF-8 里是三字节 EF BF BD。原来写的字符字面量 '\uFFFD' 是 0xFFFD，
+    // 塞进 std::string::find 会被截断成单字节 0xFD（/WX 下即 C4305 + C4309，
+    // 且语义错位：查的是一个合法 UTF-8 里永远不会出现的孤立字节）。按字节串找。
+    static const std::string kReplacementChar = "\xEF\xBF\xBD";
+    if (!gbk.empty() && gbk.find(kReplacementChar) == std::string::npos && gbk.find('?') == std::string::npos)
     {
         return gbk;
     }

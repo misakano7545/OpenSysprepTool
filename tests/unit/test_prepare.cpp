@@ -520,10 +520,10 @@ TEST_CASE("prepare: 我的文档与收藏夹走离线 hive，智能/指定两种
         osp::config::Config cfg;
         cfg.optimization.moveDocuments = true;
         cfg.optimization.documentsSmart = false;
-        cfg.optimization.myDocumentsTarget = "D:\Docs";
+        cfg.optimization.myDocumentsTarget = "D:\\Docs";
         cfg.optimization.moveFavorites = true;
         cfg.optimization.favoritesSmart = false;
-        cfg.optimization.favoritesTarget = "D:\Favs";
+        cfg.optimization.favoritesTarget = "D:\\Favs";
 
         osp::prepare::Options options = osp::prepare::defaultOptions();
         const osp::prepare::Plan plan = osp::prepare::build(cfg, options);
@@ -535,13 +535,13 @@ TEST_CASE("prepare: 我的文档与收藏夹走离线 hive，智能/指定两种
         CHECK(docs->hiveFile.find("NTUSER.DAT") != std::string::npos);
         CHECK(docs->key.find("User Shell Folders") != std::string::npos);
         CHECK(docs->valueName == "Personal");
-        CHECK(docs->text == "D:\Docs");
+        CHECK(docs->text == "D:\\Docs");
         CHECK(docs->valueType == "expandSz");
 
         const osp::prepare::Action* favs = findAction(plan, "optimization.moveFavorites");
         REQUIRE(favs != nullptr);
         CHECK(favs->valueName == "Favorites");
-        CHECK(favs->text == "D:\Favs");
+        CHECK(favs->text == "D:\\Favs");
     }
 
     // 智能转移（Rb_Smart）：选剩余最大的非系统盘
@@ -549,7 +549,7 @@ TEST_CASE("prepare: 我的文档与收藏夹走离线 hive，智能/指定两种
         osp::config::Config cfg;
         cfg.optimization.moveDocuments = true;
         cfg.optimization.documentsSmart = true;
-        cfg.optimization.myDocumentsTarget = "D:\Ignored";
+        cfg.optimization.myDocumentsTarget = "D:\\Ignored";
 
         osp::prepare::Options options = osp::prepare::defaultOptions();
         options.pagefileCandidates = {
@@ -607,7 +607,7 @@ TEST_CASE("prepare: 默认用户 hive 路径可覆盖")
     osp::config::Config cfg;
     cfg.optimization.moveDocuments = true;
     cfg.optimization.documentsSmart = false;
-    cfg.optimization.myDocumentsTarget = "D:\Docs";
+    cfg.optimization.myDocumentsTarget = "D:\\Docs";
     cfg.optimization.defaultUserHive = "T:\\copy\\ntuser.dat";
 
     osp::prepare::Options options = osp::prepare::defaultOptions();

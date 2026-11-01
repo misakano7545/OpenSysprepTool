@@ -2529,7 +2529,9 @@ Plan build(const config::Config& cfg, const Options& options)
             plan.actions.push_back(std::move(copy));
 
             // 壁纸设置写在默认用户的 NTUSER.DAT 里，与我的文档/收藏夹同一套离线 hive 机制
-            const std::string defaultHive = cfg.optimization.defaultUserHive.empty()
+            // 名字不能叫 defaultHive：本函数前面已经有一个同名局部变量（离线 hive 三条
+            // 动作用的），重名在 /W4 下是 C4456，开 /WX 就编不过。
+            const std::string wallpaperHive = cfg.optimization.defaultUserHive.empty()
                 ? joinPath(options.defaultUserProfile, "NTUSER.DAT")
                 : cfg.optimization.defaultUserHive;
             struct WallpaperValue
@@ -2552,7 +2554,7 @@ Plan build(const config::Config& cfg, const Options& options)
                 action.group = "OEM";
                 action.title = std::string("默认用户桌面壁纸：") + value.valueName;
                 action.sourceField = "oem.wallpaper";
-                action.hiveFile = defaultHive;
+                action.hiveFile = wallpaperHive;
                 action.hive = "HKU";
                 action.key = "Control Panel\\Desktop";
                 action.valueName = value.valueName;

@@ -23,7 +23,9 @@ void printOemUsage()
     std::printf("\n");
 }
 
-std::string profileToJsonText(const osp::oem::Profile& p, const std::string& indent = std::string())
+// indent 这个参数从来没被用过（dump 固定 2 空格缩进），删掉。
+// 留着默认实参会被 /W4 报 C4100，开 /WX 就编不过。
+std::string profileToJsonText(const osp::oem::Profile& p)
 {
     nlohmann::json j;
     j["manufacturer"] = p.manufacturer;
