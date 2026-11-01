@@ -190,6 +190,17 @@ def main(argv: list[str]) -> int:
     )
     expect_blocked(work, "neg4_ghost_control", mutated, "表里每个控件都能在 DFM 里找到")
 
+    # ---------------------------------------------------------------- 负例 5
+    section("负例 5：头部写的是另一份 DFM（用错图纸重新生成）")
+    mutated = original.replace(
+        "// 依据：docs/sc_layout/TSCMF.json",
+        "// 依据：docs/sc_layout/TMFFUN.json",
+        1,
+    )
+    check("原表头部确实写着 TSCMF.json", mutated != original, "没找到「依据：」那一行")
+    if mutated != original:
+        expect_blocked(work, "neg5_wrong_sheet", mutated, "坐标表头部声明了生成来源")
+
     _say("")
     if _failures:
         _say(f"RESULT: FAILED  ({len(_failures)}/{_checks} checks failed)")
@@ -197,7 +208,7 @@ def main(argv: list[str]) -> int:
             _say(f"  - {name}")
         return 1
 
-    _say(f"RESULT: ALL PASSED  ({_checks} checks) —— 四个已知事故形状全部被拦下")
+    _say(f"RESULT: ALL PASSED  ({_checks} checks) —— 五个已知事故形状全部被拦下")
     return 0
 
 
