@@ -25,3 +25,11 @@ __pycache__/
 out.json
 unattend.xml
 ospt-prepare-journal.json
+
+# 独立验收的本地产物（CI 里作为 artifact 上传，不入库）
+independent-review.json
+review.json
+review.md
+evidence.txt
+conclusion.txt
+pr.diff

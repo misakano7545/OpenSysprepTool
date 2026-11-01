@@ -24,6 +24,9 @@ on:
 
 permissions:
   contents: write
+  # 矩阵要读这次提交的真实 CI 日志（collect_ci_evidence.py 调 actions API），
+  # 只给 contents 会让那一步 403。
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -377,7 +380,43 @@ jobs:
           }
           exit 0
 
-      - name: 集成测试矩阵逐格记录（含显式跳过原因与人工清单）
+      # 矩阵要读 docs/acceptance/ci-<sha>.json。这一步先把真实 CI 证据落盘 ——
+      # 没有它矩阵里的「CI 证据步骤数」就永远是 0，那等于又在骗自己。
+      - name: 收集本提交的 CI 证据（矩阵的数据来源）
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $sha = '${{ github.sha }}'
+          $tag = '${{ needs.verify.outputs.tag }}'
+          python tools\collect_ci_evidence.py `
+            --repo "${{ github.repository }}" `
+            --sha $sha `
+            --out "release\ci-evidence.txt" `
+            --conclusion "release\ci-conclusion.txt" `
+            --json "docs\acceptance\ci-$sha.json" `
+            --only-workflow CI `
+            --only-workflow Lint `
+            --exclude-workflow Release `
+            --wait-minutes 10 *>&1 | Tee-Object -FilePath collect.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content collect.log -Tail 20 | ForEach-Object { Write-Host "::error::$_" }
+            Write-Host "::error::CI 证据收集失败，矩阵不能在没有证据的情况下生成"
+            exit $code
+          }
+          # 证据里总结论不是 success 时不让发版 —— 这正是「异常能自动停下」
+          $verdict = (Get-Content "release\ci-conclusion.txt" -Raw).Trim()
+          Write-Host "CI 证据总结论: $verdict"
+          if ($verdict -ne 'success') {
+            Write-Host "::error::本次提交的 CI 结论是「$verdict」，不满足发版前提"
+            exit 1
+          }
+          exit 0
+
+      - name: 集成测试矩阵逐格记录（每格状态来自真实记录）
         shell: pwsh
         run: |
           $tag = '${{ needs.verify.outputs.tag }}'
