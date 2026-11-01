@@ -78,6 +78,20 @@ def section(title: str) -> None:
     _say(f"== {title} ==")
 
 
+def safe_relpath(path: str) -> str:
+    """相对路径只用于显示，但 relpath 在 Windows 跨盘符时会抛 ValueError。
+
+    CI #74/76 就是这么挂的：临时目录在 C:，仓库在 D:，`os.path.relpath` 直接
+    `ValueError: path is on mount 'C:', start on mount 'D:'`，闸门在打印第一行
+    时就崩了 —— 负例脚本读到的是崩溃而不是断言失败。本机两者都在 C:，所以
+    永远看不到这个坑。
+    """
+    try:
+        return os.path.relpath(path, REPO)
+    except ValueError:
+        return path
+
+
 def check(name: str, ok: bool, detail: str = "") -> bool:
     global _checks
     _checks += 1
@@ -378,7 +392,7 @@ def main(argv: list[str]) -> int:
         _say(f"读取失败: {exc}")
         return 2
 
-    _say(f"verify_ui_layout: {os.path.relpath(args.layout, REPO)} + {os.path.relpath(args.coords, REPO)}")
+    _say(f"verify_ui_layout: {safe_relpath(args.layout)} + {safe_relpath(args.coords)}")
     _say(f"DFM 控件行 {len(layout['controls'])} 条 / 坐标表 {len(rows)} 条")
 
     section("解析完整性")
@@ -405,7 +419,7 @@ def main(argv: list[str]) -> int:
             "ok": ok,
             "checks": _checks,
             "failed": list(_failures),
-            "layout": os.path.relpath(args.layout, REPO),
+            "layout": safe_relpath(args.layout),
             "coords": args.coords,
         }
         folder = os.path.dirname(os.path.abspath(args.json))

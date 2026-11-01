@@ -121,7 +121,11 @@ def main(argv: list[str]) -> int:
         original = handle.read()
 
     work = tempfile.mkdtemp(prefix="ospt-ui-layout-neg-")
-    _say(f"verify_ui_layout_negative: {os.path.relpath(args.coords, REPO)}")
+    try:
+        shown = os.path.relpath(args.coords, REPO)
+    except ValueError:  # Windows 跨盘符：临时目录在 C:、仓库在 D:
+        shown = args.coords
+    _say(f"verify_ui_layout_negative: {shown}")
     _say(f"临时目录: {work}")
 
     # 对照组：没改过的表必须全绿，否则后面几条「变红」都不算数
