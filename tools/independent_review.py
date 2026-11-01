@@ -47,11 +47,18 @@ DEFAULT_BASE_URL = os.environ.get("OSPT_REVIEW_BASE_URL", "https://ai.misakano.k
 #   HTTP 503 all accounts unavailable (cooling/disabled) ... exceeded the quota
 # 那次 PR 被卡成 uncertain —— 判得对（不瞎猜），但上游一抖所有 PR 都进不去。
 # 换成跨池的多候选，谁活着用谁。全部阵亡才判 uncertain 交给人。
+#
+# 这份顺序是 2026-11-01 逐个实调出来的（要求：回纯 JSON、不夹废话、不空 content）：
+#   qo-cn:GLM-5.3      → {"verdict":"pass","summary":"ok"}       ✅ 干净
+#   qo-cn:Kimi-K3      → {"verdict":"pass","summary":"ok"}       ✅ 干净
+#   wb-cn:kimi-k3-1    → {"verdict":"pass","summary":"ok"}       ✅ 干净
+#   wb-cn:glm-5.3      → 空 content（token 似乎都花在推理上）      ❌ 首轮剔除
+#   tw-intl:*          → 503 配额冷却                             ❌ 保留在后面兜底
 DEFAULT_MODELS = [
     item.strip()
     for item in os.environ.get(
         "OSPT_REVIEW_MODEL",
-        "tw-intl:gpt-5.4,tw-intl:gemini-3-flash-solo,wb-cn:glm-5.3,wb-global:gpt-5.6-luna",
+        "qo-cn:GLM-5.3,qo-cn:Kimi-K3,wb-cn:kimi-k3-1,tw-intl:gpt-5.4",
     ).split(",")
     if item.strip()
 ]
