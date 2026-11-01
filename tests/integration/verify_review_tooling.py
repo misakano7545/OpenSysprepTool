@@ -84,9 +84,86 @@ def diff_of_many(files: dict[str, list[str]]) -> str:
     return "".join(parts)
 
 
+def diff_with_removal(path: str, removed: list[str]) -> str:
+    """只有删除行的 diff —— 规则书里的「松绑」基本都长这样"""
+    body = "".join("-" + line + "\n" for line in removed)
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,1 +1,1 @@\n{body}"
+
+
 CI_OK = "success"
 CI_FAIL = "failure"
 CI_MISSING = "missing"
+
+
+def run_tool_against_stub(model_content: str, tool) -> tuple[int, str]:
+    """起一个假的 OpenAI 兼容服务，把评审器当子进程跑，返回 (退出码, 细节)
+
+    这一层验的是真实链路：HTTP 请求 → 响应解析 → 判决 → 退出码。
+    只 grep 源码里有没有 "3000" 这种断言，评审模型在 PR #5 上直接指出过不算验证。
+    """
+    import http.server
+    import json as _json
+    import tempfile
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802 —— http.server 的固定接口名
+            length = int(self.headers.get("Content-Length") or 0)
+            self.rfile.read(length)
+            payload = {
+                "choices": [{"message": {"role": "assistant", "content": model_content}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            }
+            body = _json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format=None, *args):  # noqa: A002 —— 覆盖基类接口，静音访问日志
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    work = tempfile.mkdtemp(prefix="ospt-review-e2e-")
+    diff_path = os.path.join(work, "pr.diff")
+    evidence_path = os.path.join(work, "evidence.txt")
+    out_path = os.path.join(work, "review.json")
+    with open(diff_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(diff_of("docs/note.md", ["补充一段说明"]))
+    with open(evidence_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("RESULT: ALL PASSED (23 checks)\n")
+
+    env = dict(os.environ)
+    env["OSPT_REVIEW_API_KEY"] = "stub-key"
+    try:
+        result = __import__("subprocess").run(
+            [
+                sys.executable,
+                TOOL,
+                "--diff", diff_path,
+                "--ci-conclusion", CI_OK,
+                "--evidence", evidence_path,
+                "--out", out_path,
+                "--model", "tw-intl:stub-reviewer",
+                "--base-url", f"http://127.0.0.1:{port}/v1",
+                "--timeout", "30",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        tail = (result.stdout + result.stderr).strip().splitlines()
+        return result.returncode, (tail[-1] if tail else "")
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def main(argv: list[str]) -> int:
@@ -158,6 +235,23 @@ def main(argv: list[str]) -> int:
     )
     check("review.yml 也算规则书", any("review.yml" in n for n in notes), str(notes)[:120])
 
+    section("规则书里的「松绑」= 删除断言或步骤，必须机械拦下")
+    verdict, reasons, _n = tool.deterministic_checks(
+        diff_with_removal("tools/independent_review.py", ["    check('闸门还在', verdict == 'reject')"]),
+        CI_OK,
+    )
+    check("删掉一条 check() 被判 reject", verdict == "reject", f"verdict={verdict}")
+    verdict, reasons, _n = tool.deterministic_checks(
+        diff_with_removal(".github/workflows/review.yml", ["      - name: 独立验收（异模型）"]),
+        CI_OK,
+    )
+    check("删掉一个工作流步骤被判 reject", verdict == "reject", f"verdict={verdict}")
+    verdict, reasons, _n = tool.deterministic_checks(
+        diff_with_removal("tools/independent_review.py", ["    # 一条注释，删掉不影响闸门"]),
+        CI_OK,
+    )
+    check("只删注释不算松绑", verdict != "reject", f"reasons={reasons}")
+
     # ------------------------------------------------------------ 3. 解析与预算
     section("模型输出的解析")
     parse = tool.parse_verdict
@@ -192,6 +286,19 @@ def main(argv: list[str]) -> int:
         "review.yml 里没有 `|| true`（本仓库自己的确定性闸门禁止这种吞失败写法）",
         "|| true" not in workflow,
     )
+
+    # ------------------------------------------------------------ 4. 端到端
+    # 只断言源码字符串是不够的（评审模型在 PR #5 上就指出过这一点）。
+    # 这里起一个假的 OpenAI 兼容服务，把 tools/independent_review.py 当子进程真跑一遍，
+    # 验的是「模型回什么 → 退出码是什么」这条真实链路。
+    section("端到端：假模型服务 → 退出码")
+    for label, content, want in [
+        ("pass → 0", '{"verdict":"pass","summary":"ok","must_fix":[],"evidence_cited":[],"confidence":0.9}', 0),
+        ("reject → 1", '{"verdict":"reject","summary":"缺少证据","must_fix":["补日志"],"evidence_cited":[],"confidence":0.9}', 1),
+        ("垃圾输出 → 2", "我看不懂，随便说两句", 2),
+    ]:
+        code, detail = run_tool_against_stub(content, tool)
+        check(f"{label}", code == want, f"实际 exit={code}；{detail}")
 
     _say("")
     if _failures:

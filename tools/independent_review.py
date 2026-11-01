@@ -179,6 +179,30 @@ def iter_file_diffs(diff: str):
         yield path, lines
 
 
+def iter_removed_code_lines(diff: str):
+    """把 unified diff 切成 (文件路径, 被删除的代码行)
+
+    「规则书被改」这件事有两种：加严和松绑。加严往往只是新增行，松绑则表现为
+    **删除** —— 删掉一条 check()、删掉一个工作流步骤、删掉一项必检。
+    只看新增行的话，删断言是看不见的。
+    """
+    path = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            path = line[4:].strip()
+            if path.startswith("b/"):
+                path = path[2:]
+            continue
+        if not line.startswith("-") or line.startswith("---"):
+            continue
+        body = line[1:].strip()
+        if not body:
+            continue
+        if body.lower().startswith(COMMENT_PREFIXES):
+            continue
+        yield path, body
+
+
 def all_added_code_lines(diff: str) -> list[str]:
     result: list[str] = []
     for _path, lines in iter_file_diffs(diff):
@@ -232,6 +256,16 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str],
     files = changed_files(diff)
     if not files:
         reasons.append("diff 里没有任何文件改动")
+
+    # 规则书里的「松绑」几乎都长成删除：删掉一条 check()、删掉一个工作流步骤。
+    # 第一版对规则书是整份硬拦（一律 uncertain 交给人），结果连给评审器加个上下文
+    # 都做不到 —— 规则书永远改不动。现在换成能机械判定的那条：**删断言/删步骤 = reject**，
+    # 其余改动照常交给模型逐条判断加严还是松绑。
+    for path, body in iter_removed_code_lines(diff):
+        if path not in PROTECTED_TOOLING:
+            continue
+        if re.search(r"\bcheck\(|\bREQUIRE\(|\bassert\b|^\s*-\s*name\s*:|^\s*(run|uses|shell)\s*:", body):
+            reasons.append(f"在规则书里删掉了断言或工作流步骤（{path}）：`{body[:120]}`")
 
     touch_ci = [name for name in files if name.startswith(".github/workflows/")]
     touch_tests = [
