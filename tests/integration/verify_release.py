@@ -25,6 +25,7 @@ import json
 import os
 import re
 import struct
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -281,36 +282,178 @@ def check_artifacts(directory: str, only_arch: str | None = None) -> int:
 
 
 def build_matrix(tag: str) -> dict:
+    """矩阵的每一格都必须来自**真实执行记录**，不是常量。
+
+    2026-11-01 之前的这一版是从写死的 MATRIX_OSES 拼出来的：六格永远写「真机项待人工」，
+    三个版本的 json 字节数完全相同（都是 9,015 B）。那是免责声明，不是验收记录。
+
+    现在每一格的状态只有三种来源：
+      - 真机记录 `docs/acceptance/real-machine.json`（由 tools/acceptance_record.py 写，
+        必须带 sha、机器、操作者、证据文件，且 sha 必须是本 tag 的祖先）
+      - CI 证据 `docs/acceptance/ci-<sha>.json`（由 tools/collect_ci_evidence.py 产出）
+      - 都没有 → 明确写「未执行」，不留任何模糊说法
+    """
     major, minor, patch = version_triple()
     version = f"{major}.{minor}.{patch}"
+
+    records = load_real_machine_records()
+    ci_evidence = load_ci_evidence(tag)
 
     cells = []
     for entry in MATRIX_OSES:
         for arch, arch_note in ARCHES:
+            record = find_record(records, entry["os"], arch)
+            if record is None:
+                status = "未执行（无真机记录）"
+                executed = False
+                detail = "本仓库没有任何该格的真机执行记录；tools/acceptance_record.py 未写入过"
+            elif record.get("result") == "pass":
+                if not record_sha_is_ancestor(record.get("sha", ""), tag):
+                    status = "记录失效（sha 不是本 tag 的祖先）"
+                    executed = False
+                    detail = f"记录来自 {record.get('sha', '?')[:7]}，不在 {tag} 的历史里"
+                else:
+                    status = f"真机已通过（{record.get('machine', '?')}）"
+                    executed = True
+                    detail = record.get("notes", "")
+            else:
+                status = "真机已执行但失败"
+                executed = True
+                detail = record.get("notes", "")
+
             cells.append(
                 {
                     "os": entry["os"],
                     "arch": arch,
                     "archNote": arch_note,
                     "prerequisites": entry["prerequisites"],
-                    "ciVerified": CI_VERIFIED,
+                    "ciVerified": ci_evidence.get("steps", []) if ci_evidence else [],
+                    "ciSha": ci_evidence.get("sha", "") if ci_evidence else "",
+                    "ciConclusion": ci_evidence.get("conclusion", "missing") if ci_evidence else "missing",
                     "manualRequired": entry["manual"],
-                    "manualSkipReason": SKIP_REASON,
-                    "status": "CI 已证（代码层）／真机项待人工",
+                    "manualExecuted": executed,
+                    "manualRecord": record or None,
+                    "manualSkipReason": "" if executed else "没有真机执行记录；托管 runner 只提供 Windows Server 2022",
+                    "status": status,
+                    "detail": detail,
                 }
             )
 
+    executed_cells = sum(1 for cell in cells if cell["manualExecuted"])
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "tag": tag,
         "version": version,
         "generatedBy": "tests/integration/verify_release.py",
         "matrixSize": len(cells),
+        "executedCells": executed_cells,
+        "ciEvidencePresent": bool(ci_evidence),
+        "ciSha": (ci_evidence or {}).get("sha", ""),
         "cells": cells,
-        "ciOnly": True,
+        "ciOnly": executed_cells == 0,
         "manualChecklist": sorted({step for entry in MATRIX_OSES for step in entry["manual"]}),
-        "skipReason": SKIP_REASON,
+        "skipReason": (
+            "没有真机执行记录：GitHub 托管的 windows-2022 runner 只有 Windows Server 2022，"
+            "Win7 SP1 / Win10 22H2 / Win11 23H2 的真机验证必须在本地或自建 runner 上跑，"
+            "跑完用 tools/acceptance_record.py 记录"
+        ),
     }
+
+
+def load_real_machine_records() -> list[dict]:
+    # 与 tools/acceptance_record.py 读同一个文件；环境变量只为可测试性留一个口子，
+    # 生产路径永远是 docs/acceptance/real-machine.json
+    path = os.environ.get(
+        "OSPT_ACCEPTANCE_STORE",
+        os.path.join(REPO, "docs", "acceptance", "real-machine.json"),
+    )
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return []
+    records = data.get("records") if isinstance(data, dict) else data
+    return records if isinstance(records, list) else []
+
+
+def repo_sha_for(tag: str) -> str:
+    """tag / ref → 完整 commit sha；拿不到就返回空串"""
+    for ref in (f"{tag}^{{commit}}", "HEAD"):
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", ref], cwd=REPO, capture_output=True, text=True
+            )
+        except OSError:
+            return ""
+        if result.returncode == 0:
+            return result.stdout.strip()
+    return ""
+
+
+def load_ci_evidence(tag: str) -> dict | None:
+    """只读**当前发版提交**的 CI 证据，绝不按文件名倒序抓一个凑数。
+
+    第一版按 `sorted(..., reverse=True)` 取第一个 `ci-*.json`。仓库里一旦同时存在
+    多个提交的证据文件，矩阵就会把**别的提交**的 CI 结果算到这个版本头上 ——
+    那种「看起来有证据」比没有证据更危险。独立评审当场点了这一条。
+    """
+    folder = os.path.join(REPO, "docs", "acceptance")
+    if not os.path.isdir(folder):
+        return None
+
+    sha = repo_sha_for(tag)
+    if not sha:
+        return None
+
+    candidates = [f"ci-{sha}.json", f"ci-{sha[:7]}.json", f"ci-{sha[:12]}.json"]
+    for name in candidates:
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        recorded = str(data.get("sha", ""))
+        # 文件名叫这个 sha，内容里也得是同一个 sha（或它的前缀），否则视为不匹配
+        if recorded and not (sha.startswith(recorded) or recorded.startswith(sha)):
+            _say(
+                f"  ::warning::docs/acceptance/{name} 里的 sha（{recorded[:12]}）"
+                f"与当前提交（{sha[:12]}）不一致，不采用"
+            )
+            continue
+        return data
+    return None
+
+
+def find_record(records: list[dict], os_name: str, arch: str) -> dict | None:
+    for record in records:
+        if record.get("os") == os_name and record.get("arch") == arch:
+            return record
+    return None
+
+
+def record_sha_is_ancestor(sha: str, tag: str) -> bool:
+    """记录里的 sha 必须真的在本 tag 的历史里，否则这条记录证明不了这个版本"""
+    if not sha:
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", sha, tag],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        # 没有 git（例如源码包里跑）时不能装作验证过 —— 一律判失效
+        return False
+    return result.returncode == 0
+
 
 
 def emit_matrix(out_json: str, markdown_path: str, tag: str) -> int:
@@ -319,12 +462,15 @@ def emit_matrix(out_json: str, markdown_path: str, tag: str) -> int:
     with open(out_json, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(matrix, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
-    _say(f"已写出矩阵记录：{out_json}（{matrix['matrixSize']} 格）")
+    _say(f"已写出矩阵记录：{out_json}（{matrix['matrixSize']} 格，真机已执行 {matrix['executedCells']} 格）")
 
-    # 每格的跳过原因都要显式打出来，不许静默略过
-    section("集成测试矩阵（每格的跳过原因都已显式声明）")
+    # 每格的状态都要显式打出来，不许静默略过
+    section("集成测试矩阵（每格状态都来自真实记录，不是常量）")
     for cell in matrix["cells"]:
-        _say(f"  ::notice::{cell['os']} × {cell['arch']}：{cell['status']}；跳过原因：{cell['manualSkipReason']}")
+        line = f"  ::notice::{cell['os']} × {cell['arch']}：{cell['status']}"
+        if not cell["manualExecuted"]:
+            line += f"；原因：{cell['manualSkipReason']}"
+        _say(line)
 
     section("需要人工在真机上跑的部分")
     for step in matrix["manualChecklist"]:
@@ -335,20 +481,31 @@ def emit_matrix(out_json: str, markdown_path: str, tag: str) -> int:
             f"# 集成测试矩阵验收记录（{matrix['tag']} / {matrix['version']}）",
             "",
             "本表由 `tests/integration/verify_release.py --emit-matrix` 在发布流水线里生成。",
-            f"共 {matrix['matrixSize']} 格：CI 能证明的部分逐格列出；真机部分无法在托管 runner 上执行，"
-            "跳过原因与人工清单在下方。",
+            "",
+            f"**{matrix['matrixSize']} 格中真机已执行 {matrix['executedCells']} 格。**",
+            "每一格的状态都来自真实执行记录（`docs/acceptance/real-machine.json` 与 "
+            "`docs/acceptance/ci-<sha>.json`），没有任何一格是写死的常量。",
+        ]
+        if matrix["executedCells"] < matrix["matrixSize"]:
+            lines += [
+                "",
+                f"> ⚠ 还有 {matrix['matrixSize'] - matrix['executedCells']} 格没有真机记录。"
+                "这表示**未验证**，不表示「应当没问题」。宪章 §8 M8 要求六格各跑一遍。",
+            ]
+        lines += [
             "",
             "## 六格明细",
             "",
-            "| 系统 | 架构 | CI 已证（代码层） | 需人工真机验证 | 状态 |",
+            "| 系统 | 架构 | CI 证据步骤数 | 状态 | 说明 |",
             "|---|---|---|---|---|",
         ]
         for cell in matrix["cells"]:
+            detail = cell["detail"].replace("|", "/")
             lines.append(
-                f"| {cell['os']} | {cell['arch']} | {len(cell['ciVerified'])} 项 | "
-                f"{len(cell['manualRequired'])} 项 | {cell['status']} |"
+                f"| {cell['os']} | {cell['arch']} | {len(cell['ciVerified'])} | "
+                f"{cell['status']} | {detail} |"
             )
-        lines += ["", "## 跳过原因", "", f"- {matrix['skipReason']}", "", "## 人工验证清单", ""]
+        lines += ["", "## 未执行的原因", "", f"- {matrix['skipReason']}", "", "## 人工验证清单", ""]
         lines += [f"1. {step}" for step in matrix["manualChecklist"]]
         lines += [
             "",
@@ -361,11 +518,36 @@ def emit_matrix(out_json: str, markdown_path: str, tag: str) -> int:
                 lines.append(f"- {item}")
             lines.append("")
         lines += [
-            "## 每格 CI 已证的内容（六格相同）",
+            "## 怎么把某一格从「未执行」变成「已通过」",
+            "",
+            "```bash",
+            "python tools/acceptance_record.py \\",
+            '    --os "Windows 7 SP1" --arch x64 --result pass \\',
+            '    --machine "VMware 17 / Win7SP1-x64" --operator 你的名字 \\',
+            "    --evidence evidence/win7-x64-deploy.log \\",
+            '    --notes "五个阶段全跑完，驱动注入后能进桌面"',
+            "```",
+            "",
+            "记录会写进 `docs/acceptance/real-machine.json`，带 sha 与时间戳；"
+            "下次发版时矩阵会自动读它。sha 不是本 tag 祖先的记录会被判为失效。",
             "",
         ]
-        lines += [f"- {item}" for item in CI_VERIFIED]
-        lines.append("")
+        if matrix["ciEvidencePresent"]:
+            lines += [
+                "## CI 证据来源",
+                "",
+                f"- sha `{matrix['ciSha']}`",
+            ]
+            lines += [f"- {item}" for item in (matrix["cells"][0]["ciVerified"] or [])]
+            lines.append("")
+        else:
+            lines += [
+                "## CI 证据来源",
+                "",
+                "- **缺失**：`docs/acceptance/ci-<sha>.json` 不存在或为空。"
+                "CI 步骤数因此记为 0，不填占位数字。",
+                "",
+            ]
 
         os.makedirs(os.path.dirname(os.path.abspath(markdown_path)), exist_ok=True)
         with open(markdown_path, "w", encoding="utf-8", newline="\n") as handle:
@@ -647,7 +829,10 @@ def _value_of(args: list[str], flag: str) -> str | None:
 
 
 def _tag_from_argv(args: list[str]) -> str | None:
-    return _value_of(args, "--check-tag")
+    # --emit-matrix / --emit-notes 传的是 --tag；--check-tag 用于发版闸门。
+    # 原来只看 --check-tag，导致 `--emit-matrix ... --tag v0.1.2` 的 tag 被忽略、
+    # 记录里写成 v0.0.0（矩阵标题与实际版本对不上）。
+    return _value_of(args, "--tag") or _value_of(args, "--check-tag")
 
 
 if __name__ == "__main__":
