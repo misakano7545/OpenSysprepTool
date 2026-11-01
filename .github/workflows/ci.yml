@@ -262,6 +262,35 @@ jobs:
             ForEach-Object { Write-Host "::warning::$($_.Line.Trim())" }
           exit 0
 
+      # 界面几何回归：坐标表必须能由 DFM 原样坐标复算出来。
+      # 这一条防的正是 2026-10-28 那次「界面整体错乱」——当时冒烟 266 项全绿，
+      # 因为期望值与被验对象来自同一张错的表。本步骤不依赖任何二进制，纯静态比对，
+      # 再配四个负例证明闸门真的会红。
+      - name: 界面几何回归
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $failed = $false
+
+          python tests\integration\verify_ui_layout.py *>&1 | Tee-Object -FilePath ui-layout.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content ui-layout.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            $failed = $true
+          }
+
+          python tests\integration\verify_ui_layout_negative.py *>&1 | Tee-Object -FilePath ui-layout-neg.log
+          $code2 = $LASTEXITCODE
+          if ($code2 -ne 0) {
+            Get-Content ui-layout-neg.log | Select-String -Pattern 'FAIL|RESULT|Traceback' |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            $failed = $true
+          }
+          if ($failed) { exit 1 }
+          exit 0
+
       - name: 管理员权限闸门
         shell: pwsh
         run: |
