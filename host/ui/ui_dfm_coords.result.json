@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "checks": 42,
+  "failed": [],
+  "layout": "docs\\sc_layout\\TSCMF.json",
+  "coords": "C:\\Users\\Administrator\\Documents\\dev\\OpenSysprepTool\\host\\ui\\ui_dfm_coords.inc"
+}

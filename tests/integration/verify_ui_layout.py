@@ -355,6 +355,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--layout", default=DEFAULT_LAYOUT)
     parser.add_argument("--coords", default=DEFAULT_COORDS)
+    parser.add_argument(
+        "--json",
+        default="",
+        help="把结果写成结构化 JSON（ok / checks / failed）。负例脚本读这个判红，"
+        "不去匹配中文输出 —— 那样一旦 runner 的 locale 变了就会假失败（2026-11-01 CI #74 实测）",
+    )
     try:
         args = parser.parse_args(argv[1:])
     except SystemExit:
@@ -385,14 +391,31 @@ def main(argv: list[str]) -> int:
         verify_sheet(layout, sheet, page, rows, skipped)
 
     _say("")
-    if _failures:
+    ok = not _failures
+    if not ok:
         _say(f"RESULT: FAILED  ({len(_failures)}/{_checks} checks failed)")
         for name in _failures:
             _say(f"  - {name}")
-        return 1
+    else:
+        _say(f"RESULT: ALL PASSED  ({_checks} checks)")
 
-    _say(f"RESULT: ALL PASSED  ({_checks} checks)")
-    return 0
+    if args.json:
+        payload = {
+            "schemaVersion": 1,
+            "ok": ok,
+            "checks": _checks,
+            "failed": list(_failures),
+            "layout": os.path.relpath(args.layout, REPO),
+            "coords": args.coords,
+        }
+        folder = os.path.dirname(os.path.abspath(args.json))
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        with open(args.json, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

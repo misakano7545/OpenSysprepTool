@@ -61,6 +61,16 @@ GATE_WEAKENING = [
 
 MAX_DIFF_CHARS = 24000  # 超过就截断，宁可少看也不能把上下文撑爆
 
+# 裁判自己的规则书。这三个文件被改动时必须交给人：否则「改闸门」这件事可以由
+# 写代码的那一手自己批准，等于没有闸门。
+# 同时也解决了一个真实的自伤问题：本文件里就写着那些被禁写法的字面量（它们是
+# 规则数据），自扫必然命中自己 —— 现在这条规则让自扫根本轮不到执行。
+PROTECTED_TOOLING = (
+    "tools/independent_review.py",
+    "tools/collect_ci_evidence.py",
+    ".github/workflows/review.yml",
+)
+
 SYSTEM_PROMPT = """你是一个独立的代码验收者。你不是写这段代码的人，也不认识他。
 
 你的职责：只根据给到的材料判断这次改动能不能合入。你没有「鼓励开发者」的任务，
@@ -178,6 +188,7 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
                         这类要交给人，否则链路第一次上线就永远进不去）
     """
     reasons: list[str] = []
+    escaped: list[str] = []
     verdict_ci = ci_conclusion.strip().lower()
 
     if verdict_ci in ("failure", "failed", "red", "cancelled", "timed_out"):
@@ -190,6 +201,11 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
         return "uncertain", reasons
 
     for path, lines in iter_file_diffs(diff):
+        if path in PROTECTED_TOOLING:
+            # 这不是「驳回」，而是「交给人」：改规则书可能是正当的加严，也可能是
+            # 偷偷松绑。只有人看得出是哪种，模型和写代码的一方都不该自己批。
+            escaped.append(path)
+            continue
         if not is_gate_bearing(path):
             continue
         if path in SELF_FILES:
@@ -228,6 +244,8 @@ def deterministic_checks(diff: str, ci_conclusion: str) -> tuple[str, list[str]]
 
     if reasons:
         return "reject", reasons
+    if escaped:
+        return "uncertain", [f"改动了验收规则书本身（{path}），必须由人复核" for path in escaped]
     return "", []
 
 

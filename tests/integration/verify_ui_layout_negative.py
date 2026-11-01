@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -59,24 +60,46 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
-def run_checker(coords_path: str) -> tuple[int, str]:
+def run_checker(coords_path: str) -> tuple[int, str, list[str]]:
+    """跑一次闸门，返回 (退出码, 人读输出, 结构化 failed 列表)
+
+    判红**不能**靠匹配中文输出：CI #74 在 windows-2022 上就是这么假失败的 ——
+    闸门确实变红了（退出码非 0），但子进程的中文经管道回读后与源码里的字面量
+    对不上，于是「红在正确那条断言上」四个负例全判失败。结论对、证据链错，
+    和没有闸门一样不可信。改成读 --json 的 failed 列表。
+    """
+    json_path = os.path.splitext(coords_path)[0] + ".result.json"
     result = subprocess.run(
-        [sys.executable, CHECKER, "--coords", coords_path],
+        [sys.executable, CHECKER, "--coords", coords_path, "--json", json_path],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
-    return result.returncode, result.stdout + result.stderr
+    failed: list[str] = []
+    if os.path.isfile(json_path):
+        try:
+            with open(json_path, encoding="utf-8") as handle:
+                failed = list(json.load(handle).get("failed") or [])
+        except (OSError, json.JSONDecodeError):
+            failed = []
+    return result.returncode, result.stdout + result.stderr, failed
 
 
 def expect_blocked(work: str, label: str, mutated: str, must_mention: str) -> None:
     path = os.path.join(work, f"{label}.inc")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(mutated)
-    code, output = run_checker(path)
+    code, output, failed = run_checker(path)
     check(f"{label}: 闸门退出码非 0", code != 0, f"exit={code}")
-    check(f"{label}: 红在「{must_mention}」这条断言上", must_mention in output)
+    hit = any(must_mention in name for name in failed)
+    detail = ""
+    if not hit:
+        # 失败时把子进程到底说了什么带出来，否则下一次还是要翻 CI 日志
+        detail = "failed=" + "、".join(failed[:4]) if failed else (
+            "没有产出 --json 结果；子进程输出：" + output.strip()[-400:]
+        )
+    check(f"{label}: 红在「{must_mention}」这条断言上", hit, detail)
 
 
 def main(argv: list[str]) -> int:
@@ -103,8 +126,8 @@ def main(argv: list[str]) -> int:
 
     # 对照组：没改过的表必须全绿，否则后面几条「变红」都不算数
     section("对照组")
-    code, output = run_checker(args.coords)
-    check("未改动的坐标表通过（闸门不是永久红）", code == 0, f"exit={code}")
+    code, output, _failed = run_checker(args.coords)
+    check("未改动的坐标表通过（闸门不是永久红）", code == 0, f"exit={code}; {output.strip()[-200:]}")
 
     # ---------------------------------------------------------------- 负例 1
     section("负例 1：组内控件坐标退回 (0,0)（漏加控件自身 Left/Top）")
