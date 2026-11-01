@@ -362,6 +362,32 @@ def verify_sheet(layout: dict, sheet: str, page: str, rows: list[dict], skipped:
     check(f"{page}: 没有控件被整片摆到分组框原点 (0,0)", not zeroed, "、".join(zeroed[:8]))
 
 
+def verify_provenance(coords_path: str, layout_path: str) -> None:
+    """坐标表头部必须写明它是从哪份 DFM 生成的
+
+    这条防的是「用错图纸重新生成」：gen_ui_coords.py 只认 SHEETS 里那四个页签，
+    但如果有人拿另一份 layout（比如别的窗体的 json）跑一遍再粘回来，坐标本身
+    仍然自洽 —— 只是整页位置都换了张图。头部那行「依据：docs/sc_layout/<文件>」
+    是唯一能发现这件事的线索，所以它必须与本次校验用的 layout 一致。
+    """
+    head = ""
+    with open(coords_path, encoding="utf-8") as handle:
+        for _ in range(5):
+            line = handle.readline()
+            if not line:
+                break
+            head += line
+
+    expected = os.path.basename(layout_path)
+    match = re.search(r"依据：\s*(\S+?\.json)", head)
+    declared = match.group(1) if match else ""
+    check(
+        f"坐标表头部声明了生成来源（应含 {expected}）",
+        bool(match) and os.path.basename(declared) == expected,
+        f"实际声明：{declared or '（没有「依据：」这一行）'}",
+    )
+
+
 def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -399,6 +425,7 @@ def main(argv: list[str]) -> int:
     check("坐标表能解析出条目", len(rows) > 0, f"{len(rows)} 条")
     pages = sorted({row["page"] for row in rows})
     check("覆盖全部四个坐标表页面", pages == sorted(SHEETS.values()), "、".join(pages))
+    verify_provenance(args.coords, args.layout)
 
     for sheet, page in SHEETS.items():
         section(f"{page}（{sheet}）")
