@@ -41,7 +41,20 @@ import urllib.request
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 DEFAULT_BASE_URL = os.environ.get("OSPT_REVIEW_BASE_URL", "https://ai.misakano.kdns.fr/v1")
-DEFAULT_MODEL = os.environ.get("OSPT_REVIEW_MODEL", "tw-intl:gpt-5.4")
+
+# 候选模型列表，逗号分隔，按顺序试。
+# 为什么要有候选：2026-11-01 实测上游中继的 tw-intl 池子整段冷却，返回
+#   HTTP 503 all accounts unavailable (cooling/disabled) ... exceeded the quota
+# 那次 PR 被卡成 uncertain —— 判得对（不瞎猜），但上游一抖所有 PR 都进不去。
+# 换成跨池的多候选，谁活着用谁。全部阵亡才判 uncertain 交给人。
+DEFAULT_MODELS = [
+    item.strip()
+    for item in os.environ.get(
+        "OSPT_REVIEW_MODEL",
+        "tw-intl:gpt-5.4,tw-intl:gemini-3-flash-solo,wb-cn:glm-5.3,wb-global:gpt-5.6-luna",
+    ).split(",")
+    if item.strip()
+]
 
 # 与写代码的模型必须不同族：宪章要求「另一个 AI，最好不同模型」。
 # 这里把「本仓库的历史作者模型」写死，只是为了在选错模型时大声失败。
@@ -488,7 +501,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--evidence", default="", help="CI 真实日志摘要；不给就等于没有证据")
     parser.add_argument("--out", default="independent-review.json")
     parser.add_argument("--summary", default="")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument(
+        "--model",
+        default=",".join(DEFAULT_MODELS),
+        help="候选评审模型，逗号分隔，按顺序试；全部不可用才判 uncertain",
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument(
@@ -508,6 +525,9 @@ def main(argv: list[str]) -> int:
 
     diff = load_text(args.diff)
     files = changed_files(diff)
+    models = [item.strip() for item in args.model.split(",") if item.strip()]
+    if not models:
+        models = list(DEFAULT_MODELS)
     evidence = ""
     if args.evidence and os.path.isfile(args.evidence):
         evidence = load_text(args.evidence)
@@ -559,24 +579,25 @@ def main(argv: list[str]) -> int:
         return 0
 
     section("异模型评审")
-    for hint in CODER_MODEL_HINTS:
-        if hint in args.model.lower():
-            _say(f"  FAIL  评审模型 {args.model} 与写代码的模型同族（含 '{hint}'），不是独立验收")
-            result = {
-                "verdict": "uncertain",
-                "summary": "评审模型与写代码的模型同族，不能算独立验收",
-                "must_fix": [f"换一个不同族的模型：当前是 {args.model}"],
-                "evidence_cited": [],
-                "confidence": 1.0,
-                "model": args.model,
-            }
-            with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
-                json.dump(result, handle, ensure_ascii=False, indent=2)
-                handle.write("\n")
-            if args.summary:
-                write_summary(args.summary, result, args.model, [])
-            _say(_as_result(result))
-            return 2
+    # 任何候选与写代码的模型同族都不行：混进一个 deepseek 系，等于给自己留了后门
+    models = [item for item in models if not any(h in item.lower() for h in CODER_MODEL_HINTS)]
+    if not models:
+        _say("  UNCERTAIN  候选模型全是同族，没有可用的独立评审者")
+        result = {
+            "verdict": "uncertain",
+            "summary": "评审模型与写代码的模型同族，不能算独立验收",
+            "must_fix": [f"换一个不同族的模型：当前是 {args.model}"],
+            "evidence_cited": [],
+            "confidence": 1.0,
+            "model": args.model,
+        }
+        with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(result, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        if args.summary:
+            write_summary(args.summary, result, args.model, [])
+        _say(_as_result(result))
+        return 2
 
     api_key = os.environ.get("OSPT_REVIEW_API_KEY", "").strip()
     if not api_key:
@@ -597,39 +618,55 @@ def main(argv: list[str]) -> int:
         _say(_as_result(result))
         return 2
 
-    _say(f"  调用 {args.model} …")
-    verdict, raw = call_model(
-        build_user_prompt(diff, args.ci_conclusion, files, evidence, context),
-        args.base_url,
-        args.api_key if hasattr(args, "api_key") else api_key,
-        args.model,
-        args.timeout,
-    )
+    _say(f"  候选模型 {len(models)} 个：{', '.join(models)}")
+    prompt = build_user_prompt(diff, args.ci_conclusion, files, evidence, context)
+    failures: list[str] = []
+    verdict = None
+    used_model = ""
+    raw = ""
+    for candidate in models:
+        _say(f"  调用 {candidate} …")
+        verdict, raw = call_model(prompt, args.base_url, api_key, candidate, args.timeout)
+        if verdict is not None:
+            used_model = candidate
+            break
+        # 一个模型挂了（HTTP 503 配额 / 输出不合规）不该让整个 PR 卡死。
+        # 换下一个池子继续；全挂才判 uncertain —— 那时确实没人能判，交给人。
+        failures.append(f"{candidate}: {raw[:200]}")
+        _say(f"    不可用，换下一个（{raw[:120]}）")
+
     if verdict is None:
-        _say(f"  UNCERTAIN  模型输出不可解析或调用失败：{raw[:300]}")
+        _say("  UNCERTAIN  所有候选模型都不可用或输出不合规")
         result = {
             "verdict": "uncertain",
-            "summary": "评审模型不可用或输出不合规，按「无法确认」交给人",
-            "must_fix": [],
+            "summary": (
+                f"{len(models)} 个候选评审模型全部不可用（配额或输出不合规），"
+                "按「无法确认」交给人 —— 这不是代码问题，换池子或人工复核"
+            ),
+            "must_fix": failures,
             "evidence_cited": [],
             "confidence": 0.0,
-            "model": args.model,
+            "model": ",".join(models),
             "raw": raw[:2000],
         }
         with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(result, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
         if args.summary:
-            write_summary(args.summary, result, args.model, [])
+            write_summary(args.summary, result, ",".join(models), [])
         _say(_as_result(result))
         return 2
 
-    verdict["model"] = args.model
+    verdict["model"] = used_model
+    if len(models) > 1:
+        verdict["model_candidates"] = models
+    if failures:
+        verdict["model_failures"] = failures
     with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(verdict, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
     if args.summary:
-        write_summary(args.summary, verdict, args.model, [])
+        write_summary(args.summary, verdict, used_model, [])
     _say(_as_result(verdict))
     return {"pass": 0, "reject": 1, "uncertain": 2}[verdict["verdict"]]
 

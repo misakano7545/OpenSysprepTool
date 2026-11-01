@@ -32,8 +32,13 @@
   交给模型。这一条是 PR #5 上评审模型指出「你放宽了闸门」之后补的，
   比原来那句「一律交给人」更严，而且它是可执行的、不是一句态度
 - **`tests/integration/verify_review_tooling.py`**：改闸门必须有配套验收（宪章 §9.8），
-  这个脚本用 29 条断言覆盖确定性闸门的判决边界、规则书标注、被截断 JSON 的解析行为
+  这个脚本用 31 条断言覆盖确定性闸门的判决边界、规则书标注、被截断 JSON 的解析行为
   与工作流接线；已接进 CI「评审器自检」步骤
+- **评审模型改成跨池候选**：`OSPT_REVIEW_MODEL` 支持逗号分隔，按顺序试，谁活着用谁。
+  起因是上游中继 `tw-intl` 池子整段冷却（`HTTP 503 all accounts unavailable
+  (cooling/disabled) ... exceeded the quota`），那一次 PR 被卡成 uncertain ——
+  判定本身没错（不瞎猜），但一个上游抖动不该让所有 PR 都进不去。全部候选阵亡才判
+  uncertain 交给人，且两条负例（单池挂→降级、全挂→exit 2）都在自检里
 
 
 - **13 条 C4xxx 编译警告清零，并打开 `/WX`**：宪章 M8 矩阵里那句「构建 0 error 0 warning」
