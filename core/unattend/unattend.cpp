@@ -290,7 +290,9 @@ const std::vector<const char*>& oobeChildOrder()
         "HideWirelessSetupInOOBE",
         "NetworkLocation",
         "OEMAppID",
-        "ProtectYourPC"
+        "ProtectYourPC",
+        "SkipMachineOOBE",
+        "SkipUserOOBE"
     };
     return kOrder;
 }
@@ -366,6 +368,17 @@ GenResult generate(const osp::config::Config& cfg)
     pugi::xml_node root = doc.append_child("unattend");
     root.append_attribute("xmlns") = kNamespace;
     root.append_attribute("xmlns:wcm") = kWcmNamespace;
+
+    // ---------------------------------------------------------- generalize
+    // SC 的应答文件模板固定写 DoNotCleanUpNonPresentDevices=true：换硬件或加载
+    // SRS 驱动时要保留非当前设备。PersistAllDeviceInstalls 的 SC 映射尚未确认，
+    // 先不写，等 VM 里对照 SC 的真实产物后再补。
+    pugi::xml_node generalize = root.append_child("settings");
+    generalize.append_attribute("pass") = "generalize";
+    {
+        pugi::xml_node component = addComponent(generalize, "Microsoft-Windows-PnpSysprep");
+        addTextChild(component, "DoNotCleanUpNonPresentDevices", true);
+    }
 
     // ---------------------------------------------------------- specialize
     pugi::xml_node specialize = root.append_child("settings");
@@ -644,6 +657,13 @@ GenResult generate(const osp::config::Config& cfg)
             {
                 // 显式构造 std::string：否则 const char* 会优先匹配 bool 重载
                 addTextChild(oobe, "NetworkLocation", std::string(location));
+            }
+            if (cfg.deploy.skipOobe)
+            {
+                // 跳过 OOBE，不只是遮住页面。两项在 Win10+ 已 deprecated，
+                // 真机矩阵要复核是否仍生效。
+                addTextChild(oobe, "SkipMachineOOBE", true);
+                addTextChild(oobe, "SkipUserOOBE", true);
             }
         }
 

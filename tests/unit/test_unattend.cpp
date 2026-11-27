@@ -171,6 +171,65 @@ TEST_CASE("shell-setup oobeSystem children follow the documented order")
     CHECK(names.size() == 6); // AutoLogon, Display, FirstLogonCommands, LogonCommands, OOBE, UserAccounts
 }
 
+TEST_CASE("unattend: generalize pass keeps non-present devices")
+{
+    const auto generated = osp::unattend::generate(sampleConfig());
+    REQUIRE(generated.ok);
+    pugi::xml_document doc = parseOk(generated.xml);
+    pugi::xml_node root = doc.child("unattend");
+
+    std::vector<std::string> passes;
+    for (pugi::xml_node settings : root.children("settings"))
+    {
+        passes.emplace_back(settings.attribute("pass").value());
+    }
+    REQUIRE(passes.size() == 3);
+    CHECK(passes[0] == "generalize");
+    CHECK(passes[1] == "specialize");
+    CHECK(passes[2] == "oobeSystem");
+
+    pugi::xml_node component = settingsFor(root, "generalize", "Microsoft-Windows-PnpSysprep");
+    REQUIRE(component);
+    CHECK(std::string(component.child("DoNotCleanUpNonPresentDevices").text().get()) == "true");
+}
+
+TEST_CASE("unattend: skipOobe writes SkipMachineOOBE and SkipUserOOBE")
+{
+    SUBCASE("skipOobe enabled")
+    {
+        osp::config::Config cfg = sampleConfig();
+        cfg.deploy.skipOobe = true;
+        const auto generated = osp::unattend::generate(cfg);
+        REQUIRE(generated.ok);
+        pugi::xml_document doc = parseOk(generated.xml);
+
+        pugi::xml_node component =
+            settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
+        REQUIRE(component);
+        pugi::xml_node oobe = component.child("OOBE");
+        REQUIRE(oobe);
+        CHECK(std::string(oobe.child("SkipMachineOOBE").text().get()) == "true");
+        CHECK(std::string(oobe.child("SkipUserOOBE").text().get()) == "true");
+    }
+
+    SUBCASE("skipOobe disabled")
+    {
+        osp::config::Config cfg = sampleConfig();
+        cfg.deploy.skipOobe = false;
+        const auto generated = osp::unattend::generate(cfg);
+        REQUIRE(generated.ok);
+        pugi::xml_document doc = parseOk(generated.xml);
+
+        pugi::xml_node component =
+            settingsFor(doc.child("unattend"), "oobeSystem", "Microsoft-Windows-Shell-Setup");
+        REQUIRE(component);
+        pugi::xml_node oobe = component.child("OOBE");
+        REQUIRE(oobe); // networkLocation 仍在，OOBE 应该存在
+        CHECK_FALSE(oobe.child("SkipMachineOOBE"));
+        CHECK_FALSE(oobe.child("SkipUserOOBE"));
+    }
+}
+
 TEST_CASE("OEM 信息：有内容才生成 <OEMInformation>，且子元素按文档顺序")
 {
     // 默认配置的 oem 段全空：不能凭空生成一个空的 OEM 段
