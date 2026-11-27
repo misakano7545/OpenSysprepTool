@@ -196,6 +196,9 @@ std::vector<std::string> forbiddenBindings();
 
 // 打开窗口并常驻，直到用户关闭；返回进程退出码。
 // initialConfigPath 非空时启动就载入该 cfg.json；载入失败只报错、不退出。
+// 把每个页签各存一张 BMP（--ui-shot），返回进程退出码
+int capturePagesToFiles(const std::string& prefix);
+
 int runApplication(const std::string& initialConfigPath);
 
 // ---------------------------------------------------------------- 冒烟测试

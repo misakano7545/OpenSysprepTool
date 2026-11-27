@@ -336,11 +336,11 @@ def main(argv: list[str]) -> int:
     section("按 SC 的 DFM 坐标摆放（运行 / 完成 / 目标系统）")
     lines = report.get("lines", [])
     placed = [line for line in lines if "控件按图纸坐标摆放" in line]
-    # 七个页面都按 DFM 摆：母盘系统 16 + 目标系统 34 + 计划任务 15 + 部署过程 12 +
-    # 封装过程 21 + 运行 5 + 完成 8 = 111（红线项与图纸纯标签不在内）
-    check("坐标核对覆盖 112 个控件（七个页面）", len(placed) == 112, f"{len(placed)} 条")
+    # 七个页面都按 DFM 摆：母盘系统 27 + 目标系统 35 + 计划任务 15 + 部署过程 12 +
+    # 封装过程 21 + 运行 5 + 完成 8 = 123（红线项不在内）
+    check("坐标核对覆盖 123 个控件（七个页面）", len(placed) == 123, f"{len(placed)} 条")
     # 逐页都要有核对记录，防止某一页悄悄退回自动排列
-    for page_name, expected in (("母盘系统", 16), ("目标系统", 35), ("计划任务", 15),
+    for page_name, expected in (("母盘系统", 27), ("目标系统", 35), ("计划任务", 15),
                                 ("部署过程", 12), ("封装过程", 21), ("运行", 5), ("完成", 8)):
         pages = [p for p in report.get("pages", []) if p.get("title") == page_name]
         if not pages:

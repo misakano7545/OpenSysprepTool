@@ -107,10 +107,6 @@
       "action": "repair",
       "note": "等同 ospt --repair"
     },
-    "Lab_ScanResults": {
-      "kind": "info",
-      "valueSource": "\"点『封装体检』后重新采集（--checkup 的完整结果）\""
-    },
     "Btn_PEloadsrs": {
       "kind": "button",
       "label": "执行"

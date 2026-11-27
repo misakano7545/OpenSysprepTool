@@ -562,17 +562,27 @@ Page systemPage(const sysinfo::CheckupReport& report)
     );
 
     // 运行环境：WinPE 会建 HKLM\SYSTEM\CurrentControlSet\Control\MiniNT
+    // DFM 里每行是「Lab_xxx 说明 + Lab_xxxv 值」两个独立控件；只画值，左侧就是一片空白
+    basic.fields.push_back(makeInfo("Lab_Osname", "", "系统名称:"));
     basic.fields.push_back(makeInfo("Lab_Osnamev", "系统名称", osName));
-    basic.fields.push_back(makeInfo("Lab_Osbitv", "系统位宽", arch));
+    basic.fields.push_back(makeInfo("Lab_Osntver", "", "内核版本:"));
     basic.fields.push_back(makeInfo(
         "Lab_Osntverv", "内核版本", report.os.version.empty() ? std::string("未知") : report.os.version
     ));
-    basic.fields.push_back(makeInfo("Lab_SysprepSupportv", "封装支持判定", sysprepText));
+    basic.fields.push_back(makeInfo("Lab_OsBit", "", "系统位宽:"));
+    basic.fields.push_back(makeInfo("Lab_OsBitv", "系统位宽", arch));
+    basic.fields.push_back(makeInfo("Lab_Osdrives", "", "系统目录:"));
     basic.fields.push_back(makeInfo("Lab_Osdrivesv", "系统分区", driveText));
-    basic.fields.push_back(makeInfo("Lab_Osusesizev", "使用容量", usedText));
+    basic.fields.push_back(makeInfo("Lab_OsUser", "", "当前用户:"));
     basic.fields.push_back(makeInfo("Lab_OsUserv", "当前用户", currentUser()));
-    basic.fields.push_back(makeInfo("Lab_OsRelativesizev", "相对容量", percentBuffer));
+    basic.fields.push_back(makeInfo("Lab_RunEnviron", "", "运行环境:"));
     basic.fields.push_back(makeInfo("Lab_RunEnvironv", "运行环境", runEnvironment()));
+    basic.fields.push_back(makeInfo("Lab_Osusesize", "", "使用容量:"));
+    basic.fields.push_back(makeInfo("Lab_Osusesizev", "使用容量", usedText));
+    basic.fields.push_back(makeInfo("Lab_OsRelativesize", "", "相对容量:"));
+    basic.fields.push_back(makeInfo("Lab_OsRelativesizev", "相对容量", percentBuffer));
+    basic.fields.push_back(makeInfo("Lab_SysprepSupport", "", "封装支持:"));
+    basic.fields.push_back(makeInfo("Lab_SysprepSupportv", "封装支持判定", sysprepText));
     page.groups.push_back(std::move(basic));
 
     // DFM: Gb_Osallinfo『封装体检』——只保留体检按钮与结果行；
@@ -580,10 +590,13 @@ Page systemPage(const sysinfo::CheckupReport& report)
     Group checkup;
     checkup.id = "Gb_Osallinfo";
     checkup.caption = "封装体检";
-    checkup.fields.push_back(makeButton("Btn_Scan", "封装体检", "scan", "重跑 M2 的采集，等价于 --checkup"));
+    // 图纸里按钮左侧的两行说明（Btn_ScanTip1/2）；不建它们，框内只剩一个按钮
+    checkup.fields.push_back(makeImage("Pic_Scan", "体检示意图", 53, 64, 84, 66));
+    checkup.fields.push_back(makeInfo("Btn_ScanTip1", "", "立即体检，检测系统封装环境"));
     checkup.fields.push_back(
-        makeInfo("Lab_ScanResults", "检测结果", "点『封装体检』后重新采集（--checkup 的完整结果）")
+        makeInfo("Btn_ScanTip2", "", "全面检测系统设置和封装必备文件，提高封装成功率")
     );
+    checkup.fields.push_back(makeButton("Btn_Scan", "封装体检", "scan", "重跑 M2 的采集，等价于 --checkup"));
     page.groups.push_back(std::move(checkup));
 
     // DFM: Gb_SRS『导入磁盘控制器驱动』——对应 M6 的 --inject-drivers 两种模式
@@ -620,9 +633,33 @@ Page systemPage(const sysinfo::CheckupReport& report)
     ));
     page.groups.push_back(std::move(srs));
 
+    // 图纸 Pan_Line1：两栏之间的 1px 竖线。它只有坐标没有字段，模型里也得占一个组，
+    // 否则 applyDfmCoords 找不到落点，渲染器就不会画这条线。
+    Group separator;
+    separator.id = "Pan_Line1";
+    page.groups.push_back(std::move(separator));
+
     // 位置全部来自 DFM（tools/gen_ui_coords.py 生成）；字段缺坐标时该函数
     // 会返回 false，页面退回自动排列，绝不把控件堆到 (0,0)
     applyDfmCoords(page);
+
+    // 图纸的标签列只有 57px，9pt 宋体下「系统名称:」实测 60px，会被省略成「系统…」。
+    // 把标签往左吃掉分组框的 22px 内边距（x 22→6，宽 57→74），值列一个像素都不动。
+    for (Group& group : page.groups)
+    {
+        if (group.id != "Gb_Osbasicinfo")
+        {
+            continue;
+        }
+        for (Field& field : group.fields)
+        {
+            if (field.label.empty() && !field.value.empty() && field.kind == FieldKind::Info)
+            {
+                field.x = 6;
+                field.width = 74;
+            }
+        }
+    }
     return page;
 }
 
@@ -889,7 +926,7 @@ Page deployPage(const config::Config& cfg)
     ));
     set.fields.push_back(makeCheck(
         "Cb_Tampering",
-        "校验文件防篡改（用户态）",
+        "校验文件防篡改",  // 图纸 Caption 逐字；图纸宽 116px 装不下额外的括注
         cfg.deploy.verifyIntegrity,
         "deploy.verifyIntegrity",
         "宪章 §7：防篡改只做用户态校验"
@@ -1834,17 +1871,28 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "system")
     {
         return {
+            "Lab_Osname",
             "Lab_Osnamev",
-            "Lab_Osbitv",
+            "Lab_Osntver",
             "Lab_Osntverv",
-            "Lab_SysprepSupportv",
+            "Lab_OsBit",
+            "Lab_OsBitv",
+            "Lab_Osdrives",
             "Lab_Osdrivesv",
-            "Lab_Osusesizev",
+            "Lab_OsUser",
             "Lab_OsUserv",
-            "Lab_OsRelativesizev",
+            "Lab_RunEnviron",
             "Lab_RunEnvironv",
+            "Lab_Osusesize",
+            "Lab_Osusesizev",
+            "Lab_OsRelativesize",
+            "Lab_OsRelativesizev",
+            "Lab_SysprepSupport",
+            "Lab_SysprepSupportv",
+            "Btn_ScanTip1",
+            "Btn_ScanTip2",
+            "Pic_Scan",
             "Btn_Scan",
-            "Lab_ScanResults",
             "RB_LoadSCsrs",
             "RB_Loaddiy",
             "Cb_osDrives",
