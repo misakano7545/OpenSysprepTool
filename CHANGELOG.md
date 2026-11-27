@@ -57,6 +57,30 @@
 - **体检验收脚本进流水线**：`tests/integration/verify_checkup.py` 一直在仓库里，但
   `ci.yml` 里 0 次命中 —— M2 的验收只在作者本机跑过一次。CI 新增「系统体检验收」步骤，
   真跑 `ospt --checkup --json` 再用脚本拿 `cmd /c ver` 与 `shutil.disk_usage` 独立对照
+- **界面没有视觉样式**（看着「粗糙」的主因）：exe 的 manifest 里没有
+  `Microsoft.Windows.Common-Controls` v6 依赖，`InitCommonControlsEx` 只加载到 v5，
+  按钮/复选框/页签全是 Win95 立体灰。补依赖后 comctl32 从 WinSxS 加载，并加冒烟断言
+  盯住这条退化（坐标断言看不出样式退化）
+- **状态栏**：`STATUSCLASSNAME` 不响应 `WM_PRINT`，离屏截图里整条消失；改成
+  分隔线 + 左段消息 + 右段当前页三个 Static，两段式
+- **标签文字后面有灰底块**：`WM_CTLCOLORSTATIC` 原本返回实色画刷，白底面板上每个标签
+  后面压一条灰块；改为透明背景 + `NULL_BRUSH`
+- **自绘图片占位是灰方块**：占位底色用了 `COLOR_BTNFACE`，页面是白底；改 `COLOR_WINDOW`
+- **控件从没设过字体**：钉死 9pt（微软雅黑 UI → 雅黑 → Segoe UI → 宋体 依次回退，
+  按 DPI 折算字号），页签与状态条套同一字体；`runUi` 补 `SetProcessDPIAware`，
+  不再被系统按位图拉伸
+- **空输入框看不出该填什么**：图纸这些 `Ed_*` 没有配套 `Lab_*`，用提示文字
+  （`EM_SETCUEBANNER`）显示字段名，不动任何坐标
+- **`Cb_Tampering` 文字被裁切**：我们自己把 Caption 加长成「校验文件防篡改（用户态）」，
+  图纸宽 116px 装不下；改回图纸原文，括注移到 `note`
+- **母盘系统页补齐图纸控件**：9 组说明标签、`Pic_Scan`、两行说明、`Pan_Line1` 分隔线
+  （坐标表 16 → 27 条，合计 123 条）
+- **主窗口按客户区 800×540 反推窗口尺寸**（`AdjustWindowRectEx`）：原先直接把 800×540
+  当窗口尺寸，客户区只有 784×481，整页被缩到 0.98 倍
+- **新增 `--ui-shot <前缀>`**：逐页把窗口画到内存 DIB 存 BMP。桌面常年有置顶窗口挡着
+  屏幕截图（实测三种抓屏方式都拿不到本程序画面），自渲染是唯一可靠的版面核对途径。
+  它走 `WM_PRINT`，主题样式画不出来 —— 只能核版面/坐标，不能核外观
+
 - **`--gen-unattend` 缺 `generalize` 段**：补 `Microsoft-Windows-PnpSysprep` 的
   `DoNotCleanUpNonPresentDevices=true`；`deploy.skipOobe` 同时写 `SkipMachineOOBE` /
   `SkipUserOOBE`，不再只是遮住 OOBE 页面。`PersistAllDeviceInstalls` 的 SC 映射未确认，暂不写

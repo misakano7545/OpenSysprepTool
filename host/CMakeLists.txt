@@ -37,9 +37,12 @@ target_link_options(ospt PRIVATE
   # 清单保持 asInvoker：requireAdministrator 会让 CreateProcess 在未提权时直接拒绝
   # （740），代码里的自动提权逻辑就没机会跑。改成 asInvoker + 启动时自检 + runas 重启。
   "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+  # 没有这条依赖，InitCommonControlsEx 只会加载 comctl32 v5 —— 按钮、复选框、
+  # 页签全是 Win95 的立体灰样式，整个界面看着就"粗糙"。加 v6 才有视觉样式。
+  "/MANIFESTDEPENDENCY:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\""
 )
 
-target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32 shell32)
+target_link_libraries(ospt PRIVATE osp::core comctl32 comdlg32 shell32 uxtheme)
 
 # WTL 10 头文件库（MS-PL，见 third_party/WTL/MANIFEST.json 与 third_party/LICENSES.md）。
 # 依赖 ATL：VS 装了 Microsoft.VisualStudio.Component.VC.ATL 之后，ATL 的头与库

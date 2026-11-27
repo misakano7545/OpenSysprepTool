@@ -22,6 +22,7 @@
 #include <windows.h>
 
 #include <commctrl.h>
+#include <uxtheme.h>
 #include <commdlg.h>
 
 #include <atlbase.h>
@@ -55,6 +56,12 @@ namespace {
 constexpr int kIdcTab = 1000;
 constexpr int kIdcPagePanel = 1001;
 constexpr int kIdcStatus = 1002;
+
+// 主窗口客户区 = SC 主窗体 DFM 的 800x540（docs/sc_layout/TSCMF.json 的 clientWidth/clientHeight）。
+// 页面坐标在 800x398 的设计空间里，窗口尺寸一变就得靠等比放大去凑，版面比例立刻失真 ——
+// 所以真实界面与冒烟测试必须共用这两个常量，不能各写一个数字。
+constexpr int kMainWindowWidth = 800;
+constexpr int kMainWindowHeight = 540;
 constexpr int kIdcGroupBase = 1500; // 分组框
 constexpr int kIdcFieldBase = 2000; // 字段控件：base + 页内扁平序号
 constexpr int kIdcLabelBase = 6000; // 字段标签：base + 页内扁平序号
@@ -172,6 +179,33 @@ constexpr UINT kMsgDeployFinish = WM_APP + 12;
 // 按钮自己 DestroyWindow 掉，控件窗口过程随后在已释放的内存上继续跑（偶发段错误）。
 constexpr UINT kMsgRebuildPages = WM_APP + 13;
 
+// 把窗口（含所有层级的子控件）画到 dc。用 PRF_CHILDREN 交给 DefWindowProc 时，
+// 根窗口的子控件有时画不出来（状态条那两个 Static 就是这样整条不见的），
+// 所以这里自己按层级递归，逐层设置视口原点，且**不**带 PRF_CHILDREN。
+void printWindowTree(HWND window, HDC dc)
+{
+    for (HWND child = ::GetWindow(window, GW_CHILD); child != nullptr;
+         child = ::GetWindow(child, GW_HWNDNEXT))
+    {
+        if (::IsWindowVisible(child) == FALSE)
+        {
+            continue;
+        }
+        RECT box = {};
+        ::GetWindowRect(child, &box);
+        ::MapWindowPoints(nullptr, window, reinterpret_cast<LPPOINT>(&box), 2);
+
+        const int saved = ::SaveDC(dc);
+        ::SetViewportOrgEx(dc, box.left, box.top, nullptr);
+        ::SendMessageW(
+            child, WM_PRINT, reinterpret_cast<WPARAM>(dc),
+            PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND
+        );
+        printWindowTree(child, dc);
+        ::RestoreDC(dc, saved);
+    }
+}
+
 // ---------------------------------------------------------------- 主框架
 
 class MainFrame : public CWindowImpl<MainFrame>
@@ -181,7 +215,11 @@ public:
 
     CTabCtrl tab;
     PagePanel* panel = nullptr; // 由 OnCreate 创建，随窗口销毁
-    CStatic status;
+    // 状态条：左段消息、右段当前页。用 STATIC 而不是 STATUSCLASSNAME ——
+    // 后者不响应 WM_PRINT，离屏截图（--ui-shot）里会整条消失。
+    CStatic statusLeft;
+    CStatic statusRight;
+    CStatic statusLine;
 
     // 应用状态：页面表由配置模型构建，按钮动作可能改配置并重建页面
     config::Config cfg;
@@ -227,11 +265,65 @@ public:
     MESSAGE_HANDLER(kMsgDeployProgress, OnDeployProgress)
     MESSAGE_HANDLER(kMsgDeployFinish, OnDeployFinish)
     MESSAGE_HANDLER(kMsgRebuildPages, OnRebuildPages)
+    MESSAGE_HANDLER(WM_PRINTCLIENT, OnPrintClient)
+    MESSAGE_HANDLER(WM_CTLCOLORSTATIC, OnCtlColorStatic)
     END_MSG_MAP()
 
     LRESULT OnRebuildPages(UINT, WPARAM, LPARAM, BOOL&)
     {
         rebuildPages();
+        return 0;
+    }
+
+    // 只给 --ui-shot 用：把消息排空几轮，让布局与绘制落地
+    void pumpForCapture(int rounds)
+    {
+        MSG message = {};
+        for (int i = 0; i < rounds; ++i)
+        {
+            while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+            {
+                ::TranslateMessage(&message);
+                ::DispatchMessageW(&message);
+            }
+            ::Sleep(10);
+        }
+    }
+
+    // 只给 --ui-shot 用：切到第 index 页并让版面重算
+    void selectPageForCapture(int index)
+    {
+        if (index < 0 || index >= static_cast<int>(pages.size()))
+        {
+            return;
+        }
+        // 走真实交互路径（通知页签变了），不直接碰 PagePanel —— 它在 MainFrame 之后才定义
+        tab.SetCurSel(index);
+        NMHDR header = {};
+        header.hwndFrom = tab.m_hWnd;
+        header.idFrom = kIdcTab;
+        header.code = TCN_SELCHANGE;
+        OnNotify(0, kIdcTab, reinterpret_cast<LPARAM>(&header), *reinterpret_cast<BOOL*>(&header));
+        RECT client = {};
+        ::GetClientRect(m_hWnd, &client);
+        OnSize(0, 0, MAKELPARAM(client.right, client.bottom), *reinterpret_cast<BOOL*>(&client));
+    }
+
+    // 状态条用窗口底色（BCU 那种灰条），内容区是白的
+    LRESULT OnCtlColorStatic(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        ::SetBkMode(dc, TRANSPARENT);
+        ::SetTextColor(dc, ::GetSysColor(COLOR_WINDOWTEXT));
+        return reinterpret_cast<LRESULT>(::GetSysColorBrush(COLOR_BTNFACE));
+    }
+
+    // 离屏截图用（--ui-shot）：同上，只填背景，子控件由 DefWindowProc 遍历
+    LRESULT OnPrintClient(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        RECT client = {};
+        ::GetClientRect(m_hWnd, &client);
+        ::FillRect(reinterpret_cast<HDC>(wParam), &client, ::GetSysColorBrush(COLOR_BTNFACE));
         return 0;
     }
 
@@ -262,6 +354,7 @@ public:
     bool promptOpenConfig();
     bool promptSaveConfigAs();
     void setStatus(const std::string& text);
+    void setStatusPage(const std::string& text);
 
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSize(UINT, WPARAM, LPARAM lParam, BOOL&);
@@ -297,6 +390,19 @@ public:
     UINT_PTR spinTimer = 0;
     static constexpr UINT_PTR kSpinTimer = 0x51;
 
+    // 从没设过字体时控件用系统默认字体，同一个版面在不同机器上宽度都不一样 ——
+    // 109px 的值列在这台机器上连 "10.0.26200.9711" 都放不下。钉死 9pt 并优选
+    // 微软雅黑 UI（见 OnCreate），既让坐标表有确定行高，也贴近现代 Windows 工具观感。
+    HFONT uiFont = nullptr;
+
+    void applyUiFont(HWND control)
+    {
+        if (control != nullptr && uiFont != nullptr)
+        {
+            ::SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(uiFont), TRUE);
+        }
+    }
+
     // 控件 ID -> DFM 控件名（自绘时需要知道画什么）
     std::string imageIdFor(int controlId)
     {
@@ -315,6 +421,8 @@ public:
     MESSAGE_HANDLER(WM_VSCROLL, OnVScroll)
     MESSAGE_HANDLER(WM_COMMAND, OnCommand)
     MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
+    MESSAGE_HANDLER(WM_CTLCOLORSTATIC, OnCtlColorStatic)
+    MESSAGE_HANDLER(WM_PRINTCLIENT, OnPrintClient)
     MESSAGE_HANDLER(WM_TIMER, OnTimer)
     MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
     END_MSG_MAP()
@@ -339,8 +447,8 @@ public:
         HDC dc = item->hDC;
         RECT area = item->rcItem;
 
-        // 底色与页面一致，避免重绘残影
-        HBRUSH background = ::CreateSolidBrush(::GetSysColor(COLOR_BTNFACE));
+        // 底色与页面一致（页面是白底），否则每个自绘图片后面都是一块灰方块
+        HBRUSH background = ::CreateSolidBrush(::GetSysColor(COLOR_WINDOW));
         ::FillRect(dc, &area, background);
         ::DeleteObject(background);
 
@@ -371,6 +479,47 @@ public:
             }
             ::SelectObject(dc, oldPen);
             ::DeleteObject(pen);
+            return TRUE;
+        }
+
+        if (id == "Pic_Scan")
+        {
+            // 图纸 84x66 的示意图：一张纸 + 放大镜。SC 的位图不搬，自己画。
+            const int paperW = size * 2 / 5;
+            const int paperH = size / 2;
+            const int px = left + size / 12;
+            const int py = top + (height - paperH) / 2;
+            HPEN edge = ::CreatePen(PS_SOLID, 2, RGB(0x5A, 0x6B, 0x7D));
+            HGDIOBJ oldPen = ::SelectObject(dc, edge);
+            HBRUSH paper = ::CreateSolidBrush(RGB(0xFA, 0xFB, 0xFC));
+            HGDIOBJ oldBrush = ::SelectObject(dc, paper);
+            ::Rectangle(dc, px, py, px + paperW, py + paperH);
+            for (int i = 1; i <= 3; ++i)
+            {
+                const int y = py + paperH * i / 4;
+                ::MoveToEx(dc, px + 4, y, nullptr);
+                ::LineTo(dc, px + paperW - 4, y);
+            }
+            ::SelectObject(dc, oldBrush);
+            ::DeleteObject(paper);
+
+            // 放大镜压在纸的右下角
+            const int r = size / 6;
+            const int cx = px + paperW - r / 3;
+            const int cy = py + paperH - r / 3;
+            HBRUSH lens = ::CreateSolidBrush(RGB(0xE3, 0xF0, 0xFB));
+            ::SelectObject(dc, lens);
+            HPEN ring = ::CreatePen(PS_SOLID, (std::max)(2, size / 22), RGB(0x2F, 0x6F, 0xD0));
+            ::SelectObject(dc, ring);
+            ::Ellipse(dc, cx - r, cy - r, cx + r, cy + r);
+            ::MoveToEx(dc, cx + r * 3 / 4, cy + r * 3 / 4, nullptr);
+            ::LineTo(dc, cx + r * 3 / 2, cy + r * 3 / 2);
+
+            ::SelectObject(dc, oldPen);
+            ::SelectObject(dc, oldBrush);
+            ::DeleteObject(edge);
+            ::DeleteObject(lens);
+            ::DeleteObject(ring);
             return TRUE;
         }
 
@@ -409,8 +558,53 @@ public:
         return TRUE;
     }
 
+    // 自绘类没有 WM_PRINTCLIENT 处理时截出来是全空的；这里只填背景，
+    // 子控件交给 DefWindowProc 的 PRF_CHILDREN 去画（不要自己再遍历，会画两遍）。
+    LRESULT OnPrintClient(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        RECT client = {};
+        ::GetClientRect(m_hWnd, &client);
+        ::FillRect(reinterpret_cast<HDC>(wParam), &client, ::GetSysColorBrush(COLOR_WINDOW));
+        return 0;
+    }
+
+    // 只读文字（Static）默认用父窗口画刷填底，在分组框里会留下一条条灰底块，
+    // 看上去就是「文字后面有灰条」。设成透明背景，直接画在父背景上。
+    LRESULT OnCtlColorStatic(UINT, WPARAM wParam, LPARAM, BOOL&)
+    {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        ::SetBkMode(dc, TRANSPARENT);
+        ::SetTextColor(dc, ::GetSysColor(COLOR_WINDOWTEXT));
+        // 返回空画刷 = 不填背景，让文字直接落在父窗口已画好的背景上。
+        // 返回实色画刷会在白底面板上留下一条条灰块（正是之前「粗糙」的来源之一）。
+        return reinterpret_cast<LRESULT>(::GetStockObject(NULL_BRUSH));
+    }
+
     LRESULT OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     {
+        // 9pt，与 BCU / 现代 Windows 工具一致：雅黑 UI 优先，机器上没有就退雅黑、
+        // Segoe UI，最后才回宋体（Win7 无中文语言包时 Segoe UI 也能显示中文）。
+        // 字号按屏幕 DPI 折算（9pt）：声明了 DPI 感知之后，写死 -12 在 125%/150%
+        // 的屏幕上会比系统其它程序小一号。GetDeviceCaps 在 Win7 上同样可用。
+        int dpiY = 96;
+        if (HDC screen = ::GetDC(nullptr))
+        {
+            dpiY = ::GetDeviceCaps(screen, LOGPIXELSY);
+            ::ReleaseDC(nullptr, screen);
+        }
+        const int fontHeight = -::MulDiv(9, dpiY, 72);
+
+        for (const wchar_t* face : {L"Microsoft YaHei UI", L"Microsoft YaHei", L"Segoe UI", L"宋体"})
+        {
+            uiFont = ::CreateFontW(
+                fontHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face
+            );
+            if (uiFont != nullptr)
+            {
+                break;
+            }
+        }
         rebuild();
         return 0;
     }
@@ -444,6 +638,11 @@ public:
         {
             ::KillTimer(m_hWnd, kSpinTimer);
             spinTimer = 0;
+        }
+        if (uiFont != nullptr)
+        {
+            ::DeleteObject(uiFont);
+            uiFont = nullptr;
         }
         spinTarget = nullptr;
         owner = nullptr;
@@ -647,7 +846,22 @@ public:
                     0,
                     static_cast<UINT>(kIdcGroupBase + g)
                 );
+                applyUiFont(groupBox.m_hWnd);
                 decorations.push_back(groupBox.m_hWnd);
+            }
+            else if (group.id.rfind("Pan_Line", 0) == 0)
+            {
+                // 图纸里两栏之间的 1px 分隔线（Pan_Line1）。丢了它，左右两栏看着是散的。
+                CStatic line;
+                line.Create(
+                    m_hWnd,
+                    rcDefault,
+                    L"",
+                    WS_CHILD | WS_VISIBLE | SS_ETCHEDVERT,
+                    0,
+                    static_cast<UINT>(kIdcGroupBase + g)
+                );
+                decorations.push_back(line.m_hWnd);
             }
 
             for (const Field& field : group.fields)
@@ -665,6 +879,7 @@ public:
                         0,
                         static_cast<UINT>(kIdcLabelBase + index)
                     );
+                    applyUiFont(label.m_hWnd);
                     decorations.push_back(label.m_hWnd);
                 }
 
@@ -735,6 +950,15 @@ public:
                     }
                     edit.Create(m_hWnd, rcDefault, toWide(field.value).c_str(), style, 0, controlId);
                     handle = edit.m_hWnd;
+                    // 图纸里这些 Ed_* 没有配套的 Lab_*，光看空框不知道填什么。
+                    // 用提示文字（cue banner）把字段名放进去，不动任何坐标。
+                    if (field.placed() && !field.label.empty() && field.value.empty())
+                    {
+                        ::SendMessageW(
+                            handle, EM_SETCUEBANNER, TRUE,
+                            reinterpret_cast<LPARAM>(toWide(field.label).c_str())
+                        );
+                    }
                     break;
                 }
                 case FieldKind::Combo: {
@@ -797,7 +1021,9 @@ public:
                         0,
                         controlId
                     );
-                    list.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT, LVS_EX_FULLROWSELECT);
+                    list.SetExtendedListViewStyle(
+                        LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER
+                    );
                     for (std::size_t c = 0; c < field.columns.size(); ++c)
                     {
                         list.InsertColumn(
@@ -837,6 +1063,7 @@ public:
                     ::ShowWindow(handle, SW_HIDE);
                 }
 
+                applyUiFont(handle);
                 ControlRef ref;
                 ref.fieldIndex = index;
                 ref.handle = handle;
@@ -933,7 +1160,7 @@ public:
                 const int groupX = static_cast<int>(group.x * scale);
                 const int groupY = static_cast<int>(group.y * scale);
 
-                if (group.placed() && !group.caption.empty())
+                if (group.placed())
                 {
                     if (HWND box = GetDlgItem(static_cast<int>(kIdcGroupBase + g)))
                     {
@@ -1613,7 +1840,22 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     panel->owner = this;
     panel->Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | WS_VSCROLL, 0, kIdcPagePanel);
 
-    status.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_SUNKEN, 0, kIdcStatus);
+    statusLine.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ, 0, kIdcStatus);
+    statusLeft.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS, 0, kIdcStatus + 1);
+    statusRight.Create(
+        m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_ENDELLIPSIS, 0, kIdcStatus + 2
+    );
+    {
+        // 全窗同一字体：页签条与状态栏也要套，否则它们还是系统默认的宋体
+        const HFONT font =
+            reinterpret_cast<HFONT>(::SendMessageW(panel->m_hWnd, WM_GETFONT, 0, 0));
+        if (font != nullptr)
+        {
+            ::SendMessageW(tab.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            ::SendMessageW(statusLeft.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            ::SendMessageW(statusRight.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        }
+    }
 
     // 菜单：只用系统标准菜单，配置的打开 / 另存为 / 退出，加一个与「封装体检」同源的立即体检
     if (HMENU menu = ::CreateMenu())
@@ -1675,9 +1917,18 @@ void MainFrame::markDirty()
 
 void MainFrame::setStatus(const std::string& text)
 {
-    if (status.m_hWnd != nullptr)
+    if (statusLeft.m_hWnd != nullptr)
     {
-        status.SetWindowTextW(toWide(text).c_str());
+        statusLeft.SetWindowTextW(toWide(text).c_str());
+    }
+}
+
+// 右段显示当前页（BCU 状态栏右侧也是这种「一眼知道在哪」的信息）
+void MainFrame::setStatusPage(const std::string& text)
+{
+    if (statusRight.m_hWnd != nullptr)
+    {
+        statusRight.SetWindowTextW(toWide(text).c_str());
     }
 }
 
@@ -1874,10 +2125,19 @@ LRESULT MainFrame::OnSize(UINT, WPARAM, LPARAM lParam, BOOL&)
             SWP_NOZORDER | SWP_NOACTIVATE
         );
     }
-    if (status.m_hWnd != nullptr)
+    if (statusLine.m_hWnd != nullptr)
     {
+        const int rightWidth = 160;
         ::SetWindowPos(
-            status, nullptr, 0, height - statusHeight, width, statusHeight, SWP_NOZORDER | SWP_NOACTIVATE
+            statusLine, nullptr, 0, height - statusHeight, width, 2, SWP_NOZORDER | SWP_NOACTIVATE
+        );
+        ::SetWindowPos(
+            statusLeft, nullptr, 4, height - statusHeight + 3, width - rightWidth - 8, statusHeight - 4,
+            SWP_NOZORDER | SWP_NOACTIVATE
+        );
+        ::SetWindowPos(
+            statusRight, nullptr, width - rightWidth - 4, height - statusHeight + 3, rightWidth,
+            statusHeight - 4, SWP_NOZORDER | SWP_NOACTIVATE
         );
     }
     return 0;
@@ -1892,7 +2152,7 @@ LRESULT MainFrame::OnNotify(UINT, WPARAM, LPARAM lParam, BOOL&)
         if (panel != nullptr && selected >= 0 && selected < static_cast<int>(pages.size()))
         {
             panel->setPage(selected);
-            status.SetWindowTextW(toWide(pages[static_cast<std::size_t>(selected)].title).c_str());
+            setStatusPage(pages[static_cast<std::size_t>(selected)].title);
         }
     }
     return 0;
@@ -2194,7 +2454,10 @@ SmokeResult runSmokeTest(bool visible)
     // 整条流水线就此挂死（第一次跑就踩到了）。按钮的响应仍然照常记录进报告。
     context.frame.powerActionsDryRun = true;
 
-    RECT rect = {0, 0, 800, 540};
+    // 按客户区 800x540 反推窗口尺寸：直接把 800x540 当窗口尺寸，客户区只有
+    // 784x481，整页会被缩到 0.98 倍，控件位置和图纸对不上。
+    RECT rect = {0, 0, kMainWindowWidth, kMainWindowHeight};
+    ::AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, TRUE, 0);
     HWND handle = context.frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW, 0);
     if (handle == nullptr)
     {
@@ -2212,6 +2475,15 @@ SmokeResult runSmokeTest(bool visible)
     context.record(tabHandle != nullptr, "页签控件存在");
     HWND panelHandle = context.frame.panel != nullptr ? context.frame.panel->m_hWnd : nullptr;
     context.record(panelHandle != nullptr, "页面面板存在");
+
+    // 字体必须显式设置：没设时控件用系统默认字体，109px 的值列在不同机器上宽度不同，
+    // 版面对不上图纸也测不出来 —— 这条就是那次「系统信息只剩值、标签全被省略」的回归闸门。
+    if (panelHandle != nullptr)
+    {
+        HWND firstChild = ::GetWindow(panelHandle, GW_CHILD);
+        const bool fontSet = firstChild != nullptr && ::SendMessageW(firstChild, WM_GETFONT, 0, 0) != 0;
+        context.record(fontSet, "页面控件已显式设置字体");
+    }
 
     // 页签必须是真正的通用控件，而不是自己造的东西
     if (tabHandle != nullptr)
@@ -2572,6 +2844,15 @@ SmokeResult runSmokeTest(bool visible)
         context.record(ok, "TMFFUN 高级设置窗体：" + detail);
     }
 
+    // 视觉样式：manifest 里没有 comctl32 v6 依赖时，InitCommonControlsEx 会退回 v5，
+    // 按钮/页签全变成 Win95 立体灰 —— 这种退化在坐标断言里完全看不出来，必须单独查。
+    {
+        wchar_t modulePath[MAX_PATH] = {};
+        ::GetModuleFileNameW(::GetModuleHandleW(L"comctl32.dll"), modulePath, MAX_PATH);
+        const bool themed = std::wstring(modulePath).find(L"WinSxS") != std::wstring::npos;
+        context.record(themed, "控件使用 comctl32 v6 视觉样式（manifest 依赖生效）");
+    }
+
     // TAPPMSGFORM 提示框（不上屏）：尺寸 480x242、正文回显、确定返回确认
     {
         std::string detail;
@@ -2604,6 +2885,129 @@ SmokeResult runSmokeTest(bool visible)
     return result;
 }
 
+
+// ---------------------------------------------------------------- 离屏截图（--ui-shot）
+//
+// 本机桌面上常有置顶窗口，屏幕截图会被挡住；这里直接让窗口把自己的内容画到
+// 内存 DIB 上，逐页存成 BMP，用来核对版面和观感。
+bool saveWindowToBmp(HWND window, const std::string& path)
+{
+    RECT client = {};
+    ::GetClientRect(window, &client);
+    const int width = client.right - client.left;
+    const int height = client.bottom - client.top;
+    if (width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height; // 自上而下
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+
+    void* pixels = nullptr;
+    HDC screen = ::GetDC(nullptr);
+    HDC memory = ::CreateCompatibleDC(screen);
+    HBITMAP bitmap = ::CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    ::ReleaseDC(nullptr, screen);
+    if (bitmap == nullptr || pixels == nullptr)
+    {
+        ::DeleteDC(memory);
+        return false;
+    }
+
+    const HGDIOBJ old = ::SelectObject(memory, bitmap);
+    ::SendMessageW(window, WM_PRINT, reinterpret_cast<WPARAM>(memory), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND);
+    printWindowTree(window, memory);
+    ::GdiFlush();
+
+    // 32bpp DIB 的 alpha 通道是垃圾，BMP 里按 24 位存，避免看图工具显示成全透明
+    const int rowBytes = ((width * 3 + 3) / 4) * 4;
+    std::vector<unsigned char> rows(static_cast<std::size_t>(rowBytes) * static_cast<std::size_t>(height), 0);
+    const auto* source = static_cast<const unsigned char*>(pixels);
+    for (int y = 0; y < height; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            const unsigned char* pixel = source + (static_cast<std::size_t>(y) * width + x) * 4;
+            unsigned char* target = rows.data() + static_cast<std::size_t>(y) * rowBytes + static_cast<std::size_t>(x) * 3;
+            target[0] = pixel[0];
+            target[1] = pixel[1];
+            target[2] = pixel[2];
+        }
+    }
+
+    ::SelectObject(memory, old);
+    ::DeleteObject(bitmap);
+    ::DeleteDC(memory);
+
+    BITMAPFILEHEADER header = {};
+    BITMAPINFOHEADER bmpInfo = info.bmiHeader;
+    bmpInfo.biBitCount = 24; // 下面按 24 位写，头里必须也写 24
+    bmpInfo.biHeight = -height;
+    bmpInfo.biSizeImage = static_cast<DWORD>(rows.size());
+    header.bfType = 0x4D42;
+    header.bfOffBits = sizeof(header) + sizeof(bmpInfo);
+    header.bfSize = header.bfOffBits + static_cast<DWORD>(rows.size());
+
+    std::ofstream out(win7::pathFromUtf8(path), std::ios::binary | std::ios::trunc);
+    if (!out)
+    {
+        return false;
+    }
+    out.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    out.write(reinterpret_cast<const char*>(&bmpInfo), sizeof(bmpInfo));
+    out.write(reinterpret_cast<const char*>(rows.data()), static_cast<std::streamsize>(rows.size()));
+    return out.good();
+}
+
+int capturePagesToFiles(const std::string& prefix)
+{
+    MainFrame frame;
+    _Module.Init(nullptr, GetModuleHandleW(nullptr));
+
+    INITCOMMONCONTROLSEX controls = {};
+    controls.dwSize = sizeof(controls);
+    controls.dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES |
+        ICC_STANDARD_CLASSES;
+    ::InitCommonControlsEx(&controls);
+
+    // 按客户区 800x540 反推窗口尺寸：直接把 800x540 当窗口尺寸，客户区只有
+    // 784x481，整页会被缩到 0.98 倍，控件位置和图纸对不上。
+    RECT rect = {0, 0, kMainWindowWidth, kMainWindowHeight};
+    ::AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, TRUE, 0);
+    if (frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW) == nullptr)
+    {
+        _Module.Term();
+        return 4;
+    }
+    // 不上屏也要有正确的客户区尺寸，否则版面按 0 缩放
+    frame.ShowWindow(SW_SHOWNA);
+    frame.UpdateWindow();
+    frame.pumpForCapture(6);
+
+    int written = 0;
+    for (int i = 0; i < static_cast<int>(frame.pages.size()); ++i)
+    {
+        frame.selectPageForCapture(i);
+        frame.pumpForCapture(4);
+        const std::string path = prefix + "-" + std::to_string(i) + ".bmp";
+        if (saveWindowToBmp(frame.m_hWnd, path))
+        {
+            ++written;
+            std::printf("截图 %s\n", path.c_str());
+        }
+    }
+
+    frame.DestroyWindow();
+    _Module.Term();
+    return written > 0 ? 0 : 5;
+}
+
 int runApplication(const std::string& initialConfigPath)
 {
     if (GetProcessWindowStation() == nullptr) // NOLINT
@@ -2622,7 +3026,10 @@ int runApplication(const std::string& initialConfigPath)
         ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
     ::InitCommonControlsEx(&controls);
 
-    RECT rect = {0, 0, 980, 700};
+    // 按客户区 800x540 反推窗口尺寸：直接把 800x540 当窗口尺寸，客户区只有
+    // 784x481，整页会被缩到 0.98 倍，控件位置和图纸对不上。
+    RECT rect = {0, 0, kMainWindowWidth, kMainWindowHeight};
+    ::AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, TRUE, 0);
     if (frame.Create(nullptr, rect, L"OpenSysprepTool 配置", WS_OVERLAPPEDWINDOW) == nullptr)
     {
         _Module.Term();

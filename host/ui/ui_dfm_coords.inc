@@ -17,16 +17,28 @@ struct DfmCoord
 };
 
 inline constexpr DfmCoord kDfmCoords[] = {
+    {"system", "Gb_Osbasicinfo", "Lab_Osname", 22, 10, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_Osnamev", 80, 10, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_OsBit", 22, 64, 57, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_OsBitv", 80, 64, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_Osntver", 22, 37, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_Osntverv", 80, 37, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_SysprepSupport", 22, 223, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_SysprepSupportv", 80, 223, 109, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_Osdrivesv", 80, 91, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_Osdrives", 22, 91, 57, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_Osusesize", 22, 169, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_Osusesizev", 80, 169, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_OsUser", 22, 115, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_OsUserv", 80, 115, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_OsRelativesize", 22, 196, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_OsRelativesizev", 80, 196, 109, 21, true},
+    {"system", "Gb_Osbasicinfo", "Lab_RunEnviron", 22, 142, 57, 21, true},
     {"system", "Gb_Osbasicinfo", "Lab_RunEnvironv", 80, 142, 109, 21, true},
+    {"system", "Gb_Osallinfo", "Pic_Scan", 53, 64, 84, 66, true},
     {"system", "Gb_Osallinfo", "Btn_Scan", 228, 245, 140, 42, true},
-    {"system", "Gb_ScanOutList", "Lab_ScanResults", 3, 7, 365, 20, true},
+    {"system", "Gb_Osallinfo", "Btn_ScanTip1", 163, 63, 363, 46, true},
+    {"system", "Gb_Osallinfo", "Btn_ScanTip2", 163, 115, 387, 21, true},
     {"system", "Gb_SRS", "Btn_PEloadsrs", 429, 202, 110, 33, true},
     {"system", "Gb_SRS", "RB_LoadSCsrs", 261, 92, 147, 17, true},
     {"system", "Gb_SRS", "RB_Loaddiy", 261, 130, 143, 17, true},
@@ -95,7 +107,7 @@ inline constexpr DfmCoord kDfmCoords[] = {
 };
 
 // system 页 DFM 里另有以下控件未进坐标表（模型里没有对应字段）：
-//   Pic_Osname、Pic_Csize、Pic_SysprepSupportok、Pic_SysprepSupportno、Lab_Osname、Lab_OsBit、Lab_OsBitv、Lab_Osntver、Lab_SysprepSupport、Lab_Osdrives、Lab_Osusesize、Lab_OsUser、Lab_OsRelativesize、Lab_RunEnviron、Pic_Usm、Pic_DrvCeo、Pic_Mbox、Lab_Usm、Lab_DrvCeo、Lab_Mbox、Lab_SoftMore、Pan_Scan、Pic_Scan、Btn_ScanTip1、Btn_ScanTip2、Pan_Scanning、Pic_Scanning、Lab_Scanning、Mb_ScanOutList、Btn_OsRepair、ScanBar1、Lab_Rescanf、Btn_Repairend、Lab_Repairend、Lab_Rescan、Pic_helpv、Btn_Goback、Lab_OsDrive、Pic_pedrive、Lab_PEdrive、Lab_PEdriveinfo、Lab_PEdriveinfoshow
+//   Pic_Osname、Pic_Csize、Pic_SysprepSupportok、Pic_SysprepSupportno、Pic_Usm、Pic_DrvCeo、Pic_Mbox、Lab_Usm、Lab_DrvCeo、Lab_Mbox、Lab_SoftMore、Pan_Scan、Pan_Scanning、Pic_Scanning、Lab_Scanning、Mb_ScanOutList、Btn_OsRepair、Lab_ScanResults、ScanBar1、Lab_Rescanf、Btn_Repairend、Lab_Repairend、Lab_Rescan、Pic_helpv、Btn_Goback、Lab_OsDrive、Pic_pedrive、Lab_PEdrive、Lab_PEdriveinfo、Lab_PEdriveinfoshow
 // tasks 页 DFM 里另有以下控件未进坐标表（模型里没有对应字段）：
 //   Lab_Tasktype、Lab_RunPlan、Lab_RunWait、Lab_RunMode、Lab_RunAfter、Lab_RunPath、Btn_Open、Pl_RunPlan、Btn_RunPlan1、Btn_RunPlan2、Btn_RunPlan3、Btn_RunPlan4、Btn_RunPlan5、Bar2、Bar1、Lab_WaitTime_S、Lab_WaitTime
 // deploy 页 DFM 里另有以下控件未进坐标表（模型里没有对应字段）：
