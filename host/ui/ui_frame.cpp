@@ -2897,11 +2897,33 @@ SmokeResult runSmokeTest(bool visible)
 
     // 视觉样式：manifest 里没有 comctl32 v6 依赖时，InitCommonControlsEx 会退回 v5，
     // 按钮/页签全变成 Win95 立体灰 —— 这种退化在坐标断言里完全看不出来，必须单独查。
+    //
+    // 探针必须是**真实控件**：之前查的是 PagePanel（自定义窗口类），它的
+    // GetWindowTheme 本来就该是 0，拿它当判据等于什么都没测。
     {
         wchar_t modulePath[MAX_PATH] = {};
         ::GetModuleFileNameW(::GetModuleHandleW(L"comctl32.dll"), modulePath, MAX_PATH);
-        const bool themed = std::wstring(modulePath).find(L"WinSxS") != std::wstring::npos;
-        context.record(themed, "控件使用 comctl32 v6 视觉样式（manifest 依赖生效）");
+        const bool v6 = std::wstring(modulePath).find(L"WinSxS") != std::wstring::npos;
+        context.record(v6, "控件使用 comctl32 v6 视觉样式（manifest 依赖生效）");
+
+        HWND panel = context.frame.panel != nullptr ? context.frame.panel->m_hWnd : nullptr;
+        HWND firstButton = nullptr;
+        for (HWND child = ::GetWindow(panel, GW_CHILD); child != nullptr;
+             child = ::GetWindow(child, GW_HWNDNEXT))
+        {
+            wchar_t cls[64] = {};
+            ::GetClassNameW(child, cls, 64);
+            if (std::wstring(cls) == L"Button")
+            {
+                firstButton = child;
+                break;
+            }
+        }
+        context.record(
+            firstButton != nullptr && ::GetWindowTheme(firstButton) != nullptr,
+            "真实按钮挂上了视觉样式（GetWindowTheme 非空）",
+            firstButton == nullptr ? "页面上没有按钮" : "IsThemeActive=" + std::to_string(::IsThemeActive())
+        );
     }
 
     // TAPPMSGFORM 提示框（不上屏）：尺寸 480x242、正文回显、确定返回确认

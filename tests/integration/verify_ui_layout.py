@@ -63,6 +63,37 @@ ROW_RE = re.compile(
 # // system 页 DFM 里另有以下控件未进坐标表（模型里没有对应字段）：
 # //   Btn_Xxx、Lab_Yyy
 SKIP_HEAD_RE = re.compile(r"^//\s*([a-z]+)\s*页 DFM 里另有以下控件未进坐标表")
+
+# 有意偏离 DFM 的坐标（基线 + 豁免）。闸门的价值是抓「手抄抄错了」，不是禁止
+# 有依据的版面改进 —— 但每一处偏离都必须在这里写明原因，否则照样判红。
+# 键是 (页, 控件名或分组框名)；值写为什么偏离。
+DEVIATIONS: dict[tuple[str, str], str] = {
+    # 值列只有 109px，实测 "Windows 10 Enterprise" 与 "106.7 GB / 150.0 GB" 都被
+    # 截成省略号；标签列 57px 连「系统名称:」都放不下（显示成「系统…」）。
+    # 右栏 192→274、左栏 572→486、标签 57→74、值列 109→184。
+    ("system", "Gb_Osbasicinfo"): "右栏加宽以容纳取值，见下",
+    ("system", "Gb_Tools"): "与右栏对齐",
+    ("system", "Gb_Osallinfo"): "让出宽度给右栏",
+    ("system", "Pan_Line1"): "跟着左栏右缘移动",
+    ("system", "Btn_ScanTip1"): "左栏收窄后不得溢出",
+    ("system", "Btn_ScanTip2"): "同上",
+    ("system", "Btn_Scan"): "左栏收窄后按钮在原 x 上偏右，居中到 486 宽的新栏",
+}
+for _name in (
+    "Lab_Osname", "Lab_Osntver", "Lab_OsBit", "Lab_Osdrives", "Lab_OsUser",
+    "Lab_RunEnviron", "Lab_Osusesize", "Lab_OsRelativesize", "Lab_SysprepSupport",
+):
+    DEVIATIONS[("system", _name)] = "标签列 57px 装不下「系统名称:」这类 5 字标签"
+for _name in (
+    "Lab_Osnamev", "Lab_Osntverv", "Lab_OsBitv", "Lab_Osdrivesv", "Lab_OsUserv",
+    "Lab_RunEnvironv", "Lab_Osusesizev", "Lab_OsRelativesizev", "Lab_SysprepSupportv",
+):
+    DEVIATIONS[("system", _name)] = "值列 109px 装不下实际取值，全部被省略号截断"
+
+
+def deviation_key(row: dict) -> tuple[str, str]:
+    return (row["page"], row["field"] or row["group"])
+
 SKIP_BODY_RE = re.compile(r"^//\s{3}(\S.*)$")
 
 _checks = 0
@@ -236,7 +267,7 @@ def verify_sheet(layout: dict, sheet: str, page: str, rows: list[dict], skipped:
     # ---------------------------------------------------------------- 1. 坐标可复算
     coord_bad: list[str] = []
     for row in page_rows_out:
-        if row["field"]:
+        if row["field"] or (page, row["group"]) in DEVIATIONS:
             continue
         entry = dfm.get(row["group"])
         if entry is None:
@@ -254,7 +285,7 @@ def verify_sheet(layout: dict, sheet: str, page: str, rows: list[dict], skipped:
 
     rel_bad: list[str] = []
     for row in page_rows_out:
-        if not row["field"]:
+        if not row["field"] or (page, row["field"]) in DEVIATIONS:
             continue
         abs_rect = absolute_rect(dfm, sheet_path, row["field"])
         if abs_rect is None:
@@ -289,10 +320,12 @@ def verify_sheet(layout: dict, sheet: str, page: str, rows: list[dict], skipped:
     # ---------------------------------------------------------------- 4. 版面自洽
     # 4a. 组内控件不得溢出自己的分组框，也不得互相压住。
     #     需要表里的相对坐标已经是「相对分组框」，所以先换算成绝对再比。
+    # 分组框矩形：优先用表里的（已声明的偏离以表为准），否则用 DFM
+    group_box = {row["group"]: row for row in page_rows_out if not row["field"]}
     groups: dict[str, list[dict]] = {}
     for row in page_rows_out:
         if row["field"]:
-            group = dfm.get(row["group"]) or {}
+            group = group_box.get(row["group"]) or dfm.get(row["group"]) or {}
             groups.setdefault(row["group"], []).append(
                 {
                     "id": row["field"],
@@ -307,7 +340,7 @@ def verify_sheet(layout: dict, sheet: str, page: str, rows: list[dict], skipped:
     outside: list[str] = []
     stacked: list[str] = []
     for group_name, items in groups.items():
-        box = dfm.get(group_name) or {}
+        box = group_box.get(group_name) or dfm.get(group_name) or {}
         gx, gy = box.get("left") or 0, box.get("top") or 0
         gw, gh = box.get("width") or 0, box.get("height") or 0
         visibles = [item for item in items if item["visible"]]
@@ -438,6 +471,14 @@ def main(argv: list[str]) -> int:
         for name in _failures:
             _say(f"  - {name}")
     else:
+        # 豁免必须都指向真实存在的控件：否则一个手滑的名字会永远静默失效，
+        # 下次真有坐标抄错时，那条豁免恰好把它盖住。
+        seen_keys = {(row["page"], row["field"] or row["group"]) for row in rows}
+        stale = [f"{p}/{n}" for (p, n) in DEVIATIONS if (p, n) not in seen_keys]
+        check("偏离表里的每一项都指向坐标表里真实存在的控件", not stale, "、".join(stale[:5]))
+
+        # 偏离清单每次都打出来：豁免必须一直看得见，否则它就变成了「闸门失效」
+        _say(f"已声明偏离 DFM 的坐标：{len(DEVIATIONS)} 处（见 DEVIATIONS 表）")
         _say(f"RESULT: ALL PASSED  ({_checks} checks)")
 
     if args.json:
