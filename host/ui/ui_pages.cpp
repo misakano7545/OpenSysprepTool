@@ -593,9 +593,7 @@ Page systemPage(const sysinfo::CheckupReport& report)
     // 图纸里按钮左侧的两行说明（Btn_ScanTip1/2）；不建它们，框内只剩一个按钮
     checkup.fields.push_back(makeImage("Pic_Scan", "体检示意图", 53, 64, 84, 66));
     checkup.fields.push_back(makeInfo("Btn_ScanTip1", "", "立即体检，检测系统封装环境"));
-    checkup.fields.push_back(
-        makeInfo("Btn_ScanTip2", "", "全面检测系统设置和封装必备文件，提高封装成功率")
-    );
+    checkup.fields.push_back(makeInfo("Btn_ScanTip2", "", "全面检测系统设置和封装必备文件，提高封装成功率"));
     checkup.fields.push_back(makeButton("Btn_Scan", "封装体检", "scan", "重跑 M2 的采集，等价于 --checkup"));
     page.groups.push_back(std::move(checkup));
 
@@ -926,7 +924,7 @@ Page deployPage(const config::Config& cfg)
     ));
     set.fields.push_back(makeCheck(
         "Cb_Tampering",
-        "校验文件防篡改",  // 图纸 Caption 逐字；图纸宽 116px 装不下额外的括注
+        "校验文件防篡改", // 图纸 Caption 逐字；图纸宽 116px 装不下额外的括注
         cfg.deploy.verifyIntegrity,
         "deploy.verifyIntegrity",
         "宪章 §7：防篡改只做用户态校验"
@@ -1871,32 +1869,19 @@ std::vector<std::string> expectedControlIds(const std::string& pageId)
     if (pageId == "system")
     {
         return {
-            "Lab_Osname",
-            "Lab_Osnamev",
-            "Lab_Osntver",
-            "Lab_Osntverv",
-            "Lab_OsBit",
-            "Lab_OsBitv",
-            "Lab_Osdrives",
-            "Lab_Osdrivesv",
-            "Lab_OsUser",
-            "Lab_OsUserv",
-            "Lab_RunEnviron",
-            "Lab_RunEnvironv",
-            "Lab_Osusesize",
-            "Lab_Osusesizev",
-            "Lab_OsRelativesize",
-            "Lab_OsRelativesizev",
-            "Lab_SysprepSupport",
-            "Lab_SysprepSupportv",
-            "Btn_ScanTip1",
-            "Btn_ScanTip2",
-            "Pic_Scan",
-            "Btn_Scan",
-            "RB_LoadSCsrs",
-            "RB_Loaddiy",
-            "Cb_osDrives",
-            "Ed_Loaddiy",
+            "Lab_Osname",         "Lab_Osnamev",
+            "Lab_Osntver",        "Lab_Osntverv",
+            "Lab_OsBit",          "Lab_OsBitv",
+            "Lab_Osdrives",       "Lab_Osdrivesv",
+            "Lab_OsUser",         "Lab_OsUserv",
+            "Lab_RunEnviron",     "Lab_RunEnvironv",
+            "Lab_Osusesize",      "Lab_Osusesizev",
+            "Lab_OsRelativesize", "Lab_OsRelativesizev",
+            "Lab_SysprepSupport", "Lab_SysprepSupportv",
+            "Btn_ScanTip1",       "Btn_ScanTip2",
+            "Pic_Scan",           "Btn_Scan",
+            "RB_LoadSCsrs",       "RB_Loaddiy",
+            "Cb_osDrives",        "Ed_Loaddiy",
             "Btn_PEloadsrs",
         };
     }

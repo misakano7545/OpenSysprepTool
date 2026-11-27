@@ -198,8 +198,7 @@ void printWindowTree(HWND window, HDC dc)
         const int saved = ::SaveDC(dc);
         ::SetViewportOrgEx(dc, box.left, box.top, nullptr);
         ::SendMessageW(
-            child, WM_PRINT, reinterpret_cast<WPARAM>(dc),
-            PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND
+            child, WM_PRINT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND
         );
         printWindowTree(child, dc);
         ::RestoreDC(dc, saved);
@@ -395,11 +394,37 @@ public:
     // 微软雅黑 UI（见 OnCreate），既让坐标表有确定行高，也贴近现代 Windows 工具观感。
     HFONT uiFont = nullptr;
 
+    // 这些控件在 --ui-shot 与真屏截图里都是 Win95 立体灰（GetWindowTheme 返回 0），
+    // 说明主题没挂上。SetWindowTheme 显式指定主题类，作用等同于系统自动挂载。
+    static void applyTheme(HWND control)
+    {
+        if (control == nullptr)
+        {
+            return;
+        }
+        wchar_t cls[64] = {};
+        ::GetClassNameW(control, cls, 64);
+        const std::wstring name = cls;
+        if (name == L"Button")
+        {
+            ::SetWindowTheme(control, L"Explorer", nullptr);
+        }
+        else if (name == L"SysTabControl32")
+        {
+            ::SetWindowTheme(control, L"Explorer", nullptr);
+        }
+        else
+        {
+            ::SetWindowTheme(control, L"", L"");
+        }
+    }
+
     void applyUiFont(HWND control)
     {
         if (control != nullptr && uiFont != nullptr)
         {
             ::SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(uiFont), TRUE);
+            applyTheme(control);
         }
     }
 
@@ -597,8 +622,20 @@ public:
         for (const wchar_t* face : {L"Microsoft YaHei UI", L"Microsoft YaHei", L"Segoe UI", L"宋体"})
         {
             uiFont = ::CreateFontW(
-                fontHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, face
+                fontHeight,
+                0,
+                0,
+                0,
+                FW_NORMAL,
+                FALSE,
+                FALSE,
+                FALSE,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY,
+                DEFAULT_PITCH | FF_DONTCARE,
+                face
             );
             if (uiFont != nullptr)
             {
@@ -955,7 +992,9 @@ public:
                     if (field.placed() && !field.label.empty() && field.value.empty())
                     {
                         ::SendMessageW(
-                            handle, EM_SETCUEBANNER, TRUE,
+                            handle,
+                            EM_SETCUEBANNER,
+                            TRUE,
                             reinterpret_cast<LPARAM>(toWide(field.label).c_str())
                         );
                     }
@@ -1841,17 +1880,19 @@ LRESULT MainFrame::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     panel->Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | WS_VSCROLL, 0, kIdcPagePanel);
 
     statusLine.Create(m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ, 0, kIdcStatus);
-    statusLeft.Create(m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS, 0, kIdcStatus + 1);
+    statusLeft.Create(
+        m_hWnd, rcDefault, L"就绪", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS, 0, kIdcStatus + 1
+    );
     statusRight.Create(
         m_hWnd, rcDefault, nullptr, WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_ENDELLIPSIS, 0, kIdcStatus + 2
     );
     {
         // 全窗同一字体：页签条与状态栏也要套，否则它们还是系统默认的宋体
-        const HFONT font =
-            reinterpret_cast<HFONT>(::SendMessageW(panel->m_hWnd, WM_GETFONT, 0, 0));
+        const HFONT font = reinterpret_cast<HFONT>(::SendMessageW(panel->m_hWnd, WM_GETFONT, 0, 0));
         if (font != nullptr)
         {
             ::SendMessageW(tab.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            ::SetWindowTheme(tab.m_hWnd, L"Explorer", nullptr);
             ::SendMessageW(statusLeft.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
             ::SendMessageW(statusRight.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         }
@@ -2132,12 +2173,22 @@ LRESULT MainFrame::OnSize(UINT, WPARAM, LPARAM lParam, BOOL&)
             statusLine, nullptr, 0, height - statusHeight, width, 2, SWP_NOZORDER | SWP_NOACTIVATE
         );
         ::SetWindowPos(
-            statusLeft, nullptr, 4, height - statusHeight + 3, width - rightWidth - 8, statusHeight - 4,
+            statusLeft,
+            nullptr,
+            4,
+            height - statusHeight + 3,
+            width - rightWidth - 8,
+            statusHeight - 4,
             SWP_NOZORDER | SWP_NOACTIVATE
         );
         ::SetWindowPos(
-            statusRight, nullptr, width - rightWidth - 4, height - statusHeight + 3, rightWidth,
-            statusHeight - 4, SWP_NOZORDER | SWP_NOACTIVATE
+            statusRight,
+            nullptr,
+            width - rightWidth - 4,
+            height - statusHeight + 3,
+            rightWidth,
+            statusHeight - 4,
+            SWP_NOZORDER | SWP_NOACTIVATE
         );
     }
     return 0;
@@ -2885,15 +2936,22 @@ SmokeResult runSmokeTest(bool visible)
     return result;
 }
 
-
 // ---------------------------------------------------------------- 离屏截图（--ui-shot）
 //
 // 本机桌面上常有置顶窗口，屏幕截图会被挡住；这里直接让窗口把自己的内容画到
 // 内存 DIB 上，逐页存成 BMP，用来核对版面和观感。
-bool saveWindowToBmp(HWND window, const std::string& path)
+bool saveWindowToBmp(HWND window, const std::string& path, bool fromScreen)
 {
     RECT client = {};
-    ::GetClientRect(window, &client);
+    if (fromScreen)
+    {
+        // 屏幕抓取要整窗（含边框标题栏）的分辨率，否则抓出来是「标题栏 + 客户区上半截」
+        ::GetWindowRect(window, &client);
+    }
+    else
+    {
+        ::GetClientRect(window, &client);
+    }
     const int width = client.right - client.left;
     const int height = client.bottom - client.top;
     if (width <= 0 || height <= 0)
@@ -2921,8 +2979,23 @@ bool saveWindowToBmp(HWND window, const std::string& path)
     }
 
     const HGDIOBJ old = ::SelectObject(memory, bitmap);
-    ::SendMessageW(window, WM_PRINT, reinterpret_cast<WPARAM>(memory), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND);
-    printWindowTree(window, memory);
+    if (fromScreen)
+    {
+        // 从屏幕上抓：能拿到主题样式（WM_PRINT 画不出来），代价是窗口必须真的可见、
+        // 且不被别的窗口挡住。
+        RECT box = {};
+        ::GetWindowRect(window, &box);
+        HDC screenDc = ::GetDC(nullptr);
+        ::BitBlt(memory, 0, 0, width, height, screenDc, box.left, box.top, SRCCOPY);
+        ::ReleaseDC(nullptr, screenDc);
+    }
+    else
+    {
+        ::SendMessageW(
+            window, WM_PRINT, reinterpret_cast<WPARAM>(memory), PRF_CLIENT | PRF_NONCLIENT | PRF_ERASEBKGND
+        );
+        printWindowTree(window, memory);
+    }
     ::GdiFlush();
 
     // 32bpp DIB 的 alpha 通道是垃圾，BMP 里按 24 位存，避免看图工具显示成全透明
@@ -2934,7 +3007,8 @@ bool saveWindowToBmp(HWND window, const std::string& path)
         for (int x = 0; x < width; ++x)
         {
             const unsigned char* pixel = source + (static_cast<std::size_t>(y) * width + x) * 4;
-            unsigned char* target = rows.data() + static_cast<std::size_t>(y) * rowBytes + static_cast<std::size_t>(x) * 3;
+            unsigned char* target =
+                rows.data() + static_cast<std::size_t>(y) * rowBytes + static_cast<std::size_t>(x) * 3;
             target[0] = pixel[0];
             target[1] = pixel[1];
             target[2] = pixel[2];
@@ -2965,15 +3039,15 @@ bool saveWindowToBmp(HWND window, const std::string& path)
     return out.good();
 }
 
-int capturePagesToFiles(const std::string& prefix)
+int capturePagesToFiles(const std::string& prefix, bool fromScreen)
 {
     MainFrame frame;
     _Module.Init(nullptr, GetModuleHandleW(nullptr));
 
     INITCOMMONCONTROLSEX controls = {};
     controls.dwSize = sizeof(controls);
-    controls.dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES |
-        ICC_STANDARD_CLASSES;
+    controls.dwICC =
+        ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_PROGRESS_CLASS | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES;
     ::InitCommonControlsEx(&controls);
 
     // 按客户区 800x540 反推窗口尺寸：直接把 800x540 当窗口尺寸，客户区只有
@@ -2990,13 +3064,24 @@ int capturePagesToFiles(const std::string& prefix)
     frame.UpdateWindow();
     frame.pumpForCapture(6);
 
+    if (fromScreen)
+    {
+        // 屏幕抓取按窗口矩形 1:1 取像素，先把窗口挪到左上角空处并置顶
+        ::SetWindowPos(frame.m_hWnd, HWND_TOPMOST, 40, 40, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
+
     int written = 0;
     for (int i = 0; i < static_cast<int>(frame.pages.size()); ++i)
     {
         frame.selectPageForCapture(i);
         frame.pumpForCapture(4);
+        if (fromScreen)
+        {
+            ::SetForegroundWindow(frame.m_hWnd);
+            ::Sleep(250);
+        }
         const std::string path = prefix + "-" + std::to_string(i) + ".bmp";
-        if (saveWindowToBmp(frame.m_hWnd, path))
+        if (saveWindowToBmp(frame.m_hWnd, path, fromScreen))
         {
             ++written;
             std::printf("截图 %s\n", path.c_str());

@@ -236,7 +236,10 @@ void printUsage()
     std::printf("  ospt --rollback <journal.json> [--dry-run|--execute]  回滚封装前设置\n");
     std::printf("  ospt --prepare-selftest                          封装前设置自检（只写 HKCU）\n");
     std::printf("  ospt --ui-smoke-test [--visible] [--report <json>]        界面冒烟测试\n");
-    std::printf("  ospt --ui-shot <前缀>                                     各页签离屏截图（BMP）\n");
+    std::printf(
+        "  ospt --ui-shot <前缀>                                     各页签离屏截图（WM_PRINT，无主题）\n"
+    );
+    std::printf("  ospt --ui-shot-theme <前缀>                               各页签真屏截图（带主题样式）\n");
     std::printf(
         "  ospt --deploy-smoke-test --plan <run/>                    拉起 osptd 跑一次部署（进度通道验收）\n"
     );
@@ -1400,6 +1403,17 @@ int main(int argc, char** argv)
         return runDeploySmokeTest(argc, argv);
     }
 
+    if (std::strcmp(arg, "--ui-shot-theme") == 0)
+    {
+        if (argc < 3)
+        {
+            std::fprintf(stderr, "--ui-shot-theme 需要一个路径前缀，例如 build/ui/page\n");
+            return 2;
+        }
+        ::SetProcessDPIAware();
+        return osp::ui::capturePagesToFiles(argv[2], true);
+    }
+
     if (std::strcmp(arg, "--ui-shot") == 0)
     {
         if (argc < 3)
@@ -1408,7 +1422,7 @@ int main(int argc, char** argv)
             return 2;
         }
         ::SetProcessDPIAware();
-        return osp::ui::capturePagesToFiles(argv[2]);
+        return osp::ui::capturePagesToFiles(argv[2], false);
     }
 
     if (std::strcmp(arg, "--ui-smoke-test") == 0)
