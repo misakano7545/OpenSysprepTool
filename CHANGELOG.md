@@ -57,7 +57,9 @@
 - **体检验收脚本进流水线**：`tests/integration/verify_checkup.py` 一直在仓库里，但
   `ci.yml` 里 0 次命中 —— M2 的验收只在作者本机跑过一次。CI 新增「系统体检验收」步骤，
   真跑 `ospt --checkup --json` 再用脚本拿 `cmd /c ver` 与 `shutil.disk_usage` 独立对照
-
+- **`--gen-unattend` 缺 `generalize` 段**：补 `Microsoft-Windows-PnpSysprep` 的
+  `DoNotCleanUpNonPresentDevices=true`；`deploy.skipOobe` 同时写 `SkipMachineOOBE` /
+  `SkipUserOOBE`，不再只是遮住 OOBE 页面。`PersistAllDeviceInstalls` 的 SC 映射未确认，暂不写
 - **七个页签全部按 SC 的 DFM 坐标摆放**：目标系统、母盘系统、计划任务、部署过程、
   封装过程、运行、完成，共 111 个控件逐控件核对（`GetWindowRect` 与图纸坐标差 ≤2px）
   - 坐标由 `tools/gen_ui_coords.py` 从 `docs/sc_layout/TSCMF.json` 生成成表

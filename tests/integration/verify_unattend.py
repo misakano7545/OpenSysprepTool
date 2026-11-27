@@ -71,7 +71,11 @@ OOBE_CHILD_ORDER = [
     "NetworkLocation",
     "OEMAppID",
     "ProtectYourPC",
+    "SkipMachineOOBE",
+    "SkipUserOOBE",
 ]
+
+PNPSYSPREP_CHILD_ORDER = ["DoNotCleanUpNonPresentDevices", "PersistAllDeviceInstalls"]
 
 AUTOLOGON_CHILD_ORDER = ["Domain", "Enabled", "LogonCount", "Password", "Username"]
 
@@ -138,6 +142,8 @@ VALID_PASSES = {
     },
     ("Microsoft-Windows-Deployment", "RunSynchronous"): {"specialize", "auditUser"},
     ("Microsoft-Windows-UnattendedJoin", "Identification"): {"specialize"},
+    ("Microsoft-Windows-PnpSysprep", "DoNotCleanUpNonPresentDevices"): {"generalize"},
+    ("Microsoft-Windows-PnpSysprep", "PersistAllDeviceInstalls"): {"generalize"},
 }
 
 # 父路径约束：元素名 -> 允许的直接父元素名集合（None 表示必须是 component 的直接子元素）
@@ -159,6 +165,10 @@ PARENT_RULES = {
     "HideWirelessSetupInOOBE": {"OOBE"},
     "NetworkLocation": {"OOBE"},
     "ProtectYourPC": {"OOBE"},
+    "SkipMachineOOBE": {"OOBE"},
+    "SkipUserOOBE": {"OOBE"},
+    "DoNotCleanUpNonPresentDevices": {"component"},
+    "PersistAllDeviceInstalls": {"component"},
     "Enabled": {"AutoLogon"},
     "LogonCount": {"AutoLogon"},
     "Username": {"AutoLogon"},
@@ -305,6 +315,8 @@ def verify_element_order(components: list[tuple[str, str, ET.Element]]) -> None:
             ordered_subset_check(f"{name}@{pass_name}", children, SHELL_SETUP_OOBE_ORDER)
         elif name == "Microsoft-Windows-Deployment":
             ordered_subset_check(f"{name}@{pass_name}", children, DEPLOYMENT_CHILD_ORDER)
+        elif name == "Microsoft-Windows-PnpSysprep":
+            ordered_subset_check(f"{name}@{pass_name}", children, PNPSYSPREP_CHILD_ORDER)
 
         for child in component:
             if not isinstance(child.tag, str):
@@ -410,6 +422,57 @@ def verify_computer_name(components: list[tuple[str, str, ET.Element]], cfg: dic
               f"xml={value} prefix={configured}")
     else:
         check(f"未知模式 {mode} 的行为符合预期", False, mode)
+
+
+def verify_generalize(components: list[tuple[str, str, ET.Element]]) -> None:
+    section("验收：generalize 段")
+    component = None
+    for pass_name, name, node in components:
+        if name == "Microsoft-Windows-PnpSysprep" and pass_name == "generalize":
+            component = node
+            break
+
+    if not check("generalize 中存在 PnpSysprep 组件", component is not None):
+        return
+    assert component is not None
+
+    node = component.find(f"{{{NS}}}DoNotCleanUpNonPresentDevices")
+    if node is None:
+        node = component.find("DoNotCleanUpNonPresentDevices")
+    value = None if node is None else (node.text or "").strip()
+    check("DoNotCleanUpNonPresentDevices 为 true", value == "true", str(value))
+
+
+def verify_skip_oobe(components: list[tuple[str, str, ET.Element]], cfg: dict | None) -> None:
+    section("验收：跳过 OOBE")
+    component = None
+    for pass_name, name, node in components:
+        if name == "Microsoft-Windows-Shell-Setup" and pass_name == "oobeSystem":
+            component = node
+            break
+
+    if not check("oobeSystem 中存在 Shell-Setup 组件", component is not None):
+        return
+    assert component is not None
+
+    oobe = component.find(f"{{{NS}}}OOBE")
+    if oobe is None:
+        oobe = component.find("OOBE")
+
+    if cfg is None:
+        skip("跳过 OOBE 与输入配置一致", "未提供 cfg.json")
+        return
+
+    enabled = bool(cfg.get("deploy", {}).get("skipOobe", False))
+    for tag in ("SkipMachineOOBE", "SkipUserOOBE"):
+        node = None if oobe is None else oobe.find(f"{{{NS}}}{tag}")
+        if node is None and oobe is not None:
+            node = oobe.find(tag)
+        value = None if node is None else (node.text or "").strip()
+        if enabled:
+            check(f"skipOobe=true 时 {tag} 为 true", value == "true", str(value))
+        else:
+            check(f"skipOobe=false 时不写 {tag}", node is None)
 
 
 def verify_autologon(components: list[tuple[str, str, ET.Element]], cfg: dict | None) -> None:
@@ -647,7 +710,9 @@ def verify_values(components: list[tuple[str, str, ET.Element]]) -> None:
             elif tag == "ProtectYourPC":
                 check("ProtectYourPC 取值合法", text in {"1", "2", "3"}, text)
             elif tag in ("Enabled", "HideEULAPage", "HideOnlineAccountScreens",
-                         "HideWirelessSetupInOOBE", "RequiresUserInput"):
+                         "HideWirelessSetupInOOBE", "RequiresUserInput",
+                         "SkipMachineOOBE", "SkipUserOOBE",
+                         "DoNotCleanUpNonPresentDevices", "PersistAllDeviceInstalls"):
                 check(f"{tag} 是布尔字面量", text in {"true", "false"}, text)
             elif tag == "Order":
                 check("Order 是正整数", text.isdigit() and int(text) >= 1, text)
@@ -708,6 +773,8 @@ def main(argv: list[str]) -> int:
     verify_element_order(components)
     verify_nesting(root)
     verify_pass_validity(components)
+    verify_generalize(components)
+    verify_skip_oobe(components, cfg)
     verify_computer_name(components, cfg)
     verify_autologon(components, cfg)
     verify_autologon_known_vector()
